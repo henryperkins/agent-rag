@@ -34,7 +34,7 @@ export interface RunSessionOptions {
 
 const defaultTools: OrchestratorTools = {
   retrieve: (args) => agenticRetrieveTool(args),
-  webSearch: (args) => webSearchTool(args),
+  webSearch: (args) => webSearchTool({ mode: config.WEB_SEARCH_MODE, ...args }),
   answer: (args) => answerTool(args),
   critic: (args) => evaluateAnswer(args)
 };
@@ -76,7 +76,8 @@ async function generateAnswer(
   question: string,
   contextText: string,
   tools: OrchestratorTools,
-  emit?: (event: string, data: unknown) => void
+  emit?: (event: string, data: unknown) => void,
+  revisionNotes?: string[]
 ): Promise<GenerateAnswerResult> {
   const systemPrompt =
     'Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.';
@@ -89,11 +90,16 @@ async function generateAnswer(
     return { answer: fallbackAnswer, events: [] };
   }
 
+  let userPrompt = `Question: ${question}\n\nContext:\n${contextText}`;
+  if (revisionNotes && revisionNotes.length > 0) {
+    userPrompt += `\n\nRevision guidance (address these issues):\n${revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
+  }
+
   if (mode === 'stream') {
     const reader = await createResponseStream({
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Question: ${question}\n\nContext:\n${contextText}` }
+        { role: 'user', content: userPrompt }
       ],
       temperature: 0.4,
       parallel_tool_calls: false,
@@ -158,7 +164,8 @@ async function generateAnswer(
 
   const result = await tools.answer({
     question,
-    context: contextText
+    context: contextText,
+    revisionNotes
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
@@ -273,6 +280,10 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   emit?.('citations', { citations: dispatch.references });
   emit?.('activity', { steps: dispatch.activity });
 
+  if (dispatch.webContextText) {
+    contextBudget.web_tokens = dispatch.webContextTokens;
+  }
+
   const scoreValues = dispatch.references
     .map((ref) => ref.score)
     .filter((score): score is number => typeof score === 'number');
@@ -293,26 +304,73 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   }
 
   const question = latestQuestion(messages);
-  const answerResult = await traced('synthesis', () =>
-    generateAnswer(mode, question, dispatch.contextText || sections.history, tools, emit)
-  );
-
-  let answer = answerResult.answer;
-
-  emit?.('status', { stage: 'review' });
-  const critic: CriticReport = await traced('critic', async () => {
-    const result = await tools.critic({ draft: answer, evidence: dispatch.contextText, question });
-    const span = trace.getActiveSpan();
-    span?.setAttribute('critic.coverage', result.coverage);
-    span?.setAttribute('critic.grounded', result.grounded);
-    span?.setAttribute('critic.action', result.action);
-    return result;
-  });
-  emit?.('critique', critic);
-
-  if (critic.action === 'revise' && critic.issues?.length) {
-    answer = `${answer}\n\n[Quality review notes: ${critic.issues.join('; ')}]`;
+  let combinedContext = [dispatch.contextText, dispatch.webContextText].filter(Boolean).join('\n\n');
+  if (!combinedContext) {
+    combinedContext = sections.history;
   }
+
+  // Critic retry loop
+  let answer = '';
+  let attempt = 0;
+  let finalCritic: CriticReport | undefined;
+  const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[] }> = [];
+
+  while (attempt <= config.CRITIC_MAX_RETRIES) {
+    const isRevision = attempt > 0;
+    const revisionNotes = isRevision && finalCritic?.issues?.length ? finalCritic.issues : undefined;
+
+    emit?.('status', { stage: isRevision ? 'revising' : 'generating' });
+    const answerResult = await traced(isRevision ? 'synthesis.revision' : 'synthesis', () =>
+      generateAnswer(mode, question, combinedContext, tools, emit, revisionNotes)
+    );
+    answer = answerResult.answer;
+
+    emit?.('status', { stage: 'review' });
+    const criticResult = await traced('critic', async () => {
+      const result = await tools.critic({ draft: answer, evidence: combinedContext, question });
+      const span = trace.getActiveSpan();
+      span?.setAttribute('critic.attempt', attempt);
+      span?.setAttribute('critic.coverage', result.coverage);
+      span?.setAttribute('critic.grounded', result.grounded);
+      span?.setAttribute('critic.action', result.action);
+      return result;
+    });
+
+    critiqueHistory.push({
+      attempt,
+      grounded: criticResult.grounded,
+      coverage: criticResult.coverage,
+      action: criticResult.action,
+      issues: criticResult.issues
+    });
+
+    emit?.('critique', { ...criticResult, attempt });
+
+    if (criticResult.action === 'accept' || criticResult.coverage >= config.CRITIC_THRESHOLD) {
+      finalCritic = criticResult;
+      break;
+    }
+
+    if (attempt === config.CRITIC_MAX_RETRIES) {
+      // Reached max retries, append quality notes
+      finalCritic = criticResult;
+      if (criticResult.issues?.length) {
+        answer = `${answer}\n\n[Quality review notes: ${criticResult.issues.join('; ')}]`;
+      }
+      break;
+    }
+
+    // Prepare for next iteration
+    finalCritic = criticResult;
+    attempt += 1;
+  }
+
+  const critic = finalCritic ?? {
+    grounded: true,
+    coverage: 0.8,
+    action: 'accept' as const,
+    issues: []
+  };
 
   const response: ChatResponse = {
     answer,
@@ -320,11 +378,31 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     activity: dispatch.activity,
     metadata: {
       retrieval_time_ms: undefined,
-      critic_iterations: 1,
+      critic_iterations: attempt + 1,
       plan,
       trace_id: options.sessionId,
       context_budget: contextBudget,
-      critic_report: critic
+      critic_report: critic,
+      web_context: dispatch.webContextText
+        ? {
+            tokens: dispatch.webContextTokens,
+            trimmed: dispatch.webContextTrimmed,
+            text: dispatch.webContextText,
+            results: dispatch.webResults.map((result) => ({
+              id: result.id,
+              title: result.title,
+              url: result.url,
+              rank: result.rank
+            }))
+          }
+        : undefined,
+      critique_history: critiqueHistory.map((entry) => ({
+        attempt: entry.attempt,
+        coverage: entry.coverage,
+        grounded: entry.grounded,
+        action: entry.action,
+        issues: entry.issues
+      }))
     }
   };
 
@@ -333,7 +411,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     grounded: critic.grounded,
     coverage: critic.coverage,
     action: critic.action,
-    iterations: 1,
+    iterations: attempt + 1,
     issues: critic.issues
   };
 
@@ -343,7 +421,19 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     plan,
     contextBudget,
     critic,
-    retrieval: retrievalDiagnostics
+    retrieval: retrievalDiagnostics,
+    webContext: dispatch.webContextText
+      ? {
+          tokens: dispatch.webContextTokens,
+          trimmed: dispatch.webContextTrimmed,
+          results: dispatch.webResults.map((result) => ({
+            id: result.id,
+            title: result.title,
+            url: result.url,
+            rank: result.rank
+          }))
+        }
+      : undefined
   });
   const sessionTrace: SessionTrace = {
     sessionId: options.sessionId,
@@ -355,9 +445,22 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     contextBudget,
     retrieval: retrievalDiagnostics,
     critic: criticSummary,
+    critiqueHistory,
     events: [],
     error: undefined
   };
+  if (dispatch.webContextText) {
+    sessionTrace.webContext = {
+      tokens: dispatch.webContextTokens,
+      trimmed: dispatch.webContextTrimmed,
+      results: dispatch.webResults.map((result) => ({
+        id: result.id,
+        title: result.title,
+        url: result.url,
+        rank: result.rank
+      }))
+    };
+  }
   emit?.('trace', { session: sessionTrace });
   emit?.('done', { status: 'complete' });
 
@@ -367,9 +470,13 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     'context.tokens.history': contextBudget.history_tokens,
     'context.tokens.summary': contextBudget.summary_tokens,
     'context.tokens.salience': contextBudget.salience_tokens,
+    'context.tokens.web': contextBudget.web_tokens ?? 0,
     'critic.grounded': critic.grounded,
     'critic.coverage': critic.coverage,
-    'retrieval.documents': dispatch.references.length
+    'critic.iterations': attempt + 1,
+    'retrieval.documents': dispatch.references.length,
+    'web.results': dispatch.webResults.length,
+    'web.context.trimmed': dispatch.webContextTrimmed
   });
   sessionSpan.end();
 

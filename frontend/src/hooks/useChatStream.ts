@@ -1,6 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ActivityStep, AgentMessage, Citation } from '../types';
 
+interface CritiqueAttempt {
+  attempt: number;
+  grounded: boolean;
+  coverage: number;
+  action: 'accept' | 'revise';
+  issues?: string[];
+}
+
 interface StreamState {
   isStreaming: boolean;
   status: string;
@@ -8,10 +16,17 @@ interface StreamState {
   citations: Citation[];
   activity: ActivityStep[];
   critique?: { score?: number; reasoning?: string; action?: string };
+  critiqueHistory: CritiqueAttempt[];
   plan?: any;
   context?: { history?: string; summary?: string; salience?: string };
   telemetry?: Record<string, unknown>;
   trace?: Record<string, unknown>;
+  webContext?: {
+    text?: string;
+    tokens?: number;
+    trimmed?: boolean;
+    results?: Array<{ id?: string; title?: string; url?: string; rank?: number }>;
+  };
   error?: string;
 }
 
@@ -22,6 +37,7 @@ export function useChatStream() {
     answer: '',
     citations: [],
     activity: [],
+    critiqueHistory: [],
     telemetry: {}
   });
   const controllerRef = useRef<AbortController | null>(null);
@@ -33,9 +49,10 @@ export function useChatStream() {
       status: 'idle',
       answer: '',
       citations: [],
-      activity: [],
-      telemetry: {}
-    });
+    activity: [],
+    critiqueHistory: [],
+    telemetry: {}
+  });
   }, []);
 
   const stream = useCallback(async (messages: AgentMessage[]) => {
@@ -94,7 +111,17 @@ export function useChatStream() {
                 setState((prev) => ({ ...prev, activity: data.steps ?? [] }));
                 break;
               case 'critique':
-                setState((prev) => ({ ...prev, critique: data }));
+                setState((prev) => ({
+                  ...prev,
+                  critique: data,
+                  critiqueHistory: [...prev.critiqueHistory, {
+                    attempt: data.attempt ?? prev.critiqueHistory.length,
+                    grounded: data.grounded ?? false,
+                    coverage: data.coverage ?? 0,
+                    action: data.action ?? 'accept',
+                    issues: data.issues
+                  }]
+                }));
                 break;
               case 'plan':
                 setState((prev) => ({ ...prev, plan: data }));
@@ -104,6 +131,17 @@ export function useChatStream() {
                 break;
               case 'telemetry':
                 setState((prev) => ({ ...prev, telemetry: { ...(prev.telemetry ?? {}), ...data } }));
+                break;
+              case 'web_context':
+                setState((prev) => ({
+                  ...prev,
+                  webContext: {
+                    text: data.text,
+                    tokens: data.tokens,
+                    trimmed: data.trimmed,
+                    results: data.results
+                  }
+                }));
                 break;
               case 'trace':
                 setState((prev) => ({ ...prev, trace: data }));
@@ -145,6 +183,8 @@ export function useChatStream() {
     plan: state.plan,
     contextSnapshot: state.context,
     telemetry: state.telemetry,
-    trace: state.trace
+    trace: state.trace,
+    webContext: state.webContext,
+    critiqueHistory: state.critiqueHistory
   };
 }

@@ -103,7 +103,12 @@ export async function agenticRetrieveTool(args: { messages: AgentMessage[] }) {
 
 export { webSearchTool };
 
-export async function answerTool(args: { question: string; context: string; citations?: Reference[] }) {
+export async function answerTool(args: { question: string; context: string; citations?: Reference[]; revisionNotes?: string[] }) {
+  let userPrompt = `Question: ${args.question}\n\nContext:\n${args.context}`;
+  if (args.revisionNotes && args.revisionNotes.length > 0) {
+    userPrompt += `\n\nRevision guidance (address these issues):\n${args.revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
+  }
+
   const response = await createResponse({
     messages: [
       {
@@ -113,7 +118,7 @@ export async function answerTool(args: { question: string; context: string; cita
       },
       {
         role: 'user',
-        content: `Question: ${args.question}\n\nContext:\n${args.context}`
+        content: userPrompt
       }
     ],
     temperature: 0.3,

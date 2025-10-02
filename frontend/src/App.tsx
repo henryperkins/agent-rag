@@ -76,10 +76,15 @@ function ChatApp() {
       ? {
           plan: chatMutation.data.metadata.plan,
           contextBudget: chatMutation.data.metadata.context_budget,
-          critic: chatMutation.data.metadata.critic_report
+          critic: chatMutation.data.metadata.critic_report,
+          webContext: chatMutation.data.metadata.web_context
         }
       : undefined;
   const traceDetails = mode === 'stream' ? stream.trace : undefined;
+  const webContextDetails = mode === 'stream' ? stream.webContext : chatMutation.data?.metadata?.web_context;
+  const critiqueHistory = mode === 'stream'
+    ? stream.critiqueHistory
+    : chatMutation.data?.metadata?.critique_history;
 
   return (
     <div className="layout">
@@ -127,7 +132,14 @@ function ChatApp() {
             status={sidebar.status}
             critique={sidebar.critique}
           />
-          <PlanPanel plan={planDetails} context={contextSnapshot} telemetry={telemetryDetails} trace={traceDetails} />
+          <PlanPanel
+            plan={planDetails}
+            context={contextSnapshot}
+            telemetry={telemetryDetails}
+            trace={traceDetails}
+            webContext={webContextDetails}
+            critiqueHistory={critiqueHistory}
+          />
         </section>
       </main>
 

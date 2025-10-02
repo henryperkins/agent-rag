@@ -38,5 +38,18 @@ export interface ChatResponse {
       action: string;
       issues?: string[];
     };
+    web_context?: {
+      tokens: number;
+      trimmed: boolean;
+      text?: string;
+      results: Array<{ id?: string; title?: string; url?: string; rank?: number }>;
+    };
+    critique_history?: Array<{
+      attempt: number;
+      coverage: number;
+      grounded: boolean;
+      action: 'accept' | 'revise';
+      issues?: string[];
+    }>;
   };
 }

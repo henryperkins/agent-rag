@@ -38,6 +38,22 @@ export interface AgenticRetrievalResponse {
     references: Reference[];
     activity: ActivityStep[];
 }
+export interface WebResult {
+    id: string;
+    title: string;
+    snippet: string;
+    url: string;
+    body?: string;
+    rank?: number;
+    relevance?: number;
+    fetchedAt: string;
+}
+export interface WebSearchResponse {
+    results: WebResult[];
+    contextText?: string;
+    tokens?: number;
+    trimmed?: boolean;
+}
 export interface ChatResponse {
     answer: string;
     citations: Reference[];
@@ -49,6 +65,109 @@ export interface ChatResponse {
         trace_id?: string;
         context_budget?: Record<string, number>;
         critic_report?: CriticReport;
+        web_context?: {
+            tokens: number;
+            trimmed: boolean;
+            text?: string;
+            results: Array<{
+                id: string;
+                title: string;
+                url: string;
+                rank?: number;
+            }>;
+        };
+        critique_history?: Array<{
+            attempt: number;
+            coverage: number;
+            grounded: boolean;
+            action: 'accept' | 'revise';
+            issues?: string[];
+        }>;
     };
+}
+export interface TraceEvent {
+    time: string;
+    stage: string;
+    data?: unknown;
+    tokens_in?: number;
+    tokens_out?: number;
+    latency_ms?: number;
+    error?: string;
+}
+export interface RetrievalDiagnostics {
+    attempted: 'knowledge_agent' | 'fallback_vector';
+    succeeded: boolean;
+    retryCount: number;
+    documents: number;
+    meanScore?: number;
+    minScore?: number;
+    maxScore?: number;
+    thresholdUsed?: number;
+    fallbackReason?: string;
+}
+export interface SessionTrace {
+    sessionId: string;
+    mode: 'sync' | 'stream';
+    startedAt: string;
+    completedAt?: string;
+    plan?: PlanSummary;
+    planConfidence?: number;
+    contextBudget?: {
+        history_tokens: number;
+        summary_tokens: number;
+        salience_tokens: number;
+        web_tokens?: number;
+    };
+    retrieval?: RetrievalDiagnostics;
+    critic?: {
+        grounded: boolean;
+        coverage?: number;
+        action: string;
+        iterations: number;
+        issues?: string[];
+    };
+    critiqueHistory?: Array<{
+        attempt: number;
+        grounded: boolean;
+        coverage: number;
+        action: 'accept' | 'revise';
+        issues?: string[];
+    }>;
+    webContext?: {
+        tokens: number;
+        trimmed: boolean;
+        results: Array<{
+            id: string;
+            title: string;
+            url: string;
+            rank?: number;
+        }>;
+    };
+    events: TraceEvent[];
+    error?: string;
+}
+export interface OrchestratorTools {
+    retrieve: (args: {
+        messages: AgentMessage[];
+    }) => Promise<AgenticRetrievalResponse>;
+    webSearch: (args: {
+        query: string;
+        count?: number;
+        mode?: 'summary' | 'full';
+    }) => Promise<WebSearchResponse>;
+    answer: (args: {
+        question: string;
+        context: string;
+        citations?: Reference[];
+        revisionNotes?: string[];
+    }) => Promise<{
+        answer: string;
+        citations?: Reference[];
+    }>;
+    critic: (args: {
+        draft: string;
+        evidence: string;
+        question: string;
+    }) => Promise<CriticReport>;
 }
 //# sourceMappingURL=types.d.ts.map

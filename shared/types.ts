@@ -46,6 +46,24 @@ export interface AgenticRetrievalResponse {
   activity: ActivityStep[];
 }
 
+export interface WebResult {
+  id: string;
+  title: string;
+  snippet: string;
+  url: string;
+  body?: string;
+  rank?: number;
+  relevance?: number;
+  fetchedAt: string;
+}
+
+export interface WebSearchResponse {
+  results: WebResult[];
+  contextText?: string;
+  tokens?: number;
+  trimmed?: boolean;
+}
+
 export interface ChatResponse {
   answer: string;
   citations: Reference[];
@@ -57,6 +75,19 @@ export interface ChatResponse {
     trace_id?: string;
     context_budget?: Record<string, number>;
     critic_report?: CriticReport;
+    web_context?: {
+      tokens: number;
+      trimmed: boolean;
+      text?: string;
+      results: Array<{ id: string; title: string; url: string; rank?: number }>;
+    };
+    critique_history?: Array<{
+      attempt: number;
+      coverage: number;
+      grounded: boolean;
+      action: 'accept' | 'revise';
+      issues?: string[];
+    }>;
   };
 }
 
@@ -93,6 +124,7 @@ export interface SessionTrace {
     history_tokens: number;
     summary_tokens: number;
     salience_tokens: number;
+    web_tokens?: number;
   };
   retrieval?: RetrievalDiagnostics;
   critic?: {
@@ -102,13 +134,30 @@ export interface SessionTrace {
     iterations: number;
     issues?: string[];
   };
+  critiqueHistory?: Array<{
+    attempt: number;
+    grounded: boolean;
+    coverage: number;
+    action: 'accept' | 'revise';
+    issues?: string[];
+  }>;
+  webContext?: {
+    tokens: number;
+    trimmed: boolean;
+    results: Array<{ id: string; title: string; url: string; rank?: number }>;
+  };
   events: TraceEvent[];
   error?: string;
 }
 
 export interface OrchestratorTools {
   retrieve: (args: { messages: AgentMessage[] }) => Promise<AgenticRetrievalResponse>;
-  webSearch: (args: { query: string; count?: number }) => Promise<{ results: unknown[] }>;
-  answer: (args: { question: string; context: string; citations?: Reference[] }) => Promise<{ answer: string; citations?: Reference[] }>;
+  webSearch: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
+  answer: (args: {
+    question: string;
+    context: string;
+    citations?: Reference[];
+    revisionNotes?: string[];
+  }) => Promise<{ answer: string; citations?: Reference[] }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
 }

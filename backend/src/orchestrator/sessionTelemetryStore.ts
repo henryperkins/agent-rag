@@ -5,7 +5,8 @@ import type {
   PlanSummary,
   Reference,
   RetrievalDiagnostics,
-  SessionTrace
+  SessionTrace,
+  WebResult
 } from '../../../shared/types.js';
 
 type SessionMode = 'sync' | 'stream';
@@ -51,6 +52,12 @@ export interface SessionTelemetryRecord {
   events: EventEntry[];
   retrieval?: RetrievalDiagnostics;
   trace?: SessionTrace;
+  webContext?: {
+    text?: string;
+    tokens?: number;
+    trimmed?: boolean;
+    results?: Array<Pick<WebResult, 'id' | 'title' | 'url' | 'rank'>>;
+  };
 }
 
 const MAX_RECORDS = 100;
@@ -112,6 +119,23 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       state.critic = clone(data as CriticReport);
       break;
     }
+    case 'web_context': {
+      const payload = data as any;
+      state.webContext = {
+        text: payload?.text,
+        tokens: payload?.tokens,
+        trimmed: payload?.trimmed,
+        results: Array.isArray(payload?.results)
+          ? payload.results.map((result: any) => ({
+              id: result.id,
+              title: result.title,
+              url: result.url,
+              rank: result.rank
+            }))
+          : undefined
+      };
+      break;
+    }
     case 'telemetry': {
       const payload = data as any;
       if (payload?.plan) {
@@ -128,6 +152,9 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       }
       if (payload?.retrieval) {
         state.retrieval = clone(payload.retrieval as RetrievalDiagnostics);
+      }
+      if (payload?.webContext) {
+        state.webContext = clone(payload.webContext);
       }
       break;
     }
@@ -205,6 +232,9 @@ export function createSessionRecorder(options: {
         }
         if (response.metadata?.trace_id) {
           state.traceId = response.metadata.trace_id;
+        }
+        if (response.metadata?.web_context) {
+          state.webContext = clone(response.metadata.web_context);
         }
       }
       pushRecord(clone(state));

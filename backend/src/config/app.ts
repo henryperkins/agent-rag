@@ -32,6 +32,10 @@ const envSchema = z.object({
   RERANKER_THRESHOLD: z.coerce.number().default(2.5),
   TARGET_INDEX_MAX_DOCUMENTS: z.coerce.number().default(100),
 
+  WEB_CONTEXT_MAX_TOKENS: z.coerce.number().default(8000),
+  WEB_RESULTS_MAX: z.coerce.number().default(6),
+  WEB_SEARCH_MODE: z.enum(['summary', 'full']).default('full'),
+
   CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(1800),
   CONTEXT_SUMMARY_TOKEN_CAP: z.coerce.number().default(600),
   CONTEXT_SALIENCE_TOKEN_CAP: z.coerce.number().default(400),
