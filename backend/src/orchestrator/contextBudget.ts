@@ -1,9 +1,10 @@
 import { encoding_for_model, get_encoding } from '@dqbd/tiktoken';
+import type { TiktokenEncoding, TiktokenModel } from '@dqbd/tiktoken';
 
 type Encoding = ReturnType<typeof encoding_for_model>;
 
 const cache = new Map<string, Encoding>();
-const FALLBACK_ENCODING = 'o200k_base';
+const FALLBACK_ENCODING: TiktokenEncoding = 'o200k_base';
 
 function getEncoding(model: string): Encoding {
   if (cache.has(model)) {
@@ -11,7 +12,7 @@ function getEncoding(model: string): Encoding {
   }
 
   try {
-    const encoding = encoding_for_model(model);
+    const encoding = encoding_for_model(model as TiktokenModel);
     cache.set(model, encoding);
     return encoding;
   } catch (error) {

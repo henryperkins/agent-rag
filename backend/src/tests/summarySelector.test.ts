@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import { selectSummaryBullets } from '../orchestrator/summarySelector.js';
 import { config } from '../config/app.js';
@@ -12,7 +13,7 @@ const openaiClient = await import('../azure/openaiClient.js');
 
 describe('selectSummaryBullets', () => {
   beforeEach(() => {
-    (openaiClient.createEmbeddings as unknown as vi.Mock).mockReset();
+    (openaiClient.createEmbeddings as unknown as Mock).mockReset();
     config.ENABLE_SEMANTIC_SUMMARY = false;
   });
 
@@ -22,11 +23,15 @@ describe('selectSummaryBullets', () => {
     expect(result.selected.map((item) => item.text)).toEqual(['two', 'three']);
     expect(result.candidates.map((item) => item.text)).toEqual(['one', 'two', 'three']);
     expect(openaiClient.createEmbeddings).not.toHaveBeenCalled();
+    expect(result.stats.mode).toBe('recency');
+    expect(result.stats.selectedCount).toBe(2);
+    expect(result.stats.totalCandidates).toBe(3);
+    expect(result.stats.usedFallback).toBe(true);
   });
 
   it('uses embeddings when enabled and returns highest scoring items', async () => {
     config.ENABLE_SEMANTIC_SUMMARY = true;
-    (openaiClient.createEmbeddings as unknown as vi.Mock)
+    (openaiClient.createEmbeddings as unknown as Mock)
       .mockResolvedValueOnce({
         data: [
           { embedding: [1, 0] },
@@ -43,14 +48,22 @@ describe('selectSummaryBullets', () => {
     expect(result.selected.map((item) => item.text)).toEqual(['summary1', 'summary3']);
     expect(openaiClient.createEmbeddings).toHaveBeenCalledTimes(2);
     expect(result.candidates[0].embedding).toBeDefined();
+    expect(result.stats.mode).toBe('semantic');
+    expect(result.stats.usedFallback).toBe(false);
+    expect(result.stats.selectedCount).toBe(2);
+    expect(result.stats.totalCandidates).toBe(3);
+    expect(result.stats.maxScore).toBeDefined();
   });
 
   it('falls back to recency when embeddings throw', async () => {
     config.ENABLE_SEMANTIC_SUMMARY = true;
-    (openaiClient.createEmbeddings as unknown as vi.Mock).mockRejectedValue(new Error('embedding failure'));
+    (openaiClient.createEmbeddings as unknown as Mock).mockRejectedValue(new Error('embedding failure'));
 
     const candidates: SummaryBullet[] = [{ text: 'a' }, { text: 'b' }, { text: 'c' }];
     const result = await selectSummaryBullets('query', candidates, 2);
     expect(result.selected.map((item) => item.text)).toEqual(['b', 'c']);
+    expect(result.stats.mode).toBe('recency');
+    expect(result.stats.usedFallback).toBe(true);
+    expect(result.stats.error).toContain('embedding failure');
   });
 });

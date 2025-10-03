@@ -81,4 +81,102 @@ describe('sessionTelemetryStore redaction', () => {
       expect(content).not.toContain('987-65-4321');
     });
   });
+
+  it('redacts sensitive data in context payloads', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-3',
+      mode: 'sync',
+      question: 'Initial question'
+    });
+
+    recorder.emit('context', {
+      history: 'User said email me at context@example.com',
+      summary: 'Summary mentions 4111 2222 3333 4444',
+      salience: 'SSN 123-45-6789 is sensitive'
+    });
+
+    recorder.complete({
+      answer: 'done',
+      metadata: {}
+    } as any);
+
+    const [entry] = getSessionTelemetry();
+    expect(entry.context?.history).toBe('User said email me at [EMAIL]');
+    expect(entry.context?.summary).toBe('Summary mentions [CARD]');
+    expect(entry.context?.salience).toBe('SSN [SSN] is sensitive');
+  });
+
+  it('redacts sensitive data in activity events and final state', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-4',
+      mode: 'sync',
+      question: 'Track progress'
+    });
+
+    recorder.emit('activity', {
+      steps: [
+        {
+          type: 'note',
+          description: 'Contact user via activity@example.com'
+        }
+      ]
+    });
+
+    recorder.complete({
+      answer: 'done',
+      activity: [
+        {
+          type: 'final',
+          description: 'Final outreach to 4111-2222-3333-4444'
+        }
+      ],
+      metadata: {}
+    } as any);
+
+    const [entry] = getSessionTelemetry();
+    expect(entry.activity).toHaveLength(1);
+    expect(entry.activity?.[0]?.description).toBe('Final outreach to [CARD]');
+
+    const activityEvent = entry.events.find((event) => event.event === 'activity');
+    const steps = (activityEvent?.data as any)?.steps ?? [];
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.description).toBe('Contact user via [EMAIL]');
+  });
+
+  it('stores summary selection telemetry from events and metadata', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-5',
+      mode: 'sync',
+      question: 'Summarize context'
+    });
+
+    const stats = {
+      mode: 'semantic' as const,
+      totalCandidates: 4,
+      selectedCount: 2,
+      discardedCount: 2,
+      usedFallback: false,
+      maxScore: 0.91,
+      minScore: 0.42,
+      meanScore: 0.66,
+      maxSelectedScore: 0.91,
+      minSelectedScore: 0.75
+    };
+
+    recorder.emit('telemetry', {
+      summarySelection: stats
+    });
+
+    recorder.complete({
+      answer: 'done',
+      metadata: {
+        summary_selection: stats
+      }
+    } as any);
+
+    const [entry] = getSessionTelemetry();
+    expect(entry.summarySelection?.mode).toBe('semantic');
+    expect(entry.summarySelection?.selectedCount).toBe(2);
+    expect(entry.metadata?.summary_selection?.maxScore).toBeCloseTo(0.91);
+  });
 });

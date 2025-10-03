@@ -33,6 +33,19 @@ export interface CriticReport {
     issues?: string[];
     action: 'accept' | 'revise';
 }
+export interface SummarySelectionStats {
+    mode: 'semantic' | 'recency';
+    totalCandidates: number;
+    selectedCount: number;
+    discardedCount: number;
+    usedFallback: boolean;
+    maxScore?: number;
+    minScore?: number;
+    meanScore?: number;
+    maxSelectedScore?: number;
+    minSelectedScore?: number;
+    error?: string;
+}
 export interface AgenticRetrievalResponse {
     response: string;
     references: Reference[];
@@ -83,6 +96,7 @@ export interface ChatResponse {
             action: 'accept' | 'revise';
             issues?: string[];
         }>;
+        summary_selection?: SummarySelectionStats;
     };
 }
 export interface TraceEvent {
@@ -104,6 +118,7 @@ export interface RetrievalDiagnostics {
     maxScore?: number;
     thresholdUsed?: number;
     fallbackReason?: string;
+    escalated?: boolean;
 }
 export interface SessionTrace {
     sessionId: string;
@@ -143,6 +158,7 @@ export interface SessionTrace {
             rank?: number;
         }>;
     };
+    summarySelection?: SummarySelectionStats;
     events: TraceEvent[];
     error?: string;
 }

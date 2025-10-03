@@ -20,6 +20,15 @@ interface ProcessedDocument {
   page_number: number;
 }
 
+interface UploadResult {
+  value?: Array<{
+    status?: boolean;
+    statusCode?: number;
+    errorMessage?: string;
+    key?: string;
+  }>;
+}
+
 export async function createIndexAndIngest(): Promise<void> {
   const indexDefinition = {
     name: config.AZURE_SEARCH_INDEX_NAME,
@@ -182,10 +191,15 @@ export async function createIndexAndIngest(): Promise<void> {
       throw new Error(`Failed to upload documents: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorText}`);
     }
 
-    const result = await uploadResponse.json();
-    const failures = result.value?.filter((r: any) => r.status === false || (r.statusCode && r.statusCode !== 200 && r.statusCode !== 201));
+    const result = (await uploadResponse.json()) as UploadResult;
+    const failures = result.value?.filter(
+      (record) =>
+        record.status === false || (record.statusCode !== undefined && record.statusCode !== 200 && record.statusCode !== 201)
+    );
     if (failures && failures.length > 0) {
-      const message = failures.map((f: any) => f.errorMessage || `Key: ${f.key}, StatusCode: ${f.statusCode}`).join('; ');
+      const message = failures
+        .map((record) => record.errorMessage || `Key: ${record.key}, StatusCode: ${record.statusCode}`)
+        .join('; ');
       throw new Error(`One or more documents failed to ingest: ${message}`);
     }
   }

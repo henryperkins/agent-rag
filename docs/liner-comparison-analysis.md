@@ -101,7 +101,7 @@
 #### Agent-RAG Advanced Orchestration (NOT in Liner)
 
 ##### Multi-Agent Architecture
-- **Planner Agent** (`backend/src/agents/advancedPlanner.ts`):
+- **Planner Module** (`backend/src/orchestrator/plan.ts`):
   - Analyzes query intent and complexity
   - Generates retrieval strategy (vector, web, hybrid)
   - Confidence scoring for dual-retrieval escalation
@@ -514,12 +514,11 @@ Backend (Fastify + TypeScript)
 ├── Middleware: sanitize, rate-limit, CORS, timeout
 ├── Orchestrator (Unified Pipeline)
 │   ├── Context Pipeline: compact, memoryStore, summarySelector
-│   ├── Planning: advancedPlanner (confidence-based)
+│   ├── Planning: plan.ts (structured plan schema)
 │   ├── Tool Dispatch: retrieve, webSearch, answer
 │   ├── Critique: enhancedCritic (multi-iteration)
 │   └── Telemetry: sessionTelemetryStore, trace
-├── Agents: planner, critic, enhancedCritic
-├── Services: chatService, chatStreamService, enhancedChatService
+├── Services: chatStreamService, enhancedChatService
 └── Azure Integrations
     ├── agenticRetrieval (Knowledge Agent)
     ├── fallbackRetrieval (Vector Search)

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { WebResult } from '../../../shared/types.js';
+import type { WebResult, WebSearchResponse } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 
 interface WebSearchArgs {
@@ -18,7 +18,13 @@ function buildResultId(item: any) {
   return randomUUID();
 }
 
-export async function webSearchTool(args: WebSearchArgs): Promise<{ results: WebResult[] }> {
+interface BingWebResponse {
+  webPages?: {
+    value?: Array<Record<string, any>>;
+  };
+}
+
+export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchResponse> {
   const { query, count, mode } = args;
 
   if (!config.AZURE_BING_SUBSCRIPTION_KEY) {
@@ -64,7 +70,7 @@ export async function webSearchTool(args: WebSearchArgs): Promise<{ results: Web
         throw new Error(`Bing API error: ${response.status} ${errorText}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as BingWebResponse;
       const fetchedAt = new Date().toISOString();
       const results: WebResult[] =
         data.webPages?.value?.map((item: any, index: number) => ({

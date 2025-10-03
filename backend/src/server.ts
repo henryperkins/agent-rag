@@ -51,7 +51,7 @@ await app.register(rateLimit, {
 
 app.addHook('preHandler', sanitizeInput);
 
-app.addHook('onRequest', async (request, reply) => {
+app.addHook('onRequest', async (_request, reply) => {
   const timer = setTimeout(() => {
     reply.code(408).send({ error: 'Request timeout' });
   }, config.REQUEST_TIMEOUT_MS);

@@ -77,7 +77,8 @@ function ChatApp() {
           plan: chatMutation.data.metadata.plan,
           contextBudget: chatMutation.data.metadata.context_budget,
           critic: chatMutation.data.metadata.critic_report,
-          webContext: chatMutation.data.metadata.web_context
+          webContext: chatMutation.data.metadata.web_context,
+          summarySelection: chatMutation.data.metadata.summary_selection
         }
       : undefined;
   const traceDetails = mode === 'stream' ? stream.trace : undefined;

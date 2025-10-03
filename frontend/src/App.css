@@ -403,6 +403,39 @@ html,
   white-space: pre-wrap;
 }
 
+.summary-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.summary-selection-item {
+  background: rgba(148, 163, 184, 0.12);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.summary-selection-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #bfdbfe;
+}
+
+.summary-selection-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.summary-selection-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #f87171;
+}
+
 .plan-panel details {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;

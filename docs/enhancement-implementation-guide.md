@@ -32,7 +32,7 @@ Routes (backend/src/routes/)
 Services (backend/src/services/)
   ↓
 Orchestrator (backend/src/orchestrator/)
-  ├── Plan (advancedPlanner)
+  ├── Plan (plan.ts)
   ├── Context (compact, memoryStore, summarySelector)
   ├── Dispatch (retrieve, webSearch)
   ├── Synthesis (answer)

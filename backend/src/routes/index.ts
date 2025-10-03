@@ -25,15 +25,18 @@ export async function registerRoutes(app: FastifyInstance) {
     timestamp: new Date().toISOString()
   }));
 
-  app.post<{ Body: { messages: AgentMessage[] } }>('/chat', async (request, reply) => {
-    const { messages } = request.body;
+  app.post<{ Body: { messages: AgentMessage[]; sessionId?: string } }>('/chat', async (request, reply) => {
+    const { messages, sessionId } = request.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return reply.code(400).send({ error: 'Messages array required.' });
     }
 
     try {
-      const response = await handleEnhancedChat(messages);
+      const response = await handleEnhancedChat(messages, {
+        sessionId,
+        clientFingerprint: [request.ip, request.headers['user-agent']].filter(Boolean).join('|')
+      });
       return response;
     } catch (error: any) {
       request.log.error(error);

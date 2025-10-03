@@ -6,6 +6,7 @@ import type {
   Reference,
   RetrievalDiagnostics,
   SessionTrace,
+  SummarySelectionStats,
   WebResult
 } from '../../../shared/types.js';
 
@@ -52,6 +53,7 @@ export interface SessionTelemetryRecord {
   events: EventEntry[];
   retrieval?: RetrievalDiagnostics;
   trace?: SessionTrace;
+  summarySelection?: SummarySelectionStats;
   webContext?: {
     text?: string;
     tokens?: number;
@@ -80,6 +82,22 @@ function redactSensitive(text?: string | null): string | undefined {
   return sanitized;
 }
 
+function sanitizeActivitySteps(steps?: ActivityStep[] | null): ActivityStep[] | undefined {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return steps ?? undefined;
+  }
+  return steps.map((step) => {
+    if (!step || typeof step !== 'object') {
+      return step;
+    }
+    const next: ActivityStep = { ...step };
+    if (typeof next.description === 'string') {
+      next.description = redactSensitive(next.description) ?? next.description;
+    }
+    return next;
+  });
+}
+
 function sanitizeEventPayload(event: string, data: unknown): unknown {
   if (event === 'complete' && data && typeof data === 'object') {
     const payload = data as { answer?: string };
@@ -92,6 +110,13 @@ function sanitizeEventPayload(event: string, data: unknown): unknown {
     if (typeof payload.content === 'string') {
       return { ...payload, content: redactSensitive(payload.content) };
     }
+  }
+  if (event === 'activity' && data && typeof data === 'object') {
+    const payload = data as { steps?: ActivityStep[] };
+    return {
+      ...payload,
+      steps: sanitizeActivitySteps(payload.steps)
+    };
   }
   return data;
 }
@@ -123,10 +148,11 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       break;
     }
     case 'context': {
+      const payload = sanitized as any;
       state.context = {
-        history: (sanitized as any)?.history,
-        summary: (sanitized as any)?.summary,
-        salience: (sanitized as any)?.salience
+        history: redactSensitive(payload?.history),
+        summary: redactSensitive(payload?.summary),
+        salience: redactSensitive(payload?.salience)
       };
       break;
     }
@@ -146,7 +172,8 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       break;
     }
     case 'activity': {
-      state.activity = clone((sanitized as any)?.steps ?? []);
+      const steps = sanitizeActivitySteps((sanitized as any)?.steps);
+      state.activity = steps ? clone(steps) : [];
       break;
     }
     case 'critique': {
@@ -186,6 +213,9 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       }
       if (payload?.retrieval) {
         state.retrieval = clone(payload.retrieval as RetrievalDiagnostics);
+      }
+      if (payload?.summarySelection) {
+        state.summarySelection = clone(payload.summarySelection as SummarySelectionStats);
       }
       if (payload?.webContext) {
         state.webContext = clone(payload.webContext);
@@ -253,8 +283,12 @@ export function createSessionRecorder(options: {
       if (response) {
         state.answer = redactSensitive(response.answer);
         state.citations = clone(response.citations);
-        state.activity = clone(response.activity);
+        const activity = sanitizeActivitySteps(response.activity);
+        state.activity = activity ? clone(activity) : [];
         state.metadata = clone(response.metadata);
+        if (response.metadata?.summary_selection) {
+          state.summarySelection = clone(response.metadata.summary_selection);
+        }
         if (response.metadata?.context_budget) {
           state.contextBudget = clone(response.metadata.context_budget);
         }

@@ -69,6 +69,8 @@ Orchestrator Pipeline:
 - Emit new events for frontend updates
 - Extend telemetry for new operations
 
+This unified orchestrator powers both `/chat` and `/chat/stream`; the legacy `chatService.ts` handler has been removed, eliminating the last duplicate pipeline in favour of the shared orchestrator flow.
+
 #### 3. **Type-Safe Communication** (`shared/types.ts`)
 ```typescript
 Current Types:
@@ -84,7 +86,6 @@ Extension: Add types for new features
 #### 4. **Service Layer** (`backend/src/services/`)
 ```
 Services:
-├── chatService.ts          → Legacy chat handler
 ├── enhancedChatService.ts  → Orchestrator integration
 └── chatStreamService.ts    → Streaming support
 

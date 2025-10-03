@@ -3,30 +3,45 @@ import type { AgentMessage } from '../../../shared/types.js';
 import { runSession } from '../orchestrator/index.js';
 import { createSessionRecorder } from '../orchestrator/sessionTelemetryStore.js';
 
-type EventSender = (event: string, data: any) => void;
-
 function latestUserQuestion(messages: AgentMessage[]) {
   return [...messages].reverse().find((m) => m.role === 'user')?.content;
 }
 
-function deriveSessionId(messages: AgentMessage[]): string {
+interface StreamOptions {
+  sessionId?: string;
+  clientFingerprint?: string;
+}
+
+type EventSender = (event: string, data: any) => void;
+
+function deriveSessionId(messages: AgentMessage[], fingerprint?: string): string {
   try {
     const keySource = messages
       .filter((message) => message.role !== 'system')
       .slice(0, 2)
       .map((message) => `${message.role}:${message.content}`)
       .join('|');
-    if (keySource) {
-      return createHash('sha1').update(keySource).digest('hex');
+
+    if (!keySource) {
+      throw new Error('Unable to derive session key');
     }
+
+    const hash = createHash('sha1');
+    hash.update(keySource);
+    if (fingerprint) {
+      hash.update('|');
+      hash.update(fingerprint);
+    }
+    return hash.digest('hex');
   } catch {
     // ignore derivation errors and fall back to random id
   }
   return typeof randomUUID === 'function' ? randomUUID() : `session-${Date.now()}`;
 }
 
-export async function handleChatStream(messages: AgentMessage[], sendEvent: EventSender) {
-  const sessionId = deriveSessionId(messages);
+export async function handleChatStream(messages: AgentMessage[], sendEvent: EventSender, options?: StreamOptions) {
+  const providedId = options?.sessionId?.trim();
+  const sessionId = providedId?.length ? providedId : deriveSessionId(messages, options?.clientFingerprint);
   const recorder = createSessionRecorder({
     sessionId,
     mode: 'stream',

@@ -1,9 +1,19 @@
+import type { SummarySelectionStats } from '../types';
+
 interface CritiqueAttempt {
   attempt: number;
   grounded: boolean;
   coverage: number;
   action: 'accept' | 'revise';
   issues?: string[];
+}
+
+function isSummarySelectionStats(value: unknown): value is SummarySelectionStats {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const stats = value as SummarySelectionStats;
+  return typeof stats.totalCandidates === 'number' && typeof stats.selectedCount === 'number';
 }
 
 interface PlanPanelProps {
@@ -24,7 +34,23 @@ export function PlanPanel({ plan, context, telemetry, trace, critiqueHistory, we
   const hasCritique = Boolean(critiqueHistory && critiqueHistory.length);
   const hasWeb = Boolean(webContext?.text || webContext?.results?.length);
 
-  if (!plan && !context && !telemetry && !trace && !hasCritique && !hasWeb) {
+  const rawSummarySelection = telemetry && typeof telemetry === 'object'
+    ? ((telemetry as Record<string, unknown>).summarySelection ?? (telemetry as Record<string, unknown>).summary_selection)
+    : undefined;
+
+  const summarySelection = isSummarySelectionStats(rawSummarySelection) ? rawSummarySelection : undefined;
+
+  const cleanedTelemetry = telemetry && typeof telemetry === 'object'
+    ? Object.fromEntries(
+        Object.entries(telemetry as Record<string, unknown>).filter(
+          ([key]) => key !== 'summarySelection' && key !== 'summary_selection'
+        )
+      )
+    : telemetry;
+
+  const hasTelemetry = cleanedTelemetry && Object.keys(cleanedTelemetry).length > 0;
+
+  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb) {
     return null;
   }
 
@@ -95,10 +121,52 @@ export function PlanPanel({ plan, context, telemetry, trace, critiqueHistory, we
         </div>
       )}
 
-      {telemetry && Object.keys(telemetry).length > 0 && (
+      {summarySelection && (
+        <div className="plan-section">
+          <h4>Summary Selection</h4>
+          <div className="summary-selection-grid">
+            <StatBlock label="Mode" value={summarySelection.mode === 'semantic' ? 'Semantic' : 'Recency'} />
+            <StatBlock
+              label="Selected"
+              value={`${summarySelection.selectedCount}/${summarySelection.totalCandidates}`}
+            />
+            <StatBlock
+              label="Discarded"
+              value={summarySelection.discardedCount.toString()}
+            />
+            <StatBlock
+              label="Fallback"
+              value={summarySelection.usedFallback ? 'Yes' : 'No'}
+            />
+            {summarySelection.meanScore !== undefined && (
+              <StatBlock
+                label="Mean Score"
+                value={summarySelection.meanScore.toFixed(2)}
+              />
+            )}
+            {summarySelection.maxSelectedScore !== undefined && (
+              <StatBlock
+                label="Top Score"
+                value={summarySelection.maxSelectedScore.toFixed(2)}
+              />
+            )}
+            {summarySelection.minSelectedScore !== undefined && (
+              <StatBlock
+                label="Lowest Selected"
+                value={summarySelection.minSelectedScore.toFixed(2)}
+              />
+            )}
+          </div>
+          {summarySelection.error && (
+            <div className="summary-selection-error">Fallback reason: {summarySelection.error}</div>
+          )}
+        </div>
+      )}
+
+      {cleanedTelemetry && Object.keys(cleanedTelemetry).length > 0 && (
         <div className="plan-section">
           <h4>Telemetry</h4>
-          <pre>{JSON.stringify(telemetry, null, 2)}</pre>
+          <pre>{JSON.stringify(cleanedTelemetry, null, 2)}</pre>
         </div>
       )}
 
@@ -141,5 +209,19 @@ export function PlanPanel({ plan, context, telemetry, trace, critiqueHistory, we
         </div>
       )}
     </section>
+  );
+}
+
+interface StatBlockProps {
+  label: string;
+  value: string;
+}
+
+function StatBlock({ label, value }: StatBlockProps) {
+  return (
+    <div className="summary-selection-item">
+      <span className="summary-selection-label">{label}</span>
+      <span className="summary-selection-value">{value}</span>
+    </div>
   );
 }

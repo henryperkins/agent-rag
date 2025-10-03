@@ -1,10 +1,12 @@
 import { config } from '../config/app.js';
 import { createEmbeddings } from '../azure/openaiClient.js';
 import type { SummaryBullet } from './memoryStore.js';
+import type { SummarySelectionStats } from '../../../shared/types.js';
 
 export interface SummarySelection {
   selected: SummaryBullet[];
   candidates: SummaryBullet[];
+  stats: SummarySelectionStats;
 }
 
 function cosineSimilarity(vectorA: number[], vectorB: number[]) {
@@ -57,6 +59,48 @@ function dedupeCandidates(candidates: SummaryBullet[]): SummaryBullet[] {
   return deduped;
 }
 
+function buildStats(options: {
+  mode: 'semantic' | 'recency';
+  candidates: SummaryBullet[];
+  selected: SummaryBullet[];
+  scores?: number[];
+  selectedScores?: number[];
+  usedFallback: boolean;
+  error?: string;
+}): SummarySelectionStats {
+  const { mode, candidates, selected, scores, selectedScores, usedFallback, error } = options;
+  const totalCandidates = candidates.length;
+  const discardedCount = Math.max(0, totalCandidates - selected.length);
+
+  const stats: SummarySelectionStats = {
+    mode,
+    totalCandidates,
+    selectedCount: selected.length,
+    discardedCount,
+    usedFallback
+  };
+
+  if (scores && scores.length) {
+    const maxScore = Math.max(...scores);
+    const minScore = Math.min(...scores);
+    const meanScore = scores.reduce((sum, value) => sum + value, 0) / scores.length;
+    stats.maxScore = maxScore;
+    stats.minScore = minScore;
+    stats.meanScore = meanScore;
+  }
+
+  if (selectedScores && selectedScores.length) {
+    stats.maxSelectedScore = Math.max(...selectedScores);
+    stats.minSelectedScore = Math.min(...selectedScores);
+  }
+
+  if (error) {
+    stats.error = error;
+  }
+
+  return stats;
+}
+
 export async function selectSummaryBullets(
   query: string,
   candidates: SummaryBullet[],
@@ -65,13 +109,29 @@ export async function selectSummaryBullets(
   const normalizedCandidates = dedupeCandidates(candidates);
 
   if (!normalizedCandidates.length || maxItems <= 0) {
-    return { selected: [], candidates: normalizedCandidates };
+    return {
+      selected: [],
+      candidates: normalizedCandidates,
+      stats: buildStats({
+        mode: 'recency',
+        candidates: normalizedCandidates,
+        selected: [],
+        usedFallback: true
+      })
+    };
   }
 
   if (!config.ENABLE_SEMANTIC_SUMMARY || !query?.trim()) {
+    const fallback = fallbackRecency(normalizedCandidates, maxItems);
     return {
-      selected: fallbackRecency(normalizedCandidates, maxItems),
-      candidates: normalizedCandidates
+      selected: fallback,
+      candidates: normalizedCandidates,
+      stats: buildStats({
+        mode: 'recency',
+        candidates: normalizedCandidates,
+        selected: fallback,
+        usedFallback: true
+      })
     };
   }
 
@@ -105,20 +165,37 @@ export async function selectSummaryBullets(
       return b.score - a.score;
     });
 
-    const selected = scored.slice(0, maxItems).map((item) => ({
+    const selectedEntries = scored.slice(0, maxItems);
+    const selected = selectedEntries.map((item) => ({
       text: item.candidate.text,
       embedding: item.candidate.embedding ? [...item.candidate.embedding] : undefined
     }));
 
     return {
       selected,
-      candidates: normalizedCandidates
+      candidates: normalizedCandidates,
+      stats: buildStats({
+        mode: 'semantic',
+        candidates: normalizedCandidates,
+        selected,
+        scores: scored.map((item) => item.score),
+        selectedScores: selectedEntries.map((item) => item.score),
+        usedFallback: false
+      })
     };
   } catch (error) {
     console.warn('Semantic summary selection failed; falling back to recency.', error);
+    const fallback = fallbackRecency(normalizedCandidates, maxItems);
     return {
-      selected: fallbackRecency(normalizedCandidates, maxItems),
-      candidates: normalizedCandidates
+      selected: fallback,
+      candidates: normalizedCandidates,
+      stats: buildStats({
+        mode: 'recency',
+        candidates: normalizedCandidates,
+        selected: fallback,
+        usedFallback: true,
+        error: (error as Error).message
+      })
     };
   }
 }

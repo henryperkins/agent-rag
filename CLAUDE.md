@@ -182,7 +182,7 @@ Environment variables validated with Zod schema:
 
 Reference these files for architectural context:
 - `docs/unified-orchestrator-context-pipeline.md` - Original design spec
-- `CRITIC_ENHANCEMENTS.md` - Multi-pass critic implementation details
+- `docs/CRITIC_ENHANCEMENTS.md` - Multi-pass critic implementation details
 - `context-engineering.md` - Context management best practices
 
 ## Environment Setup

@@ -1,5 +1,4 @@
 import { createResponse } from '../azure/openaiClient.js';
-import { config } from '../config/app.js';
 
 const CRITIC_PROMPT = `You are a quality critic. Score the draft answer (0-1) on groundedness to context.
 If score < 0.8, suggest revisions. Output JSON: {"score": number, "reasoning": string, "action": "accept"|"revise", "suggestions": string[] }`;

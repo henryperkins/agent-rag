@@ -5,10 +5,10 @@ This note captures the incremental work required to implement semantic summary s
 ## Enhancements
 - **Embedding store**: Persist summary bullet embeddings alongside text in `memoryStore` so similarity can be computed without re-embedding every turn.
   - ✅ Implemented: summary bullets now carry cached embeddings in `memoryStore` to avoid redundant Azure calls.
-- **Selection helper**: Introduce `selectRelevantSummaries(query, summaries, maxItems)` using Azure OpenAI embeddings, cosine similarity, and configurable `CONTEXT_MAX_SUMMARY_ITEMS` cap.
+- **Selection helper**: `selectSummaryBullets(query, candidates, maxItems)` ships in `backend/src/orchestrator/summarySelector.ts`, using Azure OpenAI embeddings, cosine similarity, and a configurable `CONTEXT_MAX_SUMMARY_ITEMS` cap.
 - **Context integration**: Update `buildContextSections` to call the helper instead of recency slicing, and fall back to recency when embeddings are unavailable.
 - **Feature flag**: Govern rollout with `ENABLE_SEMANTIC_SUMMARY` (default `false`) so behaviour can be toggled post-evaluation.
-- **Telemetry**: Emit metrics for selected vs. discarded summaries and similarity thresholds to validate behaviour in `/admin/telemetry`.
+- **Telemetry**: (TODO) Emit metrics for selected vs. discarded summaries and similarity thresholds to validate behaviour in `/admin/telemetry`.
 
 ## Evaluation Prerequisites
 - **Ground-truth pairs**: Assemble evaluation turns where ideal supporting summaries are known (from conversation transcripts or manual annotation).

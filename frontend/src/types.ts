@@ -22,6 +22,20 @@ export interface ActivityStep {
   timestamp?: string;
 }
 
+export interface SummarySelectionStats {
+  mode: 'semantic' | 'recency';
+  totalCandidates: number;
+  selectedCount: number;
+  discardedCount: number;
+  usedFallback: boolean;
+  maxScore?: number;
+  minScore?: number;
+  meanScore?: number;
+  maxSelectedScore?: number;
+  minSelectedScore?: number;
+  error?: string;
+}
+
 export interface ChatResponse {
   answer: string;
   citations: Citation[];
@@ -51,5 +65,6 @@ export interface ChatResponse {
       action: 'accept' | 'revise';
       issues?: string[];
     }>;
+    summary_selection?: SummarySelectionStats;
   };
 }

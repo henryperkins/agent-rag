@@ -22,13 +22,9 @@ backend/src/
 ├── orchestrator/index.ts        # Unified pipeline (context → plan → dispatch → synthesis → critique)
 ├── orchestrator/memoryStore.ts  # In-memory Map<sessionId, MemoryEntry>
 ├── services/
-│   ├── chatService.ts           # Legacy service (basic planner + critic)
 │   ├── chatStreamService.ts     # Streaming service using runSession
 │   └── enhancedChatService.ts   # Sync service using runSession (current prod)
 ├── agents/
-│   ├── planner.ts               # Basic heuristic planner
-│   ├── advancedPlanner.ts       # LLM-based planner with confidence scores
-│   ├── critic.ts                # Legacy critic (score-based)
 │   └── enhancedCritic.ts        # Advanced critic (activity + reference aware)
 ├── azure/indexSetup.ts          # Index creation, document ingestion, embeddings
 ├── azure/openaiClient.ts        # Embeddings, chat, streaming
@@ -39,15 +35,11 @@ backend/src/
 ### Service Layer Evolution
 The system has evolved from simple services to a unified orchestrator pattern:
 
-1. **Legacy Flow** (`chatService.ts`):
-   - Basic planner → agenticRetrieveTool → answerTool → critic loop
-   - Simple, less sophisticated
-
-2. **Current Flow** (`enhancedChatService.ts` + `chatStreamService.ts`):
-   - Uses unified orchestrator (`runSession`)
+1. **Unified Flow** (`enhancedChatService.ts` + `chatStreamService.ts`):
+   - Uses `runSession` for both sync and streaming
    - Session-based telemetry recording
    - Hash-based session ID derivation from first 2 messages
-   - Both sync and streaming modes
+   - Shared tooling for sync and SSE responses
 
 **Key Pattern**: New features should extend the orchestrator, not create parallel service implementations.
 

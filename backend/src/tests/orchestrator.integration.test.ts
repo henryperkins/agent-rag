@@ -10,6 +10,7 @@
 
 import Fastify from 'fastify';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 import { clearSessionTelemetry, getSessionTelemetry } from '../orchestrator/sessionTelemetryStore.js';
 
@@ -55,8 +56,8 @@ beforeEach(() => {
   toolMocks.webSearch.mockReset();
   toolMocks.answer.mockReset();
   toolMocks.critic.mockReset();
-  (openaiClient.createResponseStream as unknown as vi.Mock).mockReset();
-  (openaiClient.createEmbeddings as unknown as vi.Mock).mockReset();
+  (openaiClient.createResponseStream as unknown as Mock).mockReset();
+  (openaiClient.createEmbeddings as unknown as Mock).mockReset();
   clearSessionTelemetry();
 });
 
@@ -316,7 +317,7 @@ describe('orchestrator integration via /chat route', () => {
       'data: {"type":"response.output_text.delta","delta":"Final answer [1]"}\n\n',
       'data: {"type":"response.completed","response":{"output_text":"Final answer [1]"}}\n\n'
     ];
-    (openaiClient.createResponseStream as unknown as vi.Mock).mockResolvedValue({
+    (openaiClient.createResponseStream as unknown as Mock).mockResolvedValue({
       read: vi.fn().mockImplementation(async () => {
         if (!chunks.length) {
           return { value: undefined, done: true };

@@ -277,7 +277,6 @@ backend/src/
 │   └── chatStream.ts              # SSE streaming setup
 │
 ├── services/
-│   ├── chatService.ts             # Legacy chat handler
 │   ├── enhancedChatService.ts     # Orchestrator integration
 │   └── chatStreamService.ts       # Streaming handler
 │
@@ -294,11 +293,8 @@ backend/src/
 │   ├── telemetry.ts               # OpenTelemetry
 │   └── sessionTelemetryStore.ts   # Session tracking
 │
-├── agents/                        # Planning & critique agents
-│   ├── planner.ts                 # Simple planner
-│   ├── advancedPlanner.ts         # Structured planner
-│   ├── critic.ts                  # Legacy critic
-│   └── enhancedCritic.ts          # Enhanced critic
+├── agents/                        # Critique helpers
+│   └── enhancedCritic.ts          # Current critic implementation
 │
 ├── tools/                         # Tool implementations
 │   ├── index.ts                   # Tool exports

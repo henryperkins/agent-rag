@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import type { ActivityStep, AgentMessage, Citation } from '../types';
+import type { ActivityStep, AgentMessage, Citation, SummarySelectionStats } from '../types';
 
 interface CritiqueAttempt {
   attempt: number;
@@ -7,6 +7,11 @@ interface CritiqueAttempt {
   coverage: number;
   action: 'accept' | 'revise';
   issues?: string[];
+}
+
+interface TelemetryState extends Record<string, unknown> {
+  summarySelection?: SummarySelectionStats;
+  summary_selection?: SummarySelectionStats;
 }
 
 interface StreamState {
@@ -19,7 +24,7 @@ interface StreamState {
   critiqueHistory: CritiqueAttempt[];
   plan?: any;
   context?: { history?: string; summary?: string; salience?: string };
-  telemetry?: Record<string, unknown>;
+  telemetry?: TelemetryState;
   trace?: Record<string, unknown>;
   webContext?: {
     text?: string;

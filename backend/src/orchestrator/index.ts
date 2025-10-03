@@ -4,8 +4,6 @@ import type {
   ChatResponse,
   CriticReport,
   OrchestratorTools,
-  PlanSummary,
-  Reference,
   RetrievalDiagnostics,
   SessionTrace
 } from '../../../shared/types.js';
@@ -217,7 +215,8 @@ async function buildContextSections(
     historyText,
     summaryText: combinedSummary,
     salienceText: combinedSalience,
-    summaryCandidates: selection.candidates
+    summaryCandidates: selection.candidates,
+    summaryStats: selection.stats
   };
 }
 
@@ -243,7 +242,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const question = latestQuestion(messages);
   const compacted = await traced('context.compact', () => compactHistory(messages));
   const memorySnapshot = loadMemory(options.sessionId);
-  const { historyText, summaryText, salienceText, summaryCandidates } = await buildContextSections(
+  const { historyText, summaryText, salienceText, summaryCandidates, summaryStats } = await buildContextSections(
     compacted,
     memorySnapshot.summaryBullets,
     memorySnapshot.salience,
@@ -271,7 +270,12 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     salience: sections.salience
   });
 
-  const contextBudget = {
+  const contextBudget: {
+    history_tokens: number;
+    summary_tokens: number;
+    salience_tokens: number;
+    web_tokens?: number;
+  } = {
     history_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.history),
     summary_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.summary),
     salience_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.salience)
@@ -413,6 +417,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       trace_id: options.sessionId,
       context_budget: contextBudget,
       critic_report: critic,
+      summary_selection: summaryStats,
       web_context: dispatch.webContextText
         ? {
             tokens: dispatch.webContextTokens,
@@ -452,6 +457,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     contextBudget,
     critic,
     retrieval: retrievalDiagnostics,
+    summarySelection: summaryStats,
     webContext: dispatch.webContextText
       ? {
           tokens: dispatch.webContextTokens,
@@ -475,6 +481,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     contextBudget,
     retrieval: retrievalDiagnostics,
     critic: criticSummary,
+    summarySelection: summaryStats,
     critiqueHistory,
     events: [],
     error: undefined
@@ -501,6 +508,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     'context.tokens.summary': contextBudget.summary_tokens,
     'context.tokens.salience': contextBudget.salience_tokens,
     'context.tokens.web': contextBudget.web_tokens ?? 0,
+    'summary.selection.mode': summaryStats.mode,
+    'summary.selection.selected': summaryStats.selectedCount,
+    'summary.selection.total': summaryStats.totalCandidates,
     'critic.grounded': critic.grounded,
     'critic.coverage': critic.coverage,
     'critic.iterations': attempt + 1,
