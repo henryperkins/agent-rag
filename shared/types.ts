@@ -111,6 +111,7 @@ export interface RetrievalDiagnostics {
   maxScore?: number;
   thresholdUsed?: number;
   fallbackReason?: string;
+  escalated?: boolean;
 }
 
 export interface SessionTrace {

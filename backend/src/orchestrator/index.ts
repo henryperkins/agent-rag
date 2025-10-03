@@ -20,7 +20,9 @@ import { createResponseStream } from '../azure/openaiClient.js';
 import { trace } from '@opentelemetry/api';
 import { getTracer, traced } from './telemetry.js';
 import { loadMemory, upsertMemory } from './memoryStore.js';
+import type { SummaryBullet } from './memoryStore.js';
 import { agenticRetrieveTool, answerTool, webSearchTool } from '../tools/index.js';
+import { selectSummaryBullets } from './summarySelector.js';
 
 export type ExecMode = 'sync' | 'stream';
 
@@ -172,16 +174,40 @@ async function generateAnswer(
   return { answer, events: [] };
 }
 
-function buildContextSections(
+async function buildContextSections(
   compacted: Awaited<ReturnType<typeof compactHistory>>,
-  memorySummary: string[],
-  memorySalience: SalienceNote[]
+  memorySummary: SummaryBullet[],
+  memorySalience: SalienceNote[],
+  question: string
 ) {
   const historyText = compacted.latest.map((m) => `${m.role}: ${m.content}`).join('\n');
-  const combinedSummary = [...memorySummary, ...compacted.summary]
-    .slice(-config.CONTEXT_MAX_SUMMARY_ITEMS)
-    .map((item) => `- ${item}`)
-    .join('\n');
+
+  const candidateMap = new Map<string, SummaryBullet>();
+  for (const entry of memorySummary) {
+    const text = entry.text?.trim();
+    if (!text) {
+      continue;
+    }
+    candidateMap.set(text, { text, embedding: entry.embedding ? [...entry.embedding] : undefined });
+  }
+  for (const summary of compacted.summary) {
+    const text = summary?.trim();
+    if (!text) {
+      continue;
+    }
+    if (!candidateMap.has(text)) {
+      candidateMap.set(text, { text });
+    }
+  }
+
+  const summaryCandidates = Array.from(candidateMap.values());
+  const selection = await selectSummaryBullets(
+    question,
+    summaryCandidates,
+    config.CONTEXT_MAX_SUMMARY_ITEMS
+  );
+
+  const combinedSummary = selection.selected.map((item) => `- ${item.text}`).join('\n');
   const combinedSalience = mergeSalienceForContext(memorySalience, compacted.salience)
     .slice(0, config.CONTEXT_MAX_SALIENCE_ITEMS)
     .map((note) => `- ${note.fact}`)
@@ -190,7 +216,8 @@ function buildContextSections(
   return {
     historyText,
     summaryText: combinedSummary,
-    salienceText: combinedSalience
+    salienceText: combinedSalience,
+    summaryCandidates: selection.candidates
   };
 }
 
@@ -213,14 +240,16 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
 
   emit?.('status', { stage: 'context' });
 
+  const question = latestQuestion(messages);
   const compacted = await traced('context.compact', () => compactHistory(messages));
   const memorySnapshot = loadMemory(options.sessionId);
-  const { historyText, summaryText, salienceText } = buildContextSections(
+  const { historyText, summaryText, salienceText, summaryCandidates } = await buildContextSections(
     compacted,
     memorySnapshot.summaryBullets,
-    memorySnapshot.salience
+    memorySnapshot.salience,
+    question
   );
-  upsertMemory(options.sessionId, messages.length, compacted);
+  upsertMemory(options.sessionId, messages.length, compacted, summaryCandidates);
 
   const sections = budgetSections({
     model: config.AZURE_OPENAI_GPT_MODEL_NAME,
@@ -271,6 +300,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     const span = trace.getActiveSpan();
     span?.setAttribute('retrieval.references', result.references.length);
     span?.setAttribute('retrieval.web_results', result.webResults.length);
+    span?.setAttribute('retrieval.escalated', result.escalated);
     return result;
   });
   emit?.('tool', {
@@ -296,14 +326,14 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     minScore: min(scoreValues),
     maxScore: max(scoreValues),
     thresholdUsed: config.RERANKER_THRESHOLD,
-    fallbackReason: dispatch.source === 'fallback_vector' ? 'knowledge_agent_unavailable' : undefined
+    fallbackReason: dispatch.source === 'fallback_vector' ? 'knowledge_agent_unavailable' : undefined,
+    escalated: dispatch.escalated
   };
 
   if (dispatch.references.length < config.RETRIEVAL_MIN_DOCS) {
     retrievalDiagnostics.fallbackReason = retrievalDiagnostics.fallbackReason ?? 'insufficient_documents';
   }
 
-  const question = latestQuestion(messages);
   let combinedContext = [dispatch.contextText, dispatch.webContextText].filter(Boolean).join('\n\n');
   if (!combinedContext) {
     combinedContext = sections.history;
@@ -475,6 +505,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     'critic.coverage': critic.coverage,
     'critic.iterations': attempt + 1,
     'retrieval.documents': dispatch.references.length,
+    'retrieval.escalated': dispatch.escalated,
     'web.results': dispatch.webResults.length,
     'web.context.trimmed': dispatch.webContextTrimmed
   });

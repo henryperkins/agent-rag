@@ -20,6 +20,7 @@ export interface DispatchResult {
   webContextTokens: number;
   webContextTrimmed: boolean;
   source: 'knowledge_agent' | 'fallback_vector';
+  escalated: boolean;
 }
 
 interface DispatchOptions {
@@ -98,12 +99,23 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
   const webResults: WebResult[] = [];
   const retrievalSnippets: string[] = [];
   let source: 'knowledge_agent' | 'fallback_vector' = 'knowledge_agent';
+  const confidence = typeof plan.confidence === 'number' ? plan.confidence : 1;
+  const threshold = config.PLANNER_CONFIDENCE_DUAL_RETRIEVAL;
+  const escalated = confidence < threshold;
 
   const queryFallback = latestUserQuery(messages);
   const retrieve = tools?.retrieve ?? agenticRetrieveTool;
   const webSearch = tools?.webSearch ?? webSearchTool;
 
-  const shouldRetrieve = plan.steps.some((step) => step.action === 'vector_search' || step.action === 'both');
+  if (escalated) {
+    emit?.('status', { stage: 'confidence_escalation', confidence, threshold });
+    activity.push({
+      type: 'confidence_escalation',
+      description: `Confidence ${confidence.toFixed(2)} below threshold ${threshold.toFixed(2)}. Executing dual retrieval.`
+    });
+  }
+
+  const shouldRetrieve = escalated || plan.steps.some((step) => step.action === 'vector_search' || step.action === 'both');
   if (shouldRetrieve) {
     emit?.('status', { stage: 'retrieval' });
     const retrieval = await retrieve({ messages });
@@ -123,7 +135,7 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
     }
   }
 
-  const wantsWeb = plan.steps.some((step) => step.action === 'web_search' || step.action === 'both');
+  const wantsWeb = escalated || plan.steps.some((step) => step.action === 'web_search' || step.action === 'both');
   let webContextText = '';
   let webContextTokens = 0;
   let webContextTrimmed = false;
@@ -131,7 +143,7 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
     emit?.('status', { stage: 'web_search' });
     const step = plan.steps.find((s) => s.action === 'web_search' || s.action === 'both');
     const query = step?.query?.trim() || queryFallback;
-    const count = step?.k ?? 5;
+    const count = step?.k ?? config.WEB_RESULTS_MAX;
     try {
       const search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE });
       if (search.results?.length) {
@@ -220,6 +232,7 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
     webContextText,
     webContextTokens,
     webContextTrimmed,
-    source
+    source,
+    escalated
   };
 }

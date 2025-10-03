@@ -63,6 +63,39 @@ export interface SessionTelemetryRecord {
 const MAX_RECORDS = 100;
 const sessionTelemetry: SessionTelemetryRecord[] = [];
 
+const EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const SSN_REGEX = /\b\d{3}-\d{2}-\d{4}\b/g;
+const CREDIT_CARD_GROUPED_REGEX = /\b(?:\d{4}[ -]?){3}\d{4}\b/g;
+const CREDIT_CARD_PLAIN_REGEX = /\b\d{13,16}\b/g;
+
+function redactSensitive(text?: string | null): string | undefined {
+  if (!text) {
+    return text ?? undefined;
+  }
+  let sanitized = text;
+  sanitized = sanitized.replace(EMAIL_REGEX, '[EMAIL]');
+  sanitized = sanitized.replace(SSN_REGEX, '[SSN]');
+  sanitized = sanitized.replace(CREDIT_CARD_GROUPED_REGEX, '[CARD]');
+  sanitized = sanitized.replace(CREDIT_CARD_PLAIN_REGEX, '[CARD]');
+  return sanitized;
+}
+
+function sanitizeEventPayload(event: string, data: unknown): unknown {
+  if (event === 'complete' && data && typeof data === 'object') {
+    const payload = data as { answer?: string };
+    if (typeof payload.answer === 'string') {
+      return { ...payload, answer: redactSensitive(payload.answer) };
+    }
+  }
+  if (event === 'tokens' && data && typeof data === 'object') {
+    const payload = data as { content?: string };
+    if (typeof payload.content === 'string') {
+      return { ...payload, content: redactSensitive(payload.content) };
+    }
+  }
+  return data;
+}
+
 function clone<T>(value: T): T {
   try {
     return JSON.parse(JSON.stringify(value)) as T;
@@ -79,48 +112,49 @@ function pushRecord(record: SessionTelemetryRecord) {
 }
 
 function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown, timestamp: number) {
-  state.events.push({ event, data: clone(data), timestamp });
+  const sanitized = sanitizeEventPayload(event, data);
+  state.events.push({ event, data: clone(sanitized), timestamp });
 
   switch (event) {
     case 'status': {
-      const stage = typeof (data as any)?.stage === 'string' ? (data as any).stage : String(event);
+      const stage = typeof (sanitized as any)?.stage === 'string' ? (sanitized as any).stage : String(event);
       state.status = stage;
       state.statusHistory.push({ stage, timestamp });
       break;
     }
     case 'context': {
       state.context = {
-        history: (data as any)?.history,
-        summary: (data as any)?.summary,
-        salience: (data as any)?.salience
+        history: (sanitized as any)?.history,
+        summary: (sanitized as any)?.summary,
+        salience: (sanitized as any)?.salience
       };
       break;
     }
     case 'plan': {
-      state.plan = clone(data as PlanSummary);
+      state.plan = clone(sanitized as PlanSummary);
       break;
     }
     case 'tool': {
       state.toolUsage = {
-        references: (data as any)?.references,
-        webResults: (data as any)?.webResults
+        references: (sanitized as any)?.references,
+        webResults: (sanitized as any)?.webResults
       };
       break;
     }
     case 'citations': {
-      state.citations = clone((data as any)?.citations ?? []);
+      state.citations = clone((sanitized as any)?.citations ?? []);
       break;
     }
     case 'activity': {
-      state.activity = clone((data as any)?.steps ?? []);
+      state.activity = clone((sanitized as any)?.steps ?? []);
       break;
     }
     case 'critique': {
-      state.critic = clone(data as CriticReport);
+      state.critic = clone(sanitized as CriticReport);
       break;
     }
     case 'web_context': {
-      const payload = data as any;
+      const payload = sanitized as any;
       state.webContext = {
         text: payload?.text,
         tokens: payload?.tokens,
@@ -137,7 +171,7 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       break;
     }
     case 'telemetry': {
-      const payload = data as any;
+      const payload = sanitized as any;
       if (payload?.plan) {
         state.plan = clone(payload.plan);
       }
@@ -159,26 +193,26 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       break;
     }
     case 'trace': {
-      const payload = data as { session?: SessionTrace };
+      const payload = sanitized as { session?: SessionTrace };
       if (payload?.session) {
         state.trace = clone(payload.session);
       }
       break;
     }
     case 'complete': {
-      if ((data as any)?.answer) {
-        state.answer = (data as any).answer;
+      if ((sanitized as any)?.answer) {
+        state.answer = (sanitized as any).answer;
       }
       break;
     }
     case 'done': {
-      if ((data as any)?.status) {
-        state.finalStatus = (data as any).status;
+      if ((sanitized as any)?.status) {
+        state.finalStatus = (sanitized as any).status;
       }
       break;
     }
     case 'error': {
-      state.error = (data as any)?.message ?? 'Unknown error';
+      state.error = (sanitized as any)?.message ?? 'Unknown error';
       break;
     }
     default:
@@ -202,7 +236,7 @@ export function createSessionRecorder(options: {
   const state: SessionTelemetryRecord = {
     sessionId,
     mode,
-    question,
+    question: redactSensitive(question),
     startedAt: Date.now(),
     statusHistory: [],
     events: []
@@ -217,7 +251,7 @@ export function createSessionRecorder(options: {
     complete(response) {
       state.completedAt = Date.now();
       if (response) {
-        state.answer = response.answer;
+        state.answer = redactSensitive(response.answer);
         state.citations = clone(response.citations);
         state.activity = clone(response.activity);
         state.metadata = clone(response.metadata);

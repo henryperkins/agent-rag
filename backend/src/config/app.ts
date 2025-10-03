@@ -46,6 +46,7 @@ const envSchema = z.object({
   PLANNER_CONFIDENCE_DUAL_RETRIEVAL: z.coerce.number().default(0.45),
   RETRIEVAL_MIN_DOCS: z.coerce.number().default(3),
   RETRIEVAL_FALLBACK_RERANKER_THRESHOLD: z.coerce.number().default(1.5),
+  ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
 
   ENABLE_CRITIC: z.coerce.boolean().default(true),
   CRITIC_MAX_RETRIES: z.coerce.number().default(1),
