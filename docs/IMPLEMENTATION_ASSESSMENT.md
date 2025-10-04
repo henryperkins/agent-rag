@@ -8,14 +8,16 @@
 
 ## Executive Summary
 
-✅ **ALL P1 FEATURES IMPLEMENTED AND TESTED**
+✅ **ALL P1 FEATURES IMPLEMENTED AND TESTED** ⚠️ **DISABLED BY DEFAULT**
 
 Three Priority 1 (P1) agentic RAG enhancement features from `docs/agentic-rag-enhancements.md` have been successfully implemented, integrated into the orchestrator, and verified with passing unit tests.
 
+**⚠️ IMPORTANT: All P1 features are DISABLED by default for safety and cost control. Enable via feature flags in `.env` file.**
+
 **Implementation Status:**
-- ✅ **P1-1: Long-Term Semantic Memory** - COMPLETE (7.4KB module + tests)
-- ✅ **P1-2: Query Decomposition** - COMPLETE (7.3KB module + tests)
-- ✅ **P1-3: Web Search Reranking** - COMPLETE (3.0KB module + tests)
+- ✅ **P1-1: Long-Term Semantic Memory** - IMPLEMENTED (Disabled: `ENABLE_SEMANTIC_MEMORY=false`)
+- ✅ **P1-2: Query Decomposition** - IMPLEMENTED (Disabled: `ENABLE_QUERY_DECOMPOSITION=false`)
+- ✅ **P1-3: Web Search Reranking** - IMPLEMENTED (Disabled: `ENABLE_WEB_RERANKING=false`)
 - ⏳ **P1-4: Azure Foundry Evals** - NOT STARTED (requires API access)
 - ⏳ **P2-5: Multi-Agent Workers** - NOT STARTED
 - ⏳ **P2-6: Full Trace Logging** - NOT STARTED
@@ -27,10 +29,21 @@ Three Priority 1 (P1) agentic RAG enhancement features from `docs/agentic-rag-en
 
 ## Detailed Feature Assessment
 
-### P1-1: Long-Term Semantic Memory ✅ IMPLEMENTED
+### P1-1: Long-Term Semantic Memory ✅ IMPLEMENTED (⚠️ Disabled by Default)
 
+**Status**: Code complete, tested, **DISABLED in production by default**
 **Module:** `backend/src/orchestrator/semanticMemoryStore.ts` (7,504 bytes)
 **Tests:** `backend/src/tests/semanticMemoryStore.test.ts` (3 tests passing)
+**Feature Flag:** `ENABLE_SEMANTIC_MEMORY=false` (line 68, `config/app.ts`)
+
+#### Enablement Requirements
+
+To enable this feature:
+1. Set `ENABLE_SEMANTIC_MEMORY=true` in `.env`
+2. Ensure better-sqlite3 native bindings are compiled: `pnpm rebuild better-sqlite3`
+3. Configure `SEMANTIC_MEMORY_DB_PATH` (default: `./data/semantic-memory.db`)
+4. Ensure disk space for SQLite database (est. 100MB-1GB depending on usage)
+5. Monitor embedding API costs (+$50-100/month estimated)
 
 #### Implementation Details
 
@@ -107,10 +120,22 @@ SEMANTIC_MEMORY_PRUNE_AGE_DAYS: z.coerce.number().default(90),
 
 ---
 
-### P1-2: Query Decomposition ✅ IMPLEMENTED
+### P1-2: Query Decomposition ✅ IMPLEMENTED (⚠️ Disabled by Default)
 
+**Status**: Code complete, tested, **DISABLED in production by default**
 **Module:** `backend/src/orchestrator/queryDecomposition.ts` (7,401 bytes)
 **Tests:** `backend/src/tests/queryDecomposition.test.ts` (3 tests passing)
+**Feature Flag:** `ENABLE_QUERY_DECOMPOSITION=false` (line 73, `config/app.ts`)
+
+#### Enablement Requirements
+
+To enable this feature:
+1. Set `ENABLE_QUERY_DECOMPOSITION=true` in `.env`
+2. Configure `DECOMPOSITION_COMPLEXITY_THRESHOLD` (default: 0.6, range: 0-1)
+3. Set `DECOMPOSITION_MAX_SUBQUERIES` (default: 8, recommended: 4-10)
+4. Monitor token usage (can increase 2-3x for complex queries)
+5. Test with sample complex queries before production use
+6. Consider setting Azure OpenAI quota alerts
 
 #### Implementation Details
 
@@ -178,10 +203,22 @@ Question → assessComplexity() → [if complex] → decomposeQuery()
 
 ---
 
-### P1-3: Web Search Reranking ✅ IMPLEMENTED
+### P1-3: Web Search Reranking ✅ IMPLEMENTED (⚠️ Disabled by Default)
 
+**Status**: Code complete, tested, **DISABLED in production by default**
 **Module:** `backend/src/orchestrator/reranker.ts` (3,055 bytes)
 **Tests:** `backend/src/tests/reranker.test.ts` (2 tests passing)
+**Feature Flag:** `ENABLE_WEB_RERANKING=false` (line 77, `config/app.ts`)
+
+#### Enablement Requirements
+
+To enable this feature:
+1. Set `ENABLE_WEB_RERANKING=true` in `.env`
+2. Ensure Google Custom Search is configured (`GOOGLE_SEARCH_API_KEY` set)
+3. Configure `RRF_K_CONSTANT` (default: 60, typical range: 40-80)
+4. Set `RERANKING_TOP_K` (default: 10, number of results after reranking)
+5. Optional: Enable `ENABLE_SEMANTIC_BOOST=true` for embedding-based score boost
+6. Test with queries that benefit from multi-source results
 
 #### Implementation Details
 

@@ -191,6 +191,132 @@ pnpm dev
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8787
 
+## 🎛️ Feature Flags
+
+### Overview
+
+The application includes **7 advanced feature flags** that control optional capabilities. All are **disabled by default** for safety and cost control. See `.env.example` for detailed configuration.
+
+### Available Flags
+
+| Flag | Default | Purpose | Cost Impact | Risk | Recommended |
+|------|---------|---------|-------------|------|-------------|
+| `ENABLE_LAZY_RETRIEVAL` | `false` | Summary-first document loading | **-40-50%** tokens | Low | ✅ Production |
+| `ENABLE_INTENT_ROUTING` | `false` | Adaptive model selection (FAQ/Research/etc) | **-20-30%** cost | Low | ✅ Production |
+| `ENABLE_WEB_RERANKING` | `false` | Unified Azure + Web results (RRF) | Minimal | Low | ✅ With web search |
+| `ENABLE_SEMANTIC_SUMMARY` | `false` | Embedding-based context selection | **+$20-30/mo** | Low | Optional |
+| `ENABLE_SEMANTIC_MEMORY` | `false` | Persistent cross-session memory | **+$50-100/mo** | Low | Optional |
+| `ENABLE_QUERY_DECOMPOSITION` | `false` | Complex multi-step query handling | **+2-3x** for complex queries | Medium | Power users |
+| `ENABLE_CRITIC` | `true` | Multi-pass quality assurance | Standard | N/A | ✅ Always |
+
+### Progressive Enablement Guide
+
+**⚠️ DO NOT enable all features at once**. Follow this week-by-week rollout:
+
+#### Week 1: Cost Optimization (Lowest Risk)
+```bash
+ENABLE_CRITIC=true              # Already default
+ENABLE_INTENT_ROUTING=true      # Saves 20-30% on costs
+ENABLE_LAZY_RETRIEVAL=true      # Saves 40-50% on retrieval tokens
+```
+**Monitor**: Cost reduction, latency, error rates
+**Validate**: 72 hours of stable operation before proceeding
+
+#### Week 2: Quality Enhancement (After Week 1 Success)
+```bash
+# Keep Week 1 settings, add:
+ENABLE_WEB_RERANKING=true       # Better multi-source results
+ENABLE_SEMANTIC_SUMMARY=true    # Improved context selection
+```
+**Monitor**: Result quality, citation accuracy
+**Validate**: User feedback, critic scores
+
+#### Week 3: Advanced Features (After Week 2 Success)
+```bash
+# Keep Week 1+2 settings, add:
+ENABLE_QUERY_DECOMPOSITION=true # Complex query support
+ENABLE_SEMANTIC_MEMORY=true     # Persistent memory
+```
+**Monitor**: Token usage spikes, memory growth, disk space
+**Validate**: Complex query handling, memory recall quality
+
+### Recommended Configurations
+
+#### Minimal (Development/Testing)
+**Estimated Cost**: $200-300/month
+**Use Case**: Development, testing, budget-constrained
+```bash
+ENABLE_CRITIC=true
+ENABLE_INTENT_ROUTING=true
+ENABLE_LAZY_RETRIEVAL=true
+# All others: false
+```
+
+#### Balanced (Production - Recommended)
+**Estimated Cost**: $400-600/month
+**Use Case**: Production with cost awareness
+```bash
+ENABLE_CRITIC=true
+ENABLE_INTENT_ROUTING=true
+ENABLE_LAZY_RETRIEVAL=true
+ENABLE_WEB_RERANKING=true
+ENABLE_SEMANTIC_SUMMARY=true
+# Query decomposition and semantic memory: false
+```
+
+#### Full Features (Enterprise)
+**Estimated Cost**: $700-1000/month
+**Use Case**: Enterprise prioritizing quality over cost
+```bash
+# All flags enabled
+ENABLE_CRITIC=true
+ENABLE_INTENT_ROUTING=true
+ENABLE_LAZY_RETRIEVAL=true
+ENABLE_SEMANTIC_SUMMARY=true
+ENABLE_WEB_RERANKING=true
+ENABLE_QUERY_DECOMPOSITION=true
+ENABLE_SEMANTIC_MEMORY=true
+ENABLE_SEMANTIC_BOOST=true
+```
+
+### Cost Optimization Strategies
+
+**Maximum Cost Savings** (Est. savings: 50-60%):
+1. Enable `INTENT_ROUTING` - Routes simple queries to GPT-4o-mini
+2. Enable `LAZY_RETRIEVAL` - Loads summaries before full documents
+3. Keep other features disabled initially
+
+**Quality-Cost Balance**:
+1. Start with cost optimization flags (above)
+2. Add `WEB_RERANKING` for better multi-source results (minimal cost)
+3. Add `SEMANTIC_SUMMARY` only for long conversations (+$20-30/mo)
+
+**Avoid Cost Spikes**:
+- ⚠️ `QUERY_DECOMPOSITION` can multiply tokens 2-3x on complex queries
+- ⚠️ `SEMANTIC_MEMORY` adds embedding costs for every recall/store operation
+- ✅ Monitor Azure OpenAI quota and set spending alerts
+
+### Troubleshooting
+
+**Issue**: "better-sqlite3 native bindings error"
+**Solution**: Run `pnpm rebuild better-sqlite3` in `backend/` directory (needed for `SEMANTIC_MEMORY`)
+
+**Issue**: Unexpected cost increase
+**Solution**: Check which flags are enabled, disable `SEMANTIC_MEMORY` and `QUERY_DECOMPOSITION` first
+
+**Issue**: Slow response times
+**Solution**: `QUERY_DECOMPOSITION` may generate many sub-queries. Reduce `DECOMPOSITION_MAX_SUBQUERIES` or disable
+
+**Issue**: Low quality answers
+**Solution**: Ensure `ENABLE_CRITIC=true` (default). Increase `CRITIC_THRESHOLD` for stricter quality
+
+### Implementation Details
+
+All feature flags are defined in `backend/src/config/app.ts` with Zod schema validation. See:
+- Implementation: `docs/IMPLEMENTATION_ASSESSMENT.md`
+- Cost analysis: `docs/CODEBASE_DOCUMENTATION_ALIGNMENT_PLAN.md`
+- Full config reference: `backend/.env.example`
+
 ## 📖 Usage
 
 ### Chat Interface
