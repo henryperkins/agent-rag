@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { generateEmbedding } from '../azure/directSearch.js';
 import { config } from '../config/app.js';
+import { cosineSimilarity } from '../utils/vector-ops.js';
 
 export type MemoryType = 'episodic' | 'semantic' | 'procedural' | 'preference';
 
@@ -171,7 +172,7 @@ export class SemanticMemoryStore {
       const scored = rows.map((row) => {
         const embeddingBuffer: Buffer = row.embedding;
         const embedding = toFloat32Array(embeddingBuffer);
-        const similarity = this.cosineSimilarity(queryEmbedding, embedding);
+        const similarity = cosineSimilarity(queryEmbedding, embedding);
         const recordTags = JSON.parse(row.tags || '[]');
         const matchedTags = Array.isArray(tags)
           ? recordTags.filter((tag: string) => tags.includes(tag))
@@ -247,24 +248,6 @@ export class SemanticMemoryStore {
     }
   }
 
-  private cosineSimilarity(vecA: number[], vecB: number[]) {
-    if (!vecA.length || vecA.length !== vecB.length) {
-      return 0;
-    }
-
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < vecA.length; i += 1) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
-    }
-
-    const magnitude = Math.sqrt(normA) * Math.sqrt(normB);
-    return magnitude === 0 ? 0 : dotProduct / magnitude;
-  }
 }
 
 export const semanticMemoryStore = new SemanticMemoryStore();
