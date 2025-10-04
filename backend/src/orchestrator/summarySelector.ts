@@ -2,34 +2,12 @@ import { config } from '../config/app.js';
 import { createEmbeddings } from '../azure/openaiClient.js';
 import type { SummaryBullet } from './memoryStore.js';
 import type { SummarySelectionStats } from '../../../shared/types.js';
+import { cosineSimilarity } from '../utils/vector-ops.js';
 
 export interface SummarySelection {
   selected: SummaryBullet[];
   candidates: SummaryBullet[];
   stats: SummarySelectionStats;
-}
-
-function cosineSimilarity(vectorA: number[], vectorB: number[]) {
-  if (!vectorA.length || !vectorB.length || vectorA.length !== vectorB.length) {
-    return 0;
-  }
-
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < vectorA.length; i += 1) {
-    const a = vectorA[i];
-    const b = vectorB[i];
-    dot += a * b;
-    normA += a * a;
-    normB += b * b;
-  }
-
-  if (!normA || !normB) {
-    return 0;
-  }
-
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
 function fallbackRecency(candidates: SummaryBullet[], maxItems: number): SummaryBullet[] {

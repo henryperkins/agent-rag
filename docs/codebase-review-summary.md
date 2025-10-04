@@ -25,7 +25,7 @@ After comprehensive analysis of both the Liner application and the Agent-RAG cod
 ```
 Current Tools:
 ├── agenticRetrieveTool    → Azure Knowledge Agent retrieval
-├── webSearchTool          → Bing web search
+├── webSearchTool          → Google Custom Search
 └── answerTool            → LLM-based answer generation
 
 Extension Point: Add new tools following same pattern

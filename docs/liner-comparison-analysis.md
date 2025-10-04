@@ -10,7 +10,7 @@
 
 **Liner** is a comprehensive academic research platform with 10M+ users, offering integrated tools for highlighting, annotation, citation management, and AI-powered research assistance across web, PDF, and video content.
 
-**Agent-RAG** is an enterprise-focused, Azure-native agentic retrieval system with advanced orchestration, quality assurance pipelines, and transparent AI reasoning designed for grounded question-answering over custom knowledge bases.
+**Agent-RAG** is an enterprise-focused, Azure-native agentic retrieval system with advanced orchestration, quality assurance pipelines, and transparent AI reasoning designed for grounded question-answering over custom knowledge bases. Recent 2.0.0 enhancements add long-term semantic memory, query decomposition, and reciprocal-rank-fusion web reranking for richer retrieval orchestration.
 
 ### Key Positioning Differences
 
@@ -126,16 +126,31 @@
   - Cross-turn fact persistence
 
 - **Memory Store** (`backend/src/orchestrator/memoryStore.ts`):
-  - Session-based context persistence
+  - Session-scoped short-term context persistence
   - Embedding-backed summary bullets
   - Deduplication and normalization
   - Configurable retention policies
+- **Semantic Memory Store** (`backend/src/orchestrator/semanticMemoryStore.ts`):
+  - SQLite-backed long-term memory with cross-session recall
+  - Embedding similarity search with tag, user, and session filters
+  - Feature-flagged via `ENABLE_SEMANTIC_MEMORY` and tunable thresholds
+  - Automatic pruning driven by age and usage counts
 
 - **Semantic Summary Selection** (`backend/src/orchestrator/summarySelector.ts`):
   - Embedding similarity-based selection
   - Cosine similarity ranking
   - Fallback to recency when embeddings unavailable
   - Configurable selection count
+
+##### Query Decomposition
+- **Complexity Assessment** (`backend/src/orchestrator/queryDecomposition.ts`):
+  - LLM-evaluated complexity scoring to detect multi-step queries
+  - Structured outputs validated against JSON schema contracts
+  - Configurable thresholds via `DECOMPOSITION_COMPLEXITY_THRESHOLD`
+- **Sub-query Execution** (`backend/src/orchestrator/queryDecomposition.ts`):
+  - Dependency-aware topological execution with retries and fallbacks
+  - Aggregates per-step references and web results before synthesis
+  - Gracefully reverts to single-shot retrieval on failure
 
 ##### Adaptive Retrieval
 - **Confidence-based Escalation**:
@@ -148,11 +163,11 @@
   2. Secondary: Direct vector search with semantic ranking
   3. Tertiary: Web search augmentation
 
-- **Reranking Pipeline**:
-  - Configurable reranker threshold (default: 2.5)
-  - Score-based filtering
-  - Min-document requirements (default: 3)
-  - Automatic threshold relaxation on underflow
+- **Reranking Pipeline** (`backend/src/orchestrator/reranker.ts`):
+  - Reciprocal Rank Fusion combining Knowledge Agent and web results (`RRF_K_CONSTANT`)
+  - Optional semantic boost with Azure OpenAI embeddings (`ENABLE_SEMANTIC_BOOST`)
+  - Score-based filtering with configurable top-K truncation
+  - Automatic threshold relaxation when retrieved documents underflow
 
 ##### Quality Assurance
 - **Critic Retry Loop**:
@@ -282,9 +297,13 @@
   - Semantic ranking
   - Configurable similarity thresholds
   - Token-aware result limiting
+- **Result Reranking** (`backend/src/orchestrator/reranker.ts`):
+  - Reciprocal Rank Fusion merges multi-source evidence into a unified ranking
+  - Optional semantic boost reorders results by embedding similarity
+  - Emits telemetry for input/output counts to aid observability
 
 ##### Web Context Augmentation
-- **Bing Search Integration** (`backend/src/tools/webSearch.ts`):
+- **Google Custom Search Integration** (`backend/src/tools/webSearch.ts`):
   - Configurable result count (default: 6)
   - Fresh content (week freshness filter)
   - Safe search policies
@@ -337,7 +356,7 @@
 - Linked references
 - Exportable formats
 
-#### Agent-RAG Synthesis Pipeline (NOT in Agent-RAG)
+#### Agent-RAG Synthesis Pipeline (NOT in Liner)
 
 ##### Context-Aware Generation
 - **Strict Grounding**: "Use ONLY provided context" system prompt
@@ -383,7 +402,7 @@
 - **Single-user focus**: No built-in multi-tenancy
 - **Session isolation**: Session ID-based separation
 - **No authentication**: Stateless API design
-- **No persistence**: In-memory session storage
+- **Limited persistence**: Session transcripts remain in-memory, while the semantic memory store persists cross-session embeddings when enabled
 
 ##### Potential Extensions
 - Could add user authentication layer
@@ -418,6 +437,11 @@
 - **Token Budgets**: Per-component token tracking
 - **Performance Metrics**: Latency measurements per stage
 - **Error Tracking**: Structured error capture
+
+##### Semantic Memory Persistence
+- **SQLite-backed store**: Persists episodic, semantic, procedural, and preference memories
+- **Similarity recall**: Embedding search with configurable top-K and similarity thresholds
+- **Operational controls**: Feature flag toggles, pruning utilities, and telemetry events
 
 ##### Configuration Export
 - Environment variable templates
@@ -544,9 +568,9 @@ Shared Types (TypeScript)
 | **AI/LLM** | OpenAI GPT-4, custom models | Azure OpenAI (GPT-5 deployment) |
 | **Search** | Custom academic index | Azure AI Search |
 | **Embeddings** | Unknown | Azure OpenAI (text-embedding-3-large) |
-| **Web Search** | Unknown | Azure Bing Search API |
+| **Web Search** | Unknown | Google Custom Search API |
 | **Authentication** | Google OAuth, email | None (stateless) |
-| **Database** | PostgreSQL/MongoDB (inferred) | None (in-memory only) |
+| **Database** | PostgreSQL/MongoDB (inferred) | SQLite semantic memory store (feature-flagged) + in-memory session cache |
 | **Caching** | Redis (likely) | None |
 | **Mobile** | Native iOS/Android | None |
 | **Browser Extension** | Chrome/Firefox extensions | None |
@@ -649,7 +673,7 @@ Shared Types (TypeScript)
 - **Azure Costs**: Pay for Azure resources consumed
   - Azure AI Search
   - Azure OpenAI API
-  - Azure Bing Search (optional)
+  - Google Custom Search (optional)
 - **No Licensing Fees**: No per-user costs
 - **Enterprise Control**: Full data ownership
 

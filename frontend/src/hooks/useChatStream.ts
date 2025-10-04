@@ -18,7 +18,6 @@ interface CritiqueAttempt {
 
 interface TelemetryState extends Record<string, unknown> {
   summarySelection?: SummarySelectionStats;
-  summary_selection?: SummarySelectionStats;
 }
 
 interface StreamState {
@@ -44,6 +43,47 @@ interface StreamState {
   lazySummaryTokens?: number;
   evaluation?: SessionEvaluation;
   error?: string;
+}
+
+function normalizeTelemetryEvent(data: Record<string, unknown> | undefined) {
+  if (!data) {
+    return {} as Record<string, unknown>;
+  }
+
+  const normalized: Record<string, unknown> = { ...data };
+
+  if (data.context_budget && !data.contextBudget) {
+    normalized.contextBudget = data.context_budget;
+  }
+  if (data.summary_selection && !data.summarySelection) {
+    normalized.summarySelection = data.summary_selection;
+  }
+  if (data.web_context && !data.webContext) {
+    normalized.webContext = data.web_context;
+  }
+  if (data.query_decomposition && !data.queryDecomposition) {
+    normalized.queryDecomposition = data.query_decomposition;
+  }
+  if (data.retrieval_mode && !data.retrievalMode) {
+    normalized.retrievalMode = data.retrieval_mode;
+  }
+  if (data.lazy_summary_tokens !== undefined && data.lazySummaryTokens === undefined) {
+    normalized.lazySummaryTokens = data.lazy_summary_tokens;
+  }
+  if (data.semantic_memory && !data.semanticMemory) {
+    normalized.semanticMemory = data.semantic_memory;
+  }
+  if (data.metadata && typeof data.metadata === 'object') {
+    const metadata = data.metadata as Record<string, unknown>;
+    if (metadata.route && !normalized.route) {
+      normalized.route = metadata.route;
+    }
+    if (metadata.evaluation && !normalized.evaluation) {
+      normalized.evaluation = metadata.evaluation;
+    }
+  }
+
+  return normalized;
 }
 
 export function useChatStream() {
@@ -152,17 +192,19 @@ export function useChatStream() {
                 break;
               case 'telemetry':
                 setState((prev) => {
-                  const mergedTelemetry = { ...(prev.telemetry ?? {}), ...data } as TelemetryState;
-                  const nextRoute = (data.route ?? data.metadata?.route) as RouteMetadata | undefined;
-                  const nextRetrievalMode = (data.retrievalMode ?? data.retrieval_mode ?? prev.retrievalMode) as string | undefined;
-                  const nextLazyTokens = (data.lazySummaryTokens ?? data.lazy_summary_tokens ?? prev.lazySummaryTokens) as number | undefined;
-                  const nextEvaluation = (data.evaluation ?? data.metadata?.evaluation) as SessionEvaluation | undefined;
+                  const normalized = normalizeTelemetryEvent(data) as TelemetryState & {
+                    route?: RouteMetadata;
+                    retrievalMode?: string;
+                    lazySummaryTokens?: number;
+                    evaluation?: SessionEvaluation;
+                  };
+                  const { route: nextRoute, retrievalMode: nextRetrievalMode, lazySummaryTokens: nextLazyTokens, evaluation: nextEvaluation, ...rest } = normalized;
                   return {
                     ...prev,
-                    telemetry: mergedTelemetry,
+                    telemetry: { ...(prev.telemetry ?? {}), ...rest },
                     route: nextRoute ?? prev.route,
-                    retrievalMode: nextRetrievalMode,
-                    lazySummaryTokens: nextLazyTokens,
+                    retrievalMode: nextRetrievalMode ?? prev.retrievalMode,
+                    lazySummaryTokens: nextLazyTokens ?? prev.lazySummaryTokens,
                     evaluation: nextEvaluation ?? prev.evaluation
                   };
                 });

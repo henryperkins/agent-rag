@@ -543,7 +543,7 @@ Create:
 | OpenAI API | 10M tokens/mo | $200 |
 | Blob Storage | 500GB | $10 |
 | Vision API | 10K images | $50 |
-| Bing Search | 5K queries | $25 |
+| Google Custom Search | 5K queries | $25 |
 | **Total** | | **$535/mo** |
 
 ### Development Costs

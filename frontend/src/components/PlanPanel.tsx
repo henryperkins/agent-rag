@@ -16,6 +16,43 @@ function isSummarySelectionStats(value: unknown): value is SummarySelectionStats
   return typeof stats.totalCandidates === 'number' && typeof stats.selectedCount === 'number';
 }
 
+function normalizeTelemetryMap(raw: Record<string, unknown>) {
+  const normalized: Record<string, unknown> = { ...raw };
+
+  if (raw.context_budget && !normalized.contextBudget) {
+    normalized.contextBudget = raw.context_budget;
+  }
+  if (raw.summary_selection && !normalized.summarySelection) {
+    normalized.summarySelection = raw.summary_selection;
+  }
+  if (raw.web_context && !normalized.webContext) {
+    normalized.webContext = raw.web_context;
+  }
+  if (raw.query_decomposition && !normalized.queryDecomposition) {
+    normalized.queryDecomposition = raw.query_decomposition;
+  }
+  if (raw.retrieval_mode && !normalized.retrievalMode) {
+    normalized.retrievalMode = raw.retrieval_mode;
+  }
+  if (raw.lazy_summary_tokens !== undefined && normalized.lazySummaryTokens === undefined) {
+    normalized.lazySummaryTokens = raw.lazy_summary_tokens;
+  }
+  if (raw.semantic_memory && !normalized.semanticMemory) {
+    normalized.semanticMemory = raw.semantic_memory;
+  }
+  if (raw.metadata && typeof raw.metadata === 'object') {
+    const metadata = raw.metadata as Record<string, unknown>;
+    if (metadata.route && !normalized.route) {
+      normalized.route = metadata.route;
+    }
+    if (metadata.evaluation && !normalized.evaluation) {
+      normalized.evaluation = metadata.evaluation;
+    }
+  }
+
+  return normalized;
+}
+
 interface PlanPanelProps {
   plan?: unknown;
   context?: { history?: string; summary?: string; salience?: string };
@@ -49,25 +86,22 @@ export function PlanPanel({
   const hasCritique = Boolean(critiqueHistory && critiqueHistory.length);
   const hasWeb = Boolean(webContext?.text || webContext?.results?.length);
 
-  const rawSummarySelection = telemetry && typeof telemetry === 'object'
-    ? ((telemetry as Record<string, unknown>).summarySelection ?? (telemetry as Record<string, unknown>).summary_selection)
+  const normalizedTelemetry = telemetry && typeof telemetry === 'object'
+    ? normalizeTelemetryMap(telemetry as Record<string, unknown>)
     : undefined;
 
-  const summarySelection = isSummarySelectionStats(rawSummarySelection) ? rawSummarySelection : undefined;
+  const summarySelectionValue = normalizedTelemetry?.summarySelection;
+  const summarySelection = isSummarySelectionStats(summarySelectionValue) ? summarySelectionValue : undefined;
 
-  const cleanedTelemetry = telemetry && typeof telemetry === 'object'
+  const cleanedTelemetry = normalizedTelemetry
     ? Object.fromEntries(
-        Object.entries(telemetry as Record<string, unknown>).filter(
-          ([key]) => key !== 'summarySelection' && key !== 'summary_selection' && key !== 'evaluation'
-        )
+        Object.entries(normalizedTelemetry).filter(([key]) => key !== 'summarySelection' && key !== 'evaluation')
       )
-    : telemetry;
-  
-  const hasTelemetry = cleanedTelemetry && Object.keys(cleanedTelemetry).length > 0;
-  const hasRouting = Boolean(route || retrievalMode || typeof lazySummaryTokens === 'number');
-  const telemetryEvaluation = telemetry && typeof telemetry === 'object'
-    ? ((telemetry as Record<string, unknown>).evaluation ?? (telemetry as Record<string, unknown>).metadata?.evaluation)
     : undefined;
+
+  const hasTelemetry = cleanedTelemetry ? Object.keys(cleanedTelemetry).length > 0 : false;
+  const hasRouting = Boolean(route || retrievalMode || typeof lazySummaryTokens === 'number');
+  const telemetryEvaluation = normalizedTelemetry?.evaluation;
   const evaluation = isSessionEvaluation(evaluationProp)
     ? evaluationProp
     : isSessionEvaluation(telemetryEvaluation)

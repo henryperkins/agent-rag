@@ -1,4 +1,5 @@
 import type { Reference, WebResult } from '../../../shared/types.js';
+import { cosineSimilarity } from '../utils/vector-ops.js';
 
 export interface RerankedResult {
   id: string;
@@ -96,23 +97,4 @@ export function applySemanticBoost(
   });
 
   return adjusted;
-}
-
-function cosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length || vecA.length === 0) {
-    return 0;
-  }
-
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-
-  for (let i = 0; i < vecA.length; i += 1) {
-    dot += vecA[i] * vecB[i];
-    normA += vecA[i] * vecA[i];
-    normB += vecB[i] * vecB[i];
-  }
-
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-  return denominator === 0 ? 0 : dot / denominator;
 }

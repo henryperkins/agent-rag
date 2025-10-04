@@ -128,6 +128,40 @@ function sanitizeEventPayload(event: string, data: unknown): unknown {
   return data;
 }
 
+function normalizeTelemetryPayload(payload: Record<string, any>): Record<string, any> {
+  const normalized = { ...payload };
+
+  if (normalized.context_budget && !normalized.contextBudget) {
+    normalized.contextBudget = normalized.context_budget;
+  }
+  if (normalized.summary_selection && !normalized.summarySelection) {
+    normalized.summarySelection = normalized.summary_selection;
+  }
+  if (normalized.web_context && !normalized.webContext) {
+    normalized.webContext = normalized.web_context;
+  }
+  if (normalized.query_decomposition && !normalized.queryDecomposition) {
+    normalized.queryDecomposition = normalized.query_decomposition;
+  }
+  if (normalized.retrieval_mode && !normalized.retrievalMode) {
+    normalized.retrievalMode = normalized.retrieval_mode;
+  }
+  if (normalized.lazy_summary_tokens !== undefined && normalized.lazySummaryTokens === undefined) {
+    normalized.lazySummaryTokens = normalized.lazy_summary_tokens;
+  }
+  if (normalized.semantic_memory && !normalized.semanticMemory) {
+    normalized.semanticMemory = normalized.semantic_memory;
+  }
+  if (normalized.metadata?.route && !normalized.route) {
+    normalized.route = normalized.metadata.route;
+  }
+  if (normalized.metadata?.evaluation && !normalized.evaluation) {
+    normalized.evaluation = normalized.metadata.evaluation;
+  }
+
+  return normalized;
+}
+
 function sanitizeEvaluation(evaluation?: SessionEvaluation | null): SessionEvaluation | undefined {
   if (!evaluation) {
     return evaluation ?? undefined;
@@ -309,7 +343,10 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       break;
     }
     case 'telemetry': {
-      const payload = sanitized as any;
+      const payload = sanitized && typeof sanitized === 'object'
+        ? normalizeTelemetryPayload(sanitized as Record<string, any>)
+        : undefined;
+
       if (payload?.plan) {
         state.plan = clone(payload.plan);
       }

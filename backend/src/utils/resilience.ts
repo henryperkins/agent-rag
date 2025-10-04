@@ -1,3 +1,6 @@
+import { SpanStatusCode } from '@opentelemetry/api';
+import { getTracer } from '../orchestrator/telemetry.js';
+
 export interface RetryOptions {
   maxRetries?: number;
   initialDelayMs?: number;
@@ -5,17 +8,6 @@ export interface RetryOptions {
   timeoutMs?: number;
   retryableErrors?: string[];
 }
-
-export interface TelemetryData {
-  operation: string;
-  startTime: number;
-  endTime?: number;
-  success?: boolean;
-  error?: string;
-  retries?: number;
-}
-
-const telemetryLog: TelemetryData[] = [];
 
 export async function withRetry<T>(operation: string, fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const {
@@ -26,64 +18,63 @@ export async function withRetry<T>(operation: string, fn: () => Promise<T>, opti
     retryableErrors = ['ECONNRESET', 'ETIMEDOUT', '429', '503', 'AbortError']
   } = options;
 
-  const telemetry: TelemetryData = {
-    operation,
-    startTime: Date.now()
-  };
+  const tracer = getTracer();
 
-  let attempt = 0;
-  let lastError: any;
+  return tracer.startActiveSpan(`retry:${operation}`, async (span) => {
+    span.setAttribute('retry.operation', operation);
+    span.setAttribute('retry.max', maxRetries);
 
-  while (attempt <= maxRetries) {
+    let attempt = 0;
+    let lastError: any;
+
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Operation timeout')), timeoutMs)
-      );
+      while (attempt <= maxRetries) {
+        try {
+          const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Operation timeout')), timeoutMs)
+          );
 
-      const result = await Promise.race([fn(), timeout]);
+          const result = await Promise.race([fn(), timeout]);
 
-      telemetry.endTime = Date.now();
-      telemetry.success = true;
-      telemetry.retries = attempt;
-      telemetryLog.push(telemetry);
+          if (attempt > 0) {
+            console.info(`${operation} succeeded after ${attempt} retries.`);
+            span.addEvent('retry.success', { attempt });
+          }
 
-      if (attempt > 0) {
-        console.info(`${operation} succeeded after ${attempt} retries.`);
+          span.setAttribute('retry.attempts', attempt);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return result;
+        } catch (error: any) {
+          lastError = error;
+          const isRetryable = retryableErrors.some(
+            (code) =>
+              error.message?.includes(code) ||
+              error.code?.includes(code) ||
+              error.status?.toString().includes(code)
+          );
+
+          span.addEvent('retry.failure', {
+            attempt,
+            message: error?.message ?? String(error)
+          });
+
+          if (!isRetryable || attempt === maxRetries) {
+            span.recordException(error);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: error?.message });
+            throw error;
+          }
+
+          attempt += 1;
+          const waitTime = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+          span.addEvent('retry.wait', { attempt, waitTime });
+          console.warn(`${operation} failed (attempt ${attempt}/${maxRetries}). Retrying in ${waitTime}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
       }
 
-      return result;
-    } catch (error: any) {
-      lastError = error;
-      const isRetryable = retryableErrors.some(
-        (code) =>
-          error.message?.includes(code) ||
-          error.code?.includes(code) ||
-          error.status?.toString().includes(code)
-      );
-
-      if (!isRetryable || attempt === maxRetries) {
-        telemetry.endTime = Date.now();
-        telemetry.success = false;
-        telemetry.error = error.message;
-        telemetry.retries = attempt;
-        telemetryLog.push(telemetry);
-        throw error;
-      }
-
-      attempt++;
-      const waitTime = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
-      console.warn(`${operation} failed (attempt ${attempt}/${maxRetries}). Retrying in ${waitTime}ms...`);
-      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      throw lastError;
+    } finally {
+      span.end();
     }
-  }
-
-  throw lastError;
-}
-
-export function getTelemetry(): TelemetryData[] {
-  return [...telemetryLog];
-}
-
-export function clearTelemetry() {
-  telemetryLog.length = 0;
+  });
 }

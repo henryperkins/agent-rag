@@ -57,11 +57,11 @@
         │                     │
 ┌───────▼─────────────────────▼────────────────────────────────────────┐
 │                      External Services                                │
-│  ┌────────────────────┐  ┌────────────────────┐  ┌───────────────┐  │
-│  │  Azure AI Search   │  │  Azure OpenAI API  │  │ Google Search │  │
-│  │  REST API          │  │  /chat/completions │  │ Custom Search │  │
-│  │  Hybrid Semantic   │  │  /embeddings       │  │ JSON API      │  │
-│  └────────────────────┘  └────────────────────┘  └───────────────┘  │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐ │
+│  │  Azure AI Search   │  │  Azure OpenAI API  │  │ Google Custom Search │ │
+│  │  REST API          │  │  /chat/completions │  │ REST API             │ │
+│  │  Hybrid Semantic   │  │  /embeddings       │  │ Web Results          │ │
+│  └────────────────────┘  └────────────────────┘  └────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 

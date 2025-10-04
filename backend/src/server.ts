@@ -30,11 +30,17 @@ await app.register(cors, {
       cb(null, true);
       return;
     }
+    // Direct match from configured list
     if (allowedOrigins.includes(origin)) {
       cb(null, true);
-    } else {
-      cb(new Error('Not allowed by CORS'), false);
+      return;
     }
+    // In development allow any localhost:* to reduce friction when Vite increments ports
+    if (isDevelopment && /^http:\/\/localhost:\d+$/.test(origin)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Not allowed by CORS'), false);
   },
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true

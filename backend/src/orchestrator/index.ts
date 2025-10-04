@@ -748,59 +748,80 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     activity: dispatch.activity
   });
 
-      const response: ChatResponse = {
-        answer,
-        citations: dispatch.references,
-        activity: dispatch.activity,
-        metadata: {
-          retrieval_time_ms: undefined,
+  const semanticMemorySummary = recalledMemories.length
+    ? {
+        recalled: recalledMemories.length,
+        entries: recalledMemories.map((memory) => ({
+          id: memory.id,
+          type: memory.type,
+          similarity: memory.similarity,
+          preview: memory.text.slice(0, 120)
+        }))
+      }
+    : undefined;
+
+  const queryDecompositionSummary = decompositionResult
+    ? {
+        active: decompositionApplied,
+        complexityScore: complexityAssessment?.complexity,
+        subQueries: decompositionResult.subQueries.map((item) => ({
+          id: item.id,
+          query: item.query,
+          dependencies: item.dependencies
+        })),
+        synthesisPrompt: decompositionResult.synthesisPrompt
+      }
+    : decompositionApplied
+    ? { active: true, complexityScore: complexityAssessment?.complexity }
+    : undefined;
+
+  const webContextSummary = dispatch.webContextText
+    ? {
+        tokens: dispatch.webContextTokens,
+        trimmed: dispatch.webContextTrimmed,
+        text: dispatch.webContextText,
+        results: dispatch.webResults.map((result) => ({
+          id: result.id,
+          title: result.title,
+          url: result.url,
+          rank: result.rank
+        }))
+      }
+    : undefined;
+
+  const telemetrySnapshot = {
+    plan,
+    contextBudget,
+    critic,
+    retrieval: retrievalDiagnostics,
+    route: routeMetadata,
+    retrievalMode: dispatch.retrievalMode,
+    lazySummaryTokens: dispatch.summaryTokens,
+    semanticMemory: semanticMemorySummary,
+    queryDecomposition: queryDecompositionSummary,
+    summarySelection: summaryStats,
+    webContext: webContextSummary,
+    evaluation
+  } as const;
+
+  const response: ChatResponse = {
+    answer,
+    citations: dispatch.references,
+    activity: dispatch.activity,
+    metadata: {
+      retrieval_time_ms: undefined,
       critic_iterations: attempt + 1,
-      plan,
+      plan: telemetrySnapshot.plan,
       trace_id: options.sessionId,
-      context_budget: contextBudget,
-      critic_report: critic,
-      summary_selection: summaryStats,
-      route: routeMetadata,
-      retrieval_mode: dispatch.retrievalMode,
-      lazy_summary_tokens: dispatch.summaryTokens,
-      semantic_memory: recalledMemories.length
-        ? {
-            recalled: recalledMemories.length,
-            entries: recalledMemories.map((memory) => ({
-              id: memory.id,
-              type: memory.type,
-              similarity: memory.similarity,
-              preview: memory.text.slice(0, 120)
-            }))
-          }
-        : undefined,
-      query_decomposition: decompositionResult
-        ? {
-            active: decompositionApplied,
-            complexityScore: complexityAssessment?.complexity,
-            subQueries: decompositionResult.subQueries.map((item) => ({
-              id: item.id,
-              query: item.query,
-              dependencies: item.dependencies
-            })),
-            synthesisPrompt: decompositionResult.synthesisPrompt
-          }
-        : decompositionApplied
-        ? { active: true, complexityScore: complexityAssessment?.complexity }
-        : undefined,
-      web_context: dispatch.webContextText
-        ? {
-            tokens: dispatch.webContextTokens,
-            trimmed: dispatch.webContextTrimmed,
-            text: dispatch.webContextText,
-            results: dispatch.webResults.map((result) => ({
-              id: result.id,
-              title: result.title,
-              url: result.url,
-              rank: result.rank
-            }))
-          }
-        : undefined,
+      context_budget: telemetrySnapshot.contextBudget,
+      critic_report: telemetrySnapshot.critic,
+      summary_selection: telemetrySnapshot.summarySelection,
+      route: telemetrySnapshot.route,
+      retrieval_mode: telemetrySnapshot.retrievalMode,
+      lazy_summary_tokens: telemetrySnapshot.lazySummaryTokens,
+      semantic_memory: telemetrySnapshot.semanticMemory,
+      query_decomposition: telemetrySnapshot.queryDecomposition,
+      web_context: telemetrySnapshot.webContext,
       critique_history: critiqueHistory.map((entry) => ({
         attempt: entry.attempt,
         coverage: entry.coverage,
@@ -809,68 +830,23 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         issues: entry.issues,
         usedFullContent: entry.usedFullContent
       })),
-      evaluation
+      evaluation: telemetrySnapshot.evaluation
     }
   };
 
-      const completedAt = Date.now();
-      const criticSummary = {
-        grounded: critic.grounded,
-        coverage: critic.coverage,
-        action: critic.action,
-        iterations: attempt + 1,
-        issues: critic.issues
-      };
+  const completedAt = Date.now();
+  const criticSummary = {
+    grounded: critic.grounded,
+    coverage: critic.coverage,
+    action: critic.action,
+    iterations: attempt + 1,
+    issues: critic.issues
+  };
 
-      emit?.('complete', { answer });
-      emit?.('telemetry', {
-        traceId: options.sessionId,
-        plan,
-        contextBudget,
-        critic,
-        retrieval: retrievalDiagnostics,
-    route: routeMetadata,
-    retrievalMode: dispatch.retrievalMode,
-    lazySummaryTokens: dispatch.summaryTokens,
-    semanticMemory: recalledMemories.length
-      ? {
-          recalled: recalledMemories.length,
-          entries: recalledMemories.map((memory) => ({
-            id: memory.id,
-            type: memory.type,
-            similarity: memory.similarity,
-            preview: memory.text.slice(0, 120)
-          }))
-        }
-      : undefined,
-    queryDecomposition: decompositionResult
-      ? {
-          active: decompositionApplied,
-          complexityScore: complexityAssessment?.complexity,
-          subQueries: decompositionResult.subQueries.map((item) => ({
-            id: item.id,
-            query: item.query,
-            dependencies: item.dependencies
-          })),
-          synthesisPrompt: decompositionResult.synthesisPrompt
-        }
-      : decompositionApplied
-      ? { active: true, complexityScore: complexityAssessment?.complexity }
-      : undefined,
-    summarySelection: summaryStats,
-    webContext: dispatch.webContextText
-      ? {
-          tokens: dispatch.webContextTokens,
-          trimmed: dispatch.webContextTrimmed,
-          results: dispatch.webResults.map((result) => ({
-            id: result.id,
-            title: result.title,
-            url: result.url,
-            rank: result.rank
-          }))
-        }
-      : undefined,
-    evaluation
+  emit?.('complete', { answer });
+  emit?.('telemetry', {
+    traceId: options.sessionId,
+    ...telemetrySnapshot
   });
   const sessionTrace: SessionTrace = {
     sessionId: options.sessionId,
@@ -885,46 +861,14 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     critic: criticSummary,
     summarySelection: summaryStats,
     critiqueHistory: critiqueHistory.map((entry) => ({ ...entry })),
-    semanticMemory: recalledMemories.length
-      ? {
-          recalled: recalledMemories.length,
-          entries: recalledMemories.map((memory) => ({
-            id: memory.id,
-            type: memory.type,
-            similarity: memory.similarity,
-            preview: memory.text.slice(0, 120)
-          }))
-        }
-      : undefined,
-    queryDecomposition: decompositionResult
-      ? {
-          active: decompositionApplied,
-          complexityScore: complexityAssessment?.complexity,
-          subQueries: decompositionResult.subQueries.map((item) => ({
-            id: item.id,
-            query: item.query,
-            dependencies: item.dependencies
-          })),
-          synthesisPrompt: decompositionResult.synthesisPrompt
-        }
-      : decompositionApplied
-      ? { active: true, complexityScore: complexityAssessment?.complexity }
-      : undefined,
+    semanticMemory: semanticMemorySummary,
+    queryDecomposition: queryDecompositionSummary,
     events: [],
     evaluation,
     error: undefined
   };
-  if (dispatch.webContextText) {
-    sessionTrace.webContext = {
-      tokens: dispatch.webContextTokens,
-      trimmed: dispatch.webContextTrimmed,
-      results: dispatch.webResults.map((result) => ({
-        id: result.id,
-        title: result.title,
-        url: result.url,
-        rank: result.rank
-      }))
-    };
+  if (webContextSummary) {
+    sessionTrace.webContext = webContextSummary;
   }
   emit?.('trace', { session: sessionTrace });
   emit?.('done', { status: 'complete' });

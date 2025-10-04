@@ -3,7 +3,6 @@ import type { AgentMessage } from '../../../shared/types.js';
 import { handleEnhancedChat } from '../services/enhancedChatService.js';
 import { setupStreamRoute } from './chatStream.js';
 import { config, isDevelopment } from '../config/app.js';
-import { getTelemetry as getOperationTelemetry, clearTelemetry as clearOperationTelemetry } from '../utils/resilience.js';
 import { getSessionTelemetry, clearSessionTelemetry } from '../orchestrator/sessionTelemetryStore.js';
 import { clearMemory } from '../orchestrator/memoryStore.js';
 
@@ -48,11 +47,9 @@ export async function registerRoutes(app: FastifyInstance) {
 
   if (isDevelopment) {
     app.get('/admin/telemetry', async () => ({
-      operations: getOperationTelemetry(),
       sessions: getSessionTelemetry()
     }));
     app.post('/admin/telemetry/clear', async () => {
-      clearOperationTelemetry();
       clearSessionTelemetry();
       clearMemory();
       return { status: 'cleared' };
