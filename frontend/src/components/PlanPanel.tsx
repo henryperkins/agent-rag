@@ -1,4 +1,4 @@
-import type { SummarySelectionStats } from '../types';
+import type { EvaluationDimension, RouteMetadata, SessionEvaluation, SummarySelectionStats } from '../types';
 
 interface CritiqueAttempt {
   attempt: number;
@@ -28,9 +28,24 @@ interface PlanPanelProps {
     trimmed?: boolean;
     results?: Array<{ id?: string; title?: string; url?: string; rank?: number }>;
   };
+  route?: RouteMetadata;
+  retrievalMode?: string;
+  lazySummaryTokens?: number;
+  evaluation?: SessionEvaluation;
 }
 
-export function PlanPanel({ plan, context, telemetry, trace, critiqueHistory, webContext }: PlanPanelProps) {
+export function PlanPanel({
+  plan,
+  context,
+  telemetry,
+  trace,
+  critiqueHistory,
+  webContext,
+  route,
+  retrievalMode,
+  lazySummaryTokens,
+  evaluation: evaluationProp
+}: PlanPanelProps) {
   const hasCritique = Boolean(critiqueHistory && critiqueHistory.length);
   const hasWeb = Boolean(webContext?.text || webContext?.results?.length);
 
@@ -43,14 +58,23 @@ export function PlanPanel({ plan, context, telemetry, trace, critiqueHistory, we
   const cleanedTelemetry = telemetry && typeof telemetry === 'object'
     ? Object.fromEntries(
         Object.entries(telemetry as Record<string, unknown>).filter(
-          ([key]) => key !== 'summarySelection' && key !== 'summary_selection'
+          ([key]) => key !== 'summarySelection' && key !== 'summary_selection' && key !== 'evaluation'
         )
       )
     : telemetry;
-
+  
   const hasTelemetry = cleanedTelemetry && Object.keys(cleanedTelemetry).length > 0;
+  const hasRouting = Boolean(route || retrievalMode || typeof lazySummaryTokens === 'number');
+  const telemetryEvaluation = telemetry && typeof telemetry === 'object'
+    ? ((telemetry as Record<string, unknown>).evaluation ?? (telemetry as Record<string, unknown>).metadata?.evaluation)
+    : undefined;
+  const evaluation = isSessionEvaluation(evaluationProp)
+    ? evaluationProp
+    : isSessionEvaluation(telemetryEvaluation)
+      ? telemetryEvaluation
+      : undefined;
 
-  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb) {
+  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb && !hasRouting && !evaluation) {
     return null;
   }
 
@@ -163,10 +187,71 @@ export function PlanPanel({ plan, context, telemetry, trace, critiqueHistory, we
         </div>
       )}
 
+      {hasRouting && (
+        <div className="plan-section">
+          <h4>Routing & Retrieval</h4>
+          {route && (
+            <div className="summary-selection-grid">
+              <StatBlock
+                label="Intent"
+                value={`${route.intent}${typeof route.confidence === 'number' ? ` (${Math.round(route.confidence * 100)}%)` : ''}`}
+              />
+              <StatBlock label="Model" value={route.model} />
+              <StatBlock label="Retriever" value={route.retrieverStrategy} />
+              <StatBlock label="Max Tokens" value={route.maxTokens.toString()} />
+            </div>
+          )}
+          {retrievalMode && (
+            <div className="plan-routing-meta">Retrieval Mode: {retrievalMode === 'lazy' ? 'Lazy (summaries first)' : 'Direct'}</div>
+          )}
+          {typeof lazySummaryTokens === 'number' && (
+            <div className="plan-routing-meta">Lazy Summary Tokens: {lazySummaryTokens}</div>
+          )}
+        </div>
+      )}
+
       {cleanedTelemetry && Object.keys(cleanedTelemetry).length > 0 && (
         <div className="plan-section">
           <h4>Telemetry</h4>
           <pre>{JSON.stringify(cleanedTelemetry, null, 2)}</pre>
+        </div>
+      )}
+
+      {evaluation && (
+        <div className="plan-section">
+          <h4>Evaluation Summary</h4>
+          <div className="summary-selection-grid">
+            <StatBlock label="Status" value={evaluation.summary.status === 'pass' ? 'Pass' : 'Needs Review'} />
+            <StatBlock label="Generated" value={formatTimestamp(evaluation.summary.generatedAt)} />
+            <StatBlock label="Failures" value={evaluation.summary.failingMetrics.length.toString()} />
+          </div>
+          {evaluation.summary.failingMetrics.length > 0 && (
+            <div className="evaluation-failures">
+              <strong>Failing Metrics:</strong>
+              <ul>
+                {evaluation.summary.failingMetrics.map((metric) => (
+                  <li key={metric}>{metric}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <EvaluationGroup title="RAG" snapshot={evaluation.rag as Record<string, EvaluationDimension | undefined> | undefined} />
+          <EvaluationGroup title="Quality" snapshot={evaluation.quality as Record<string, EvaluationDimension | undefined> | undefined} />
+          <EvaluationGroup title="Agent" snapshot={evaluation.agent as Record<string, EvaluationDimension | undefined> | undefined} />
+          {evaluation.safety && (
+            <div className="evaluation-group">
+              <h5>Safety</h5>
+              <p>{evaluation.safety.flagged ? '⚠ Flags detected' : '✓ Clear'}</p>
+              {evaluation.safety.categories.length > 0 && (
+                <ul>
+                  {evaluation.safety.categories.map((category) => (
+                    <li key={category}>{category}</li>
+                  ))}
+                </ul>
+              )}
+              {evaluation.safety.reason && <p>{evaluation.safety.reason}</p>}
+            </div>
+          )}
         </div>
       )}
 
@@ -222,6 +307,80 @@ function StatBlock({ label, value }: StatBlockProps) {
     <div className="summary-selection-item">
       <span className="summary-selection-label">{label}</span>
       <span className="summary-selection-value">{value}</span>
+    </div>
+  );
+}
+
+function isEvaluationDimension(value: unknown): value is EvaluationDimension {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as EvaluationDimension).metric === 'string' &&
+    typeof (value as EvaluationDimension).score === 'number'
+  );
+}
+
+function isSessionEvaluation(value: unknown): value is SessionEvaluation {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as SessionEvaluation).summary === 'object' &&
+    typeof (value as SessionEvaluation).summary.status === 'string'
+  );
+}
+
+function formatMetricName(key: string) {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatTimestamp(value: string) {
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+  } catch {
+    return value;
+  }
+}
+
+function EvaluationGroup({
+  title,
+  snapshot
+}: {
+  title: string;
+  snapshot: Record<string, EvaluationDimension | undefined> | undefined;
+}) {
+  if (!snapshot) {
+    return null;
+  }
+
+  const entries = Object.entries(snapshot).filter(([, value]) => isEvaluationDimension(value)) as Array<[
+    string,
+    EvaluationDimension
+  ]>;
+
+  if (!entries.length) {
+    return null;
+  }
+
+  return (
+    <div className="evaluation-group">
+      <h5>{title}</h5>
+      <ul className="evaluation-metrics">
+        {entries.map(([key, dimension]) => (
+          <li key={key}>
+            <span className="evaluation-metric-name">{formatMetricName(key)}</span>
+            <span className="evaluation-metric-score">
+              {dimension.score} / {dimension.threshold} {dimension.passed ? '✓' : '⚠'}
+            </span>
+            <div className="evaluation-metric-reason">{dimension.reason}</div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

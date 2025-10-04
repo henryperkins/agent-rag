@@ -32,20 +32,22 @@ Routes (backend/src/routes/)
 Services (backend/src/services/)
   ↓
 Orchestrator (backend/src/orchestrator/)
+  ├── Router (router.ts)
   ├── Plan (plan.ts)
   ├── Context (compact, memoryStore, summarySelector)
-  ├── Dispatch (retrieve, webSearch)
-  ├── Synthesis (answer)
-  └── Critique (enhancedCritic)
+  ├── Dispatch (dispatch.ts)
+  ├── Synthesis (generateAnswer/answerTool)
+  └── Critique (critique.ts)
   ↓
 Tools (backend/src/tools/)
-  ├── agenticRetrieveTool
+  ├── retrieveTool
+  ├── lazyRetrieveTool
   ├── webSearchTool
   └── answerTool
   ↓
 Azure Services (backend/src/azure/)
-  ├── agenticRetrieval
-  ├── fallbackRetrieval
+  ├── directSearch
+  ├── lazyRetrieval
   ├── openaiClient
   └── indexSetup
 ```
@@ -62,9 +64,9 @@ Azure Services (backend/src/azure/)
 
 ## Current Architecture Snapshot
 
-- Unified orchestrator already drives both `/chat` and `/chat/stream`, emitting plan, retrieval, critique, telemetry, and completion events (see [`backend/src/orchestrator/index.ts`](backend/src/orchestrator/index.ts:224) and [`backend/src/services/chatStreamService.ts`](backend/src/services/chatStreamService.ts:28)).
-- No persistent storage layer or document upload tooling exists yet; the system operates entirely in-memory with Azure Search indexes bootstrapped via [`backend/src/azure/indexSetup.ts`](backend/src/azure/indexSetup.ts:23).
-- Existing tools are limited to `agenticRetrieveTool`, `webSearchTool`, and `answerTool` (exported from [`backend/src/tools/index.ts`](backend/src/tools/index.ts:1)).
+- Unified orchestrator already drives both `/chat` and `/chat/stream`, emitting route, plan, retrieval, critique, telemetry, and completion events (see [`backend/src/orchestrator/index.ts`](backend/src/orchestrator/index.ts) and [`backend/src/services/chatStreamService.ts`](backend/src/services/chatStreamService.ts)).
+- No persistent storage layer or document upload tooling exists yet; the system operates entirely in-memory with Azure Search indexes bootstrapped via [`backend/src/azure/indexSetup.ts`](backend/src/azure/indexSetup.ts).
+- Existing tools include `retrieveTool`, `lazyRetrieveTool`, `webSearchTool`, and `answerTool` (exported from [`backend/src/tools/index.ts`](backend/src/tools/index.ts)).
 
 ## Planned Quick Wins (1-2 Sprints)
 

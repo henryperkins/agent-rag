@@ -9,7 +9,7 @@ This is an **Agentic RAG (Retrieval-Augmented Generation)** chat application bui
 - **Frontend**: React + Vite + TypeScript
 - **Shared**: Common types package
 
-The application implements a production-grade orchestrator pattern with planning, retrieval (Knowledge Agent + fallback vector search), web search, synthesis, and multi-pass critic evaluation.
+The application implements a production-grade orchestrator pattern with planning, retrieval (direct Azure AI Search with hybrid semantic search), web search (Google Custom Search), synthesis, and multi-pass critic evaluation. All LLM interactions use Azure OpenAI Models API with structured outputs.
 
 ## Development Commands
 
@@ -48,40 +48,19 @@ pnpm lint                 # Lint TypeScript/TSX files
 
 The orchestrator (`runSession`) is the single entry point for both synchronous (`/chat`) and streaming (`/chat/stream`) modes. It handles:
 
-1. **Context Pipeline** (lines 216-243)
-   - Compacts conversation history using `compactHistory()`
-   - Merges with persistent memory (summaries + salience notes)
-   - Applies token budgets per section (history/summary/salience)
-   - Token estimation uses model-specific tiktoken encoder
+1. **Intent Routing** – Classifies the latest turn (plus recent messages) into FAQ, factual lookup, research, or conversational intents using Azure OpenAI structured outputs. Emits `route` events with the selected model, token cap, and retriever strategy.
 
-2. **Planning** (lines 251-258)
-   - Calls `getPlan()` to analyze question and decide retrieval strategy
-   - Returns `PlanSummary` with confidence score and action steps
-   - Plans guide tool dispatch (retrieve/web_search/both/answer)
+2. **Context Pipeline** – Compacts conversation history using `compactHistory()`, merges summaries + salience from memory, applies token budgets per section, and selects summary bullets via Azure OpenAI embeddings.
 
-3. **Tool Dispatch** (lines 260-281)
-   - `dispatchTools()` executes planned actions
-   - Primary: Azure AI Search Knowledge Agent (`agenticRetrieveTool`)
-   - Fallback: Vector search if Knowledge Agent fails
-   - Web search: Optional Bing integration via `webSearchTool`
-   - All tools wrapped in `withRetry()` resilience layer
+3. **Planning** – Calls `getPlan()` to analyze the question and decide retrieval strategy using Azure OpenAI structured outputs. Returns a `PlanSummary` with confidence scoring that can override the router’s defaults.
 
-4. **Synthesis** (lines 74-173)
-   - `generateAnswer()` creates response using context + citations
-   - Streaming mode: SSE events via `createResponseStream()`
-   - Sync mode: Single LLM call via `answerTool()`
+4. **Tool Dispatch** – `dispatchTools()` executes planned actions. Primary path runs direct Azure AI Search hybrid semantic search; fallback lowers the reranker threshold before falling back to pure vector search. When `ENABLE_LAZY_RETRIEVAL` is on, dispatch returns summary-only references first (via `lazyRetrieveTool`) and defers full document hydration until the critic demands more detail. Web search leverages Google Custom Search, and all paths use `withRetry()` resilience wrappers.
 
-5. **Multi-Pass Critic Loop** (lines 312-366)
-   - Evaluates answer quality using `evaluateAnswer()`
-   - Metrics: `grounded` (bool), `coverage` (0-1), `action` (accept/revise)
-   - Retries up to `CRITIC_MAX_RETRIES` with revision guidance
-   - Auto-accepts if `coverage >= CRITIC_THRESHOLD`
-   - Tracks full iteration history in `critiqueHistory` array
+5. **Synthesis** – `generateAnswer()` creates responses via Azure OpenAI `/chat/completions`, honoring the routed model and token limits. Streaming mode uses `createResponseStream()`; sync mode calls `answerTool()` directly while accepting critic revision notes.
 
-6. **Telemetry** (lines 438-464)
-   - Emits structured `SessionTrace` events
-   - OpenTelemetry spans for observability
-   - Frontend receives: plan, context, tool usage, critique history
+6. **Multi-Pass Critic Loop** – Evaluates answer quality using structured outputs, retries up to `CRITIC_MAX_RETRIES`, and can trigger lazy retrieval to load full documents when summaries lack coverage. Iterations (including whether full content was used) are recorded in `critiqueHistory`.
+
+7. **Telemetry** – Emits structured `SessionTrace` events plus OpenTelemetry spans. Frontend receives plan/context/tool/route events, summary selection stats, retrieval mode (`direct` vs `lazy`), and lazy summary token counts.
 
 ### Context Management
 **Files**: `backend/src/orchestrator/compact.ts`, `contextBudget.ts`, `memoryStore.ts`
@@ -94,12 +73,14 @@ The orchestrator (`runSession`) is the single entry point for both synchronous (
 **File**: `backend/src/config/app.ts`
 
 Environment variables validated with Zod schema:
-- **Azure endpoints**: Search, OpenAI, Bing
-- **Retrieval**: `RAG_TOP_K`, `RERANKER_THRESHOLD`, `TARGET_INDEX_MAX_DOCUMENTS`
-- **Context limits**: `CONTEXT_HISTORY_TOKEN_CAP`, `CONTEXT_SUMMARY_TOKEN_CAP`, `CONTEXT_SALIENCE_TOKEN_CAP`
-- **Critic**: `CRITIC_MAX_RETRIES`, `CRITIC_THRESHOLD`, `ENABLE_CRITIC`
+- **Azure endpoints**: Search, OpenAI (GPT deployment + Embedding deployment)
+- **Google Search**: `GOOGLE_SEARCH_API_KEY`, `GOOGLE_SEARCH_ENGINE_ID`, `GOOGLE_SEARCH_ENDPOINT`
+- **Retrieval**: `RAG_TOP_K`, `RERANKER_THRESHOLD`, `RETRIEVAL_MIN_DOCS`, `RETRIEVAL_FALLBACK_RERANKER_THRESHOLD`
+- **Context limits**: `CONTEXT_HISTORY_TOKEN_CAP`, `CONTEXT_SUMMARY_TOKEN_CAP`, `CONTEXT_SALIENCE_TOKEN_CAP`, `CONTEXT_MAX_SUMMARY_ITEMS`, `CONTEXT_MAX_SALIENCE_ITEMS`, `CONTEXT_MAX_RECENT_TURNS`
+- **Critic**: `CRITIC_MAX_RETRIES`, `CRITIC_THRESHOLD`
 - **Web**: `WEB_CONTEXT_MAX_TOKENS`, `WEB_RESULTS_MAX`, `WEB_SEARCH_MODE`
 - **Security**: `RATE_LIMIT_MAX_REQUESTS`, `REQUEST_TIMEOUT_MS`, `CORS_ORIGIN`
+- **Features**: `ENABLE_SEMANTIC_SUMMARY` (semantic vs recency summaries), `ENABLE_INTENT_ROUTING`, `ENABLE_LAZY_RETRIEVAL`, intent routing model + token caps, lazy retrieval thresholds (`LAZY_SUMMARY_MAX_CHARS`, `LAZY_PREFETCH_COUNT`, `LAZY_LOAD_THRESHOLD`)
 
 ### Routes
 **File**: `backend/src/routes/index.ts`
@@ -111,18 +92,28 @@ Environment variables validated with Zod schema:
 ### Tools
 **File**: `backend/src/tools/index.ts`
 
-1. **agenticRetrieveTool**: Azure AI Search Knowledge Agent with fallback
-   - Primary: Knowledge Agent with reranker threshold
-   - Retry: Lower threshold if primary fails
-   - Fallback: Vector search (`fallbackVectorSearch`) if agent unavailable
+1. **retrieveTool**: Direct Azure AI Search integration with multi-level fallback
+   - **Primary**: Hybrid semantic search (vector + BM25 + L2 semantic reranking) with `RERANKER_THRESHOLD`
+   - **Fallback 1**: Same hybrid search with `RETRIEVAL_FALLBACK_RERANKER_THRESHOLD` (lower)
+   - **Fallback 2**: Pure vector search (`vectorSearch()`) if semantic ranking fails
+   - Implementation: `backend/src/azure/directSearch.ts`
+   - Query builder pattern for flexible query construction
 
-2. **webSearchTool**: Bing search integration
+2. **lazyRetrieveTool**: Summary-first Azure AI Search helper
+   - Implementation: `backend/src/azure/lazyRetrieval.ts`
+   - Returns summary-only references with `loadFull` callbacks for critic-triggered hydration
+   - Reports summary token usage for cost telemetry and falls back to `retrieveTool` on error
+
+3. **webSearchTool**: Google Custom Search JSON API integration
+   - Implementation: `backend/src/tools/webSearch.ts`
    - Modes: `summary` (snippets only) or `full` (fetch page bodies)
-   - Token-budgeted context assembly
+   - Token-budgeted context assembly with `WEB_CONTEXT_MAX_TOKENS`
+   - Supports pagination and result ranking
 
-3. **answerTool**: Synthesis with optional revision guidance
+4. **answerTool**: Synthesis with optional revision guidance
+   - Uses Azure OpenAI `/chat/completions` endpoint
    - Accepts `revisionNotes` for critic-driven improvements
-   - Returns answer + citations
+   - Returns answer + citations with inline references ([1], [2], etc.)
 
 ### Frontend Architecture
 **Main file**: `frontend/src/App.tsx`
@@ -147,11 +138,12 @@ Environment variables validated with Zod schema:
 
 ### Error Handling
 - All Azure calls wrapped in `withRetry()` (`backend/src/utils/resilience.ts`)
-- Multi-level fallbacks: Knowledge Agent → Lower threshold → Vector search
+- Multi-level fallbacks: Hybrid search (high threshold) → Hybrid search (low threshold) → Pure vector search → Lazy summaries fallback to direct search on error
 - Graceful degradation: Returns empty context if all retrieval fails
+- Azure OpenAI structured outputs with fallback to heuristic mode if JSON schema validation fails
 
-### Streaming Architecture
-- Orchestrator emits typed events: `status`, `plan`, `context`, `tool`, `tokens`, `critique`, `complete`, `telemetry`, `trace`, `done`
+-### Streaming Architecture
+- Orchestrator emits typed events: `status`, `route`, `plan`, `context`, `tool`, `tokens`, `critique`, `complete`, `telemetry`, `trace`, `done`
 - Frontend subscribes via EventSource and updates UI reactively
 - Critic iterations tracked but only final answer tokens streamed
 
@@ -164,43 +156,67 @@ Environment variables validated with Zod schema:
 
 | Path | Purpose |
 |------|---------|
-| `backend/src/orchestrator/index.ts` | Main orchestration loop |
-| `backend/src/orchestrator/dispatch.ts` | Tool routing and web context assembly |
-| `backend/src/orchestrator/plan.ts` | Query analysis and strategy planning |
-| `backend/src/orchestrator/critique.ts` | Answer evaluation logic |
-| `backend/src/orchestrator/compact.ts` | History summarization |
-| `backend/src/tools/index.ts` | Tool implementations |
-| `backend/src/tools/webSearch.ts` | Bing integration |
-| `backend/src/azure/agenticRetrieval.ts` | Knowledge Agent API calls |
-| `backend/src/azure/fallbackRetrieval.ts` | Vector search fallback |
-| `backend/src/config/app.ts` | Environment configuration |
+| `backend/src/orchestrator/index.ts` | Main orchestration loop with runSession() |
+| `backend/src/orchestrator/dispatch.ts` | Tool routing, lazy retrieval orchestration, and web context assembly |
+| `backend/src/orchestrator/plan.ts` | Query analysis and strategy planning with structured outputs |
+| `backend/src/orchestrator/critique.ts` | Answer evaluation logic with structured outputs |
+| `backend/src/orchestrator/compact.ts` | History summarization and salience extraction |
+| `backend/src/orchestrator/contextBudget.ts` | Token budgeting with tiktoken |
+| `backend/src/orchestrator/memoryStore.ts` | In-memory session persistence for summaries/salience |
+| `backend/src/orchestrator/summarySelector.ts` | Semantic similarity-based summary selection |
+| `backend/src/orchestrator/schemas.ts` | JSON schemas for planner and critic structured outputs |
+| `backend/src/orchestrator/router.ts` | Intent classifier and routing profile definitions |
+| `backend/src/tools/index.ts` | Tool implementations (retrieve, webSearch, answer) |
+| `backend/src/tools/webSearch.ts` | Google Custom Search JSON API integration |
+| `backend/src/azure/directSearch.ts` | Direct Azure AI Search REST API with hybrid semantic search |
+| `backend/src/azure/lazyRetrieval.ts` | Summary-first Azure AI Search wrapper with deferred hydration |
+| `backend/src/azure/openaiClient.ts` | Azure OpenAI API client (/chat/completions, /embeddings) |
+| `backend/src/config/app.ts` | Environment configuration with Zod validation |
+| `backend/src/utils/resilience.ts` | Retry logic wrapper (withRetry) |
+| `backend/src/utils/session.ts` | Session ID derivation and utilities |
 | `frontend/src/hooks/useChatStream.ts` | SSE event handling |
-| `frontend/src/components/PlanPanel.tsx` | Observability UI |
+| `frontend/src/components/PlanPanel.tsx` | Observability UI with critique timeline |
 | `shared/types.ts` | Shared TypeScript interfaces |
 
 ## Design Documentation
 
 Reference these files for architectural context:
-- `docs/unified-orchestrator-context-pipeline.md` - Original design spec
+- `docs/unified-orchestrator-context-pipeline.md` - Unified orchestrator design spec (updated for direct Azure AI Search)
 - `docs/CRITIC_ENHANCEMENTS.md` - Multi-pass critic implementation details
-- `context-engineering.md` - Context management best practices
+- `docs/architecture-map.md` - System architecture overview
+- `docs/enhancement-implementation-guide.md` - Feature implementation guide
 
 ## Environment Setup
 
 1. Copy `.env.example` to `.env` (if exists) or create `.env` with:
    ```bash
+   # Azure AI Search
    AZURE_SEARCH_ENDPOINT=<your-search-endpoint>
    AZURE_SEARCH_API_KEY=<your-key>
+   AZURE_SEARCH_INDEX_NAME=<your-index-name>
+
+   # Azure OpenAI
    AZURE_OPENAI_ENDPOINT=<your-openai-endpoint>
    AZURE_OPENAI_API_KEY=<your-key>
+   AZURE_OPENAI_GPT_DEPLOYMENT=<gpt-deployment-name>
+   AZURE_OPENAI_EMBEDDING_DEPLOYMENT=<embedding-deployment-name>
+   AZURE_OPENAI_GPT_MODEL_NAME=<gpt-4o-2024-08-06>
+   AZURE_OPENAI_EMBEDDING_MODEL_NAME=<text-embedding-3-large>
+
+   # Google Custom Search (optional for web search)
+   GOOGLE_SEARCH_API_KEY=<your-google-api-key>
+   GOOGLE_SEARCH_ENGINE_ID=<your-search-engine-id>
+
    # ... see backend/src/config/app.ts for full schema
    ```
 
 2. Ensure Azure resources exist:
-   - AI Search service with index
-   - Knowledge Agent configured
-   - OpenAI deployment (GPT + embeddings)
-   - (Optional) Bing Search API key
+   - **AI Search service** with index configured for hybrid semantic search
+     - Vector fields for embeddings (e.g., `page_embedding_text_3_large`)
+     - Text fields for keyword search (e.g., `page_chunk`)
+     - Semantic ranking configuration enabled
+   - **OpenAI deployment** with GPT model (gpt-4o or gpt-4) and embedding model (text-embedding-3-large)
+   - **(Optional)** Google Custom Search API key for web search
 
 3. Install dependencies: `pnpm install` in backend/ and frontend/
 

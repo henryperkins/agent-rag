@@ -9,42 +9,66 @@ interface WebSearchArgs {
 }
 
 function buildResultId(item: any) {
-  if (typeof item.id === 'string' && item.id.length) {
-    return item.id;
+  if (typeof item.cacheId === 'string' && item.cacheId.length) {
+    return `google_${item.cacheId}`;
   }
-  if (typeof item.url === 'string' && item.url.length) {
-    return `web_${Buffer.from(item.url).toString('base64url')}`;
+  if (typeof item.link === 'string' && item.link.length) {
+    return `web_${Buffer.from(item.link).toString('base64url')}`;
   }
   return randomUUID();
 }
 
-interface BingWebResponse {
-  webPages?: {
-    value?: Array<Record<string, any>>;
+interface GoogleSearchResponse {
+  kind: string;
+  items?: Array<{
+    kind: string;
+    title: string;
+    htmlTitle: string;
+    link: string;
+    displayLink: string;
+    snippet: string;
+    htmlSnippet: string;
+    cacheId?: string;
+    formattedUrl: string;
+    htmlFormattedUrl: string;
+    pagemap?: Record<string, any>;
+  }>;
+  searchInformation?: {
+    searchTime: number;
+    formattedSearchTime: string;
+    totalResults: string;
+    formattedTotalResults: string;
+  };
+  error?: {
+    code: number;
+    message: string;
+    errors: Array<{ domain: string; reason: string; message: string }>;
   };
 }
 
 export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchResponse> {
   const { query, count, mode } = args;
 
-  if (!config.AZURE_BING_SUBSCRIPTION_KEY) {
-    throw new Error('Bing Search API key not configured. Set AZURE_BING_SUBSCRIPTION_KEY.');
+  if (!config.GOOGLE_SEARCH_API_KEY) {
+    throw new Error('Google Search API key not configured. Set GOOGLE_SEARCH_API_KEY.');
+  }
+
+  if (!config.GOOGLE_SEARCH_ENGINE_ID) {
+    throw new Error('Google Search Engine ID not configured. Set GOOGLE_SEARCH_ENGINE_ID.');
   }
 
   const effectiveCount = Math.min(count ?? config.WEB_RESULTS_MAX, config.WEB_RESULTS_MAX);
   const searchMode = mode ?? config.WEB_SEARCH_MODE;
 
-  const url = new URL(config.AZURE_BING_ENDPOINT);
+  const url = new URL(config.GOOGLE_SEARCH_ENDPOINT);
+  url.searchParams.set('key', config.GOOGLE_SEARCH_API_KEY);
+  url.searchParams.set('cx', config.GOOGLE_SEARCH_ENGINE_ID);
   url.searchParams.set('q', query);
-  url.searchParams.set('count', effectiveCount.toString());
-  url.searchParams.set('responseFilter', 'Webpages');
-  url.searchParams.set('safeSearch', 'Off');
-  url.searchParams.set('freshness', 'Week');
+  url.searchParams.set('num', Math.min(effectiveCount, 10).toString()); // Google max is 10 per request
+  url.searchParams.set('safe', 'off');
 
-  if (searchMode === 'full') {
-    url.searchParams.set('textFormat', 'Raw');
-    url.searchParams.set('textDecorations', 'false');
-  }
+  // Date restriction: last week
+  url.searchParams.set('dateRestrict', 'd7');
 
   let retries = 0;
   const maxRetries = 3;
@@ -52,9 +76,7 @@ export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchRespo
   while (retries <= maxRetries) {
     try {
       const response = await fetch(url.toString(), {
-        headers: {
-          'Ocp-Apim-Subscription-Key': config.AZURE_BING_SUBSCRIPTION_KEY
-        },
+        method: 'GET',
         signal: AbortSignal.timeout(10000)
       });
 
@@ -66,21 +88,23 @@ export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchRespo
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Bing API error: ${response.status} ${errorText}`);
+        const errorData = (await response.json().catch(() => ({}))) as GoogleSearchResponse;
+        const errorMsg = errorData.error?.message || `${response.status} ${response.statusText}`;
+        throw new Error(`Google Search API error: ${errorMsg}`);
       }
 
-      const data = (await response.json()) as BingWebResponse;
+      const data = (await response.json()) as GoogleSearchResponse;
       const fetchedAt = new Date().toISOString();
+
       const results: WebResult[] =
-        data.webPages?.value?.map((item: any, index: number) => ({
+        data.items?.map((item, index) => ({
           id: buildResultId(item),
-          title: item.name,
-          snippet: item.snippet ?? item.description ?? '',
-          url: item.url,
-          body: searchMode === 'full' ? item.snippet ?? item.description ?? '' : undefined,
+          title: item.title,
+          snippet: item.snippet ?? '',
+          url: item.link,
+          body: searchMode === 'full' ? item.snippet ?? '' : undefined,
           rank: index + 1,
-          relevance: item?.rankingProfile || item?.confidence,
+          relevance: undefined, // Google doesn't provide explicit relevance scores in this API
           fetchedAt
         })) ?? [];
 

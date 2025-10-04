@@ -51,18 +51,18 @@
 │                       │                                        │
 │  ┌────────────────────▼────────────────────────────────────┐   │
 │  │                    Tools                                │   │
-│  │  agenticRetrieve │ webSearch │ answer                  │   │
-│  └────┬─────────────────────┬──────────────────────────────┘   │
+│  │  retrieve │ webSearch │ answer                          │   │
+│  └────┬──────────────────┬──────────────────────────────────┘   │
 └───────┼─────────────────────┼────────────────────────────────┘
         │                     │
-┌───────▼─────────────────────▼────────────────────────────────┐
-│                      Azure Services                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │  AI Search   │  │  OpenAI API  │  │  Bing Search │       │
-│  │  Knowledge   │  │  Embeddings  │  │              │       │
-│  │  Agent       │  │  Chat        │  │              │       │
-│  └──────────────┘  └──────────────┘  └──────────────┘       │
-└───────────────────────────────────────────────────────────────┘
+┌───────▼─────────────────────▼────────────────────────────────────────┐
+│                      External Services                                │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌───────────────┐  │
+│  │  Azure AI Search   │  │  Azure OpenAI API  │  │ Google Search │  │
+│  │  REST API          │  │  /chat/completions │  │ Custom Search │  │
+│  │  Hybrid Semantic   │  │  /embeddings       │  │ JSON API      │  │
+│  └────────────────────┘  └────────────────────┘  └───────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -282,8 +282,9 @@ backend/src/
 │
 ├── orchestrator/                  # Core orchestration logic
 │   ├── index.ts                   # Main runSession function
+│   ├── router.ts                  # Intent classification & routing profiles
 │   ├── plan.ts                    # Strategy planning
-│   ├── dispatch.ts                # Tool routing
+│   ├── dispatch.ts                # Tool routing + lazy retrieval orchestration
 │   ├── compact.ts                 # History summarization
 │   ├── memoryStore.ts             # Session memory
 │   ├── summarySelector.ts         # Semantic selection
@@ -293,18 +294,19 @@ backend/src/
 │   ├── telemetry.ts               # OpenTelemetry
 │   └── sessionTelemetryStore.ts   # Session tracking
 │
-├── agents/                        # Critique helpers
-│   └── enhancedCritic.ts          # Current critic implementation
+├── agents/                        # Lightweight planner/critic helpers
+│   ├── critic.ts                  # Legacy critic prompt wrapper
+│   └── planner.ts                 # Simple heuristic planner
 │
 ├── tools/                         # Tool implementations
-│   ├── index.ts                   # Tool exports
-│   └── webSearch.ts               # Bing search
+│   ├── index.ts                   # Tool exports (retrieve, lazyRetrieve, webSearch, answer)
+│   └── webSearch.ts               # Google Custom Search integration
 │
 ├── azure/                         # Azure integrations
-│   ├── agenticRetrieval.ts        # Knowledge Agent
-│   ├── fallbackRetrieval.ts       # Vector search
-│   ├── openaiClient.ts            # OpenAI wrapper
-│   └── indexSetup.ts              # Index creation
+│   ├── directSearch.ts            # Direct Azure AI Search (hybrid semantic)
+│   ├── lazyRetrieval.ts           # Summary-first Azure AI Search helper
+│   ├── openaiClient.ts            # Azure OpenAI client (/chat/completions, /embeddings)
+│   └── indexSetup.ts              # Index creation utilities
 │
 ├── utils/
 │   ├── openai.ts                  # OpenAI helpers
@@ -312,8 +314,10 @@ backend/src/
 │
 └── tests/                         # Unit & integration tests
     ├── orchestrator.test.ts
+    ├── orchestrator.integration.test.ts
     ├── dispatch.test.ts
-    └── summarySelector.test.ts
+    ├── lazyRetrieval.test.ts
+    └── router.test.ts
 ```
 
 ### Frontend (`frontend/src/`)
@@ -457,20 +461,23 @@ Plan: { confidence, steps[] }
        │                 │
        ▼                 ▼
 ┌─────────────────┐   ┌─────────────────┐
-│ agenticRetrieve │   │ webSearchTool   │
-│ Tool            │   │                 │
-│                 │   │ 1. Query Bing   │
-│ 1. Call Azure   │   │ 2. Get results  │
-│ 2. Knowledge    │   │ 3. Build context│
-│    Agent        │   │ 4. Budget tokens│
+│ retrieveTool    │   │ webSearchTool   │
+│                 │   │                 │
+│ 1. Generate     │   │ 1. Query Google │
+│    embedding    │   │    Custom Search│
+│ 2. Hybrid       │   │ 2. Get results  │
+│    semantic     │   │ 3. Build context│
+│    search       │   │ 4. Budget tokens│
 │ 3. Get refs     │   └────────┬────────┘
 │                 │            │
-│ On error:       │            │
-│ ├─ Retry with   │            │
-│ │  lower        │            │
+│ Multi-level     │            │
+│ fallback:       │            │
+│ ├─ High rerank  │            │
 │ │  threshold    │            │
-│ └─ Fallback to  │            │
-│    vector search│            │
+│ ├─ Low rerank   │            │
+│ │  threshold    │            │
+│ └─ Pure vector  │            │
+│    search       │            │
 └────────┬────────┘            │
          │                     │
          └─────────┬───────────┘
@@ -691,7 +698,6 @@ Context settings:
 - CONTEXT_MAX_RECENT_TURNS: 12
 
 Critic settings:
-- ENABLE_CRITIC: true
 - CRITIC_MAX_RETRIES: 1
 - CRITIC_THRESHOLD: 0.8
 

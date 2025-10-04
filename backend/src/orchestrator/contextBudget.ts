@@ -15,7 +15,7 @@ function getEncoding(model: string): Encoding {
     const encoding = encoding_for_model(model as TiktokenModel);
     cache.set(model, encoding);
     return encoding;
-  } catch (error) {
+  } catch (_error) {
     console.warn(`Unknown model '${model}', falling back to ${FALLBACK_ENCODING} encoding.`);
 
     if (!cache.has(FALLBACK_ENCODING)) {

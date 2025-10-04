@@ -17,7 +17,7 @@ export const PlanSchema = {
             query: { type: 'string' },
             k: { type: 'integer', minimum: 1, maximum: 20 }
           },
-          required: ['action']
+          required: ['action', 'query', 'k']
         },
         maxItems: 4
       }
@@ -43,6 +43,6 @@ export const CriticSchema = {
       },
       action: { enum: ['accept', 'revise'] }
     },
-    required: ['grounded', 'coverage', 'action']
+    required: ['grounded', 'coverage', 'issues', 'action']
   }
 };

@@ -2,9 +2,12 @@ import type {
   ActivityStep,
   ChatResponse,
   CriticReport,
+  EvaluationDimension,
   PlanSummary,
   Reference,
   RetrievalDiagnostics,
+  RouteMetadata,
+  SessionEvaluation,
   SessionTrace,
   SummarySelectionStats,
   WebResult
@@ -39,7 +42,7 @@ export interface SessionTelemetryRecord {
   };
   toolUsage?: {
     references?: number;
-    webResults?: number;
+  webResults?: number;
   };
   contextBudget?: Record<string, number>;
   citations?: Reference[];
@@ -60,6 +63,10 @@ export interface SessionTelemetryRecord {
     trimmed?: boolean;
     results?: Array<Pick<WebResult, 'id' | 'title' | 'url' | 'rank'>>;
   };
+  route?: RouteMetadata;
+  lazySummaryTokens?: number;
+  retrievalMode?: string;
+  evaluation?: SessionEvaluation;
 }
 
 const MAX_RECORDS = 100;
@@ -121,6 +128,96 @@ function sanitizeEventPayload(event: string, data: unknown): unknown {
   return data;
 }
 
+function sanitizeEvaluation(evaluation?: SessionEvaluation | null): SessionEvaluation | undefined {
+  if (!evaluation) {
+    return evaluation ?? undefined;
+  }
+
+  const sanitizeDimension = (dimension?: EvaluationDimension | null): EvaluationDimension | undefined => {
+    if (!dimension) {
+      return undefined;
+    }
+    const next = { ...dimension } as EvaluationDimension;
+    next.reason = typeof next.reason === 'string' ? redactSensitive(next.reason) ?? next.reason : next.reason;
+    if (next.evidence) {
+      next.evidence = clone(next.evidence);
+    }
+    return next;
+  };
+
+  const stripUndefined = <T extends Record<string, unknown>>(obj: T | undefined): T | undefined => {
+    if (!obj) {
+      return undefined;
+    }
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        next[key] = value;
+      }
+    }
+    return Object.keys(next).length ? (next as T) : undefined;
+  };
+
+  const rag = evaluation.rag
+    ? stripUndefined({
+        retrieval: sanitizeDimension(evaluation.rag.retrieval),
+        documentRetrieval: sanitizeDimension(evaluation.rag.documentRetrieval),
+        groundedness: sanitizeDimension(evaluation.rag.groundedness),
+        groundednessPro: sanitizeDimension(evaluation.rag.groundednessPro),
+        relevance: sanitizeDimension(evaluation.rag.relevance),
+        responseCompleteness: sanitizeDimension(evaluation.rag.responseCompleteness)
+      })
+    : undefined;
+
+  const quality = evaluation.quality
+    ? stripUndefined({
+        coherence: sanitizeDimension(evaluation.quality.coherence),
+        fluency: sanitizeDimension(evaluation.quality.fluency),
+        qa: sanitizeDimension(evaluation.quality.qa)
+      })
+    : undefined;
+
+  const agent = evaluation.agent
+    ? stripUndefined({
+        intentResolution: sanitizeDimension(
+          (evaluation.agent as any).intentResolution ?? (evaluation.agent as any).intent_resolution
+        ),
+        toolCallAccuracy: sanitizeDimension(
+          (evaluation.agent as any).toolCallAccuracy ?? (evaluation.agent as any).tool_call_accuracy
+        ),
+        taskAdherence: sanitizeDimension(
+          (evaluation.agent as any).taskAdherence ?? (evaluation.agent as any).task_adherence
+        )
+      })
+    : undefined;
+
+  const sanitized: SessionEvaluation = {
+    rag,
+    quality,
+    agent,
+    safety: evaluation.safety
+      ? {
+          flagged: evaluation.safety.flagged,
+          categories: Array.isArray(evaluation.safety.categories)
+            ? [...evaluation.safety.categories]
+            : [],
+          reason:
+            typeof evaluation.safety.reason === 'string'
+              ? redactSensitive(evaluation.safety.reason) ?? evaluation.safety.reason
+              : evaluation.safety.reason,
+          evidence: evaluation.safety.evidence ? clone(evaluation.safety.evidence) : undefined
+        }
+      : undefined,
+    summary: {
+      status: evaluation.summary.status,
+      failingMetrics: [...evaluation.summary.failingMetrics],
+      generatedAt: evaluation.summary.generatedAt
+    }
+  };
+
+  return sanitized;
+}
+
 function clone<T>(value: T): T {
   try {
     return JSON.parse(JSON.stringify(value)) as T;
@@ -137,7 +234,13 @@ function pushRecord(record: SessionTelemetryRecord) {
 }
 
 function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown, timestamp: number) {
-  const sanitized = sanitizeEventPayload(event, data);
+  let sanitized = sanitizeEventPayload(event, data);
+  if (event === 'telemetry' && sanitized && typeof sanitized === 'object') {
+    const payload = sanitized as { evaluation?: SessionEvaluation };
+    if (payload.evaluation) {
+      sanitized = { ...payload, evaluation: sanitizeEvaluation(payload.evaluation) };
+    }
+  }
   state.events.push({ event, data: clone(sanitized), timestamp });
 
   switch (event) {
@@ -158,6 +261,14 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
     }
     case 'plan': {
       state.plan = clone(sanitized as PlanSummary);
+      break;
+    }
+    case 'route': {
+      state.route = clone(sanitized as RouteMetadata);
+      state.metadata = {
+        ...(state.metadata ?? {}),
+        route: clone(sanitized as RouteMetadata)
+      };
       break;
     }
     case 'tool': {
@@ -219,6 +330,22 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       }
       if (payload?.webContext) {
         state.webContext = clone(payload.webContext);
+      }
+      if (payload?.route) {
+        state.route = clone(payload.route as RouteMetadata);
+        state.metadata = {
+          ...(state.metadata ?? {}),
+          route: clone(payload.route as RouteMetadata)
+        };
+      }
+      if (payload?.retrievalMode) {
+        state.retrievalMode = payload.retrievalMode;
+      }
+      if (typeof payload?.lazySummaryTokens === 'number') {
+        state.lazySummaryTokens = payload.lazySummaryTokens;
+      }
+      if (payload?.evaluation) {
+        state.evaluation = sanitizeEvaluation(payload.evaluation as SessionEvaluation);
       }
       break;
     }
@@ -303,6 +430,18 @@ export function createSessionRecorder(options: {
         }
         if (response.metadata?.web_context) {
           state.webContext = clone(response.metadata.web_context);
+        }
+        if (response.metadata?.route) {
+          state.route = clone(response.metadata.route);
+        }
+        if (response.metadata?.lazy_summary_tokens !== undefined) {
+          state.lazySummaryTokens = response.metadata.lazy_summary_tokens;
+        }
+        if (response.metadata?.retrieval_mode) {
+          state.retrievalMode = response.metadata.retrieval_mode;
+        }
+        if (response.metadata?.evaluation) {
+          state.evaluation = sanitizeEvaluation(response.metadata.evaluation);
         }
       }
       pushRecord(clone(state));

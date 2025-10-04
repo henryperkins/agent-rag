@@ -5,7 +5,12 @@ import type {
   CriticReport,
   OrchestratorTools,
   RetrievalDiagnostics,
-  SessionTrace
+  LazyReference,
+  Reference,
+  RouteMetadata,
+  SessionEvaluation,
+  SessionTrace,
+  WebResult
 } from '../../../shared/types.js';
 import { compactHistory } from './compact.js';
 import type { SalienceNote } from './compact.js';
@@ -15,14 +20,20 @@ import { dispatchTools } from './dispatch.js';
 import { evaluateAnswer } from './critique.js';
 import { config } from '../config/app.js';
 import { createResponseStream } from '../azure/openaiClient.js';
-import { trace } from '@opentelemetry/api';
+import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, traced } from './telemetry.js';
 import { loadMemory, upsertMemory } from './memoryStore.js';
 import type { SummaryBullet } from './memoryStore.js';
-import { agenticRetrieveTool, answerTool, webSearchTool } from '../tools/index.js';
+import { semanticMemoryStore } from './semanticMemoryStore.js';
+import { assessComplexity, decomposeQuery, executeSubQueries } from './queryDecomposition.js';
+import { retrieveTool, answerTool, webSearchTool, lazyRetrieveTool } from '../tools/index.js';
 import { selectSummaryBullets } from './summarySelector.js';
+import { buildSessionEvaluation } from './evaluationTelemetry.js';
+import { classifyIntent, getRouteConfig } from './router.js';
+import type { RouteConfig } from './router.js';
+import { loadFullContent, identifyLoadCandidates } from '../azure/lazyRetrieval.js';
 
-export type ExecMode = 'sync' | 'stream';
+type ExecMode = 'sync' | 'stream';
 
 export interface RunSessionOptions {
   messages: AgentMessage[];
@@ -33,7 +44,8 @@ export interface RunSessionOptions {
 }
 
 const defaultTools: OrchestratorTools = {
-  retrieve: (args) => agenticRetrieveTool(args),
+  retrieve: (args) => retrieveTool(args),
+  lazyRetrieve: (args) => lazyRetrieveTool(args),
   webSearch: (args) => webSearchTool({ mode: config.WEB_SEARCH_MODE, ...args }),
   answer: (args) => answerTool(args),
   critic: (args) => evaluateAnswer(args)
@@ -42,6 +54,8 @@ const defaultTools: OrchestratorTools = {
 interface GenerateAnswerResult {
   answer: string;
   events: ActivityStep[];
+  usedFullContent: boolean;
+  contextText: string;
 }
 
 function mergeSalienceForContext(existing: SalienceNote[], fresh: SalienceNote[]) {
@@ -67,6 +81,36 @@ function max(values: number[]) {
   return values.length ? Math.max(...values) : undefined;
 }
 
+const DEFAULT_INTENT_MODELS: Record<string, string> = {
+  faq: 'gpt-4o-mini',
+  research: 'gpt-4o',
+  factual_lookup: 'gpt-4o-mini',
+  conversational: 'gpt-4o-mini'
+};
+
+const INTENT_MODEL_ENV_VARS: Record<string, string | undefined> = {
+  faq: process.env.MODEL_FAQ,
+  research: process.env.MODEL_RESEARCH,
+  factual_lookup: process.env.MODEL_FACTUAL,
+  conversational: process.env.MODEL_CONVERSATIONAL
+};
+
+function resolveModelDeployment(intent: string, routeConfig: RouteConfig) {
+  const defaultModel = DEFAULT_INTENT_MODELS[intent] ?? DEFAULT_INTENT_MODELS.research;
+  const envOverride = INTENT_MODEL_ENV_VARS[intent];
+  const candidate = routeConfig.model?.trim();
+
+  if (envOverride && envOverride.trim()) {
+    return candidate || config.AZURE_OPENAI_GPT_DEPLOYMENT;
+  }
+
+  if (candidate && candidate !== defaultModel) {
+    return candidate;
+  }
+
+  return config.AZURE_OPENAI_GPT_DEPLOYMENT;
+}
+
 function latestQuestion(messages: AgentMessage[]) {
   return [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
 }
@@ -76,21 +120,45 @@ async function generateAnswer(
   question: string,
   contextText: string,
   tools: OrchestratorTools,
+  routeConfig: RouteConfig,
+  modelDeployment: string,
   emit?: (event: string, data: unknown) => void,
-  revisionNotes?: string[]
+  revisionNotes?: string[],
+  lazyRefs: LazyReference[] = []
 ): Promise<GenerateAnswerResult> {
-  const systemPrompt =
-    'Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.';
+  const routePromptHint = routeConfig.systemPromptHints ? `${routeConfig.systemPromptHints}\n\n` : '';
+  const basePrompt = `${routePromptHint}Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.`;
 
-  if (!contextText?.trim()) {
+  const hasLazyReferences = lazyRefs.length > 0;
+  const lazyContext = hasLazyReferences
+    ? lazyRefs
+        .map((ref, index) => {
+          const body = ref.content ?? ref.summary ?? '';
+          return `[${index + 1}] ${body}`;
+        })
+        .join('\n\n')
+    : '';
+  const supplementalContext = hasLazyReferences ? (contextText?.trim() ?? '') : contextText;
+  let activeContext = hasLazyReferences
+    ? [lazyContext, supplementalContext].filter((segment) => segment && segment.length > 0).join('\n\n')
+    : supplementalContext;
+  const usedFullContent = hasLazyReferences && lazyRefs.some((ref) => ref.isSummary === false);
+
+  if (!activeContext?.trim()) {
     const fallbackAnswer = 'I do not know. (No grounded evidence retrieved)';
     if (mode === 'stream') {
       emit?.('token', { content: fallbackAnswer });
     }
-    return { answer: fallbackAnswer, events: [] };
+    return { answer: fallbackAnswer, events: [], usedFullContent, contextText: activeContext };
   }
 
-  let userPrompt = `Question: ${question}\n\nContext:\n${contextText}`;
+  const stage = hasLazyReferences
+    ? usedFullContent
+      ? 'generating_full'
+      : 'generating_from_summaries'
+    : 'generating';
+
+  let userPrompt = `Question: ${question}\n\nContext:\n${activeContext}`;
   if (revisionNotes && revisionNotes.length > 0) {
     userPrompt += `\n\nRevision guidance (address these issues):\n${revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
   }
@@ -98,10 +166,12 @@ async function generateAnswer(
   if (mode === 'stream') {
     const reader = await createResponseStream({
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: basePrompt },
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.4,
+      model: modelDeployment,
+      max_output_tokens: routeConfig.maxTokens,
       parallel_tool_calls: false,
       textFormat: { type: 'text' }
     });
@@ -109,67 +179,109 @@ async function generateAnswer(
     let answer = '';
     const decoder = new TextDecoder();
 
-    // emit initial status
-    emit?.('status', { stage: 'generating' });
+    emit?.('status', { stage });
 
     let completed = false;
-    while (!completed) {
-      const { value, done } = await reader.read();
-      if (done) break;
+    let buffer = '';
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+    const handleLine = (rawLine: string) => {
+      const line = rawLine.trim();
+      if (!line.startsWith('data:')) {
+        return;
+      }
 
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') continue;
-        try {
-          const delta = JSON.parse(payload);
-          const type = delta.type as string | undefined;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') {
+        return;
+      }
 
-          if (type === 'response.output_text.delta') {
-            const content = delta.delta ?? '';
-            if (content) {
-              answer += content;
-              emit?.('tokens', { content });
-            }
-            continue;
+      try {
+        const delta = JSON.parse(payload);
+        const type = delta.type as string | undefined;
+
+        if (type === 'response.output_text.delta') {
+          const content = delta.delta ?? '';
+          if (content) {
+            answer += content;
+            emit?.('token', { content });
           }
+          return;
+        }
 
-          if (type === 'response.output_text.done') {
-            const text = delta.text ?? '';
-            if (text) {
-              answer += text;
-              emit?.('tokens', { content: text });
-            }
-            continue;
+        if (type === 'response.output_text.done') {
+          const text = delta.text ?? '';
+          if (text) {
+            answer += text;
+            emit?.('token', { content: text });
           }
+          return;
+        }
 
-          if (type === 'response.completed') {
-            if (!answer && typeof delta.response?.output_text === 'string') {
-              answer = delta.response.output_text;
-            }
-            completed = true;
+        if (type === 'response.completed') {
+          if (!answer && typeof delta.response?.output_text === 'string') {
+            answer = delta.response.output_text;
+          }
+          completed = true;
+        }
+      } catch (_error) {
+        // ignore malformed chunks
+      }
+    };
+
+    const processBuffer = (flush = false) => {
+      while (buffer) {
+        const newlineIndex = buffer.indexOf('\n');
+        if (newlineIndex === -1) {
+          if (!flush) {
             break;
           }
-        } catch (error) {
-          // ignore malformed chunks
+          const remaining = buffer.trim();
+          buffer = '';
+          if (remaining) {
+            handleLine(remaining);
+          }
+          break;
+        }
+
+        const rawLine = buffer.slice(0, newlineIndex).replace(/\r$/, '');
+        buffer = buffer.slice(newlineIndex + 1);
+        handleLine(rawLine);
+
+        if (completed) {
+          buffer = '';
+          break;
         }
       }
+    };
+
+    while (!completed) {
+      const { value, done } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        processBuffer(true);
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      processBuffer();
     }
 
-    return { answer, events: [] };
+    return { answer, events: [], usedFullContent, contextText: activeContext };
   }
 
+  emit?.('status', { stage });
   const result = await tools.answer({
     question,
-    context: contextText,
-    revisionNotes
+    context: activeContext,
+    revisionNotes,
+    model: modelDeployment,
+    maxTokens: routeConfig.maxTokens,
+    systemPrompt: basePrompt,
+    temperature: 0.4
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
-  return { answer, events: [] };
+  return { answer, events: [], usedFullContent, contextText: activeContext };
 }
 
 async function buildContextSections(
@@ -230,74 +342,223 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const startedAt = Date.now();
 
   const tracer = getTracer();
-  const sessionSpan = tracer.startSpan('session', {
+  const sessionSpan = tracer.startSpan('execute_task', {
     attributes: {
-      'session.id': options.sessionId,
+      'gen_ai.system': 'agent_orchestrator',
+      'gen_ai.request.id': options.sessionId,
+      'gen_ai.request.type': 'agent',
       'session.mode': mode
     }
   });
 
-  emit?.('status', { stage: 'context' });
+  return await context.with(trace.setSpan(context.active(), sessionSpan), async () => {
+    try {
+      const question = latestQuestion(messages);
+      emit?.('status', { stage: 'intent_classification' });
+      const { intent, confidence: intentConfidence, reasoning: intentReasoning } = await traced(
+        'agent.intent_resolution',
+        () => classifyIntent(question, messages.slice(-6))
+      );
+      const routeConfig = getRouteConfig(intent);
+      const routeMetadata: RouteMetadata = {
+        intent,
+        confidence: intentConfidence,
+        reasoning: intentReasoning,
+        model: routeConfig.model,
+        retrieverStrategy: routeConfig.retrieverStrategy,
+        maxTokens: routeConfig.maxTokens
+      };
+      sessionSpan.setAttribute('agent.route.intent', intent);
+      sessionSpan.setAttribute('agent.route.model', routeConfig.model);
+      emit?.('route', routeMetadata);
 
-  const question = latestQuestion(messages);
-  const compacted = await traced('context.compact', () => compactHistory(messages));
-  const memorySnapshot = loadMemory(options.sessionId);
-  const { historyText, summaryText, salienceText, summaryCandidates, summaryStats } = await buildContextSections(
-    compacted,
-    memorySnapshot.summaryBullets,
-    memorySnapshot.salience,
-    question
-  );
-  upsertMemory(options.sessionId, messages.length, compacted, summaryCandidates);
+      const modelDeployment = resolveModelDeployment(intent, routeConfig);
 
-  const sections = budgetSections({
-    model: config.AZURE_OPENAI_GPT_MODEL_NAME,
-    sections: {
-      history: historyText,
-      summary: summaryText,
-      salience: salienceText
-    },
-    caps: {
-      history: config.CONTEXT_HISTORY_TOKEN_CAP,
-      summary: config.CONTEXT_SUMMARY_TOKEN_CAP,
-      salience: config.CONTEXT_SALIENCE_TOKEN_CAP
+      emit?.('status', { stage: 'context' });
+
+      const compacted = await traced('agent.state.compaction', () => compactHistory(messages));
+      const memorySnapshot = loadMemory(options.sessionId);
+      const { historyText, summaryText, salienceText, summaryCandidates, summaryStats } =
+        await buildContextSections(compacted, memorySnapshot.summaryBullets, memorySnapshot.salience, question);
+      upsertMemory(options.sessionId, messages.length, compacted, summaryCandidates);
+
+      let summarySection = summaryText;
+      let salienceSection = salienceText;
+      let memoryContextBlock = '';
+      let memoryContextAugmented = '';
+      let recalledMemories: Awaited<ReturnType<typeof semanticMemoryStore.recallMemories>> = [];
+
+      if (config.ENABLE_SEMANTIC_MEMORY && question.trim()) {
+        recalledMemories = await semanticMemoryStore.recallMemories(question, {
+          k: config.SEMANTIC_MEMORY_RECALL_K,
+          sessionId: options.sessionId,
+          minSimilarity: config.SEMANTIC_MEMORY_MIN_SIMILARITY,
+          maxAgeDays: config.SEMANTIC_MEMORY_PRUNE_AGE_DAYS
+        });
+
+        if (recalledMemories.length) {
+          memoryContextBlock = recalledMemories
+            .map((memory, idx) => `[Memory ${idx + 1}] ${memory.text}`)
+            .join('\n');
+          memoryContextAugmented = `Relevant memories:\n${memoryContextBlock}`;
+
+          salienceSection = salienceSection ? `${salienceSection}\n\n${memoryContextAugmented}` : memoryContextAugmented;
+
+          emit?.('semantic_memory', {
+            recalled: recalledMemories.length,
+            memories: recalledMemories.map((memory) => ({
+              type: memory.type,
+              similarity: memory.similarity,
+              preview: memory.text.slice(0, 120)
+            }))
+          });
+        }
+      }
+
+      const sections = budgetSections({
+        model: config.AZURE_OPENAI_GPT_MODEL_NAME,
+        sections: {
+          history: historyText,
+          summary: summarySection,
+          salience: salienceSection
+        },
+        caps: {
+          history: config.CONTEXT_HISTORY_TOKEN_CAP,
+          summary: config.CONTEXT_SUMMARY_TOKEN_CAP,
+          salience: config.CONTEXT_SALIENCE_TOKEN_CAP
+        }
+      });
+
+      emit?.('context', {
+        history: sections.history,
+        summary: sections.summary,
+        salience: sections.salience
+      });
+
+      const contextBudget: {
+        history_tokens: number;
+        summary_tokens: number;
+        salience_tokens: number;
+        web_tokens?: number;
+      } = {
+        history_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.history),
+        summary_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.summary),
+        salience_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.salience)
+      };
+
+      let decompositionApplied = false;
+      let decompositionResult: Awaited<ReturnType<typeof decomposeQuery>> | undefined;
+      let decompositionContextText = '';
+      let decompositionReferences: Reference[] = [];
+      let decompositionWebResults: WebResult[] = [];
+      let decompositionActivity: ActivityStep[] = [];
+      let complexityAssessment: Awaited<ReturnType<typeof assessComplexity>> | undefined;
+
+      const plan = await traced('agent.plan', async () => {
+        const result = await getPlan(messages, compacted);
+        const span = trace.getActiveSpan();
+        span?.setAttribute('agent.plan.confidence', result.confidence);
+        span?.setAttribute('agent.plan.step_count', result.steps.length);
+        return result;
+      });
+      emit?.('plan', plan);
+
+      if (config.ENABLE_QUERY_DECOMPOSITION && question.trim()) {
+        emit?.('status', { stage: 'complexity_assessment' });
+        complexityAssessment = await assessComplexity(question);
+        emit?.('complexity', {
+          score: complexityAssessment.complexity,
+          needsDecomposition: complexityAssessment.needsDecomposition,
+      reasoning: complexityAssessment.reasoning
+    });
+
+    const eligible =
+      complexityAssessment.needsDecomposition &&
+      complexityAssessment.complexity >= config.DECOMPOSITION_COMPLEXITY_THRESHOLD;
+
+    if (eligible) {
+      emit?.('status', { stage: 'query_decomposition' });
+      const candidate = await decomposeQuery(question);
+      const validSubQueries = candidate.subQueries.filter((item) => item.query.trim().length > 0);
+
+      if (validSubQueries.length > 1 && validSubQueries.length <= config.DECOMPOSITION_MAX_SUBQUERIES) {
+        decompositionResult = { ...candidate, subQueries: validSubQueries };
+        emit?.('decomposition', {
+          subQueries: validSubQueries.map((item) => ({
+            id: item.id,
+            query: item.query,
+            dependencies: item.dependencies
+          })),
+          synthesisPrompt: candidate.synthesisPrompt
+        });
+
+        emit?.('status', { stage: 'executing_subqueries' });
+        const subqueryResults = await executeSubQueries(validSubQueries, {
+          retrieve: (args) => tools.retrieve(args),
+          webSearch: (args) => tools.webSearch(args)
+        });
+
+        const aggregatedReferences: Reference[] = [];
+        const aggregatedWebResults: WebResult[] = [];
+
+        for (const [, result] of subqueryResults.entries()) {
+          if (Array.isArray(result.references)) {
+            aggregatedReferences.push(...result.references);
+          }
+          if (Array.isArray(result.webResults)) {
+            aggregatedWebResults.push(...result.webResults);
+          }
+        }
+
+        decompositionContextText = aggregatedReferences
+          .map((reference, index) => {
+            const body = reference.content ?? reference.chunk ?? '';
+            return body ? `[SubQuery ${index + 1}] ${body}` : '';
+          })
+          .filter((segment) => segment.length > 0)
+          .join('\n\n');
+
+        decompositionReferences = aggregatedReferences;
+        decompositionWebResults = aggregatedWebResults;
+
+        if (decompositionContextText) {
+          decompositionApplied = true;
+          decompositionActivity.push({
+            type: 'query_decomposition',
+            description: `Executed ${validSubQueries.length} sub-queries via decomposition pipeline.`
+          });
+        }
+      }
     }
-  });
+  }
 
-  emit?.('context', {
-    history: sections.history,
-    summary: sections.summary,
-    salience: sections.salience
-  });
+      const dispatch = await traced('agent.tool.dispatch', async () => {
+        if (decompositionApplied) {
+          return {
+            contextText: decompositionContextText,
+            references: decompositionReferences,
+            lazyReferences: [],
+        activity: decompositionActivity,
+        webResults: decompositionWebResults,
+        webContextText: '',
+        webContextTokens: 0,
+        webContextTrimmed: false,
+        summaryTokens: undefined,
+        source: 'direct' as const,
+        retrievalMode: 'direct' as const,
+        escalated: false
+      };
+    }
 
-  const contextBudget: {
-    history_tokens: number;
-    summary_tokens: number;
-    salience_tokens: number;
-    web_tokens?: number;
-  } = {
-    history_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.history),
-    summary_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.summary),
-    salience_tokens: estimateTokens(config.AZURE_OPENAI_GPT_MODEL_NAME, sections.salience)
-  };
-
-  const plan = await traced('plan', async () => {
-    const result = await getPlan(messages, compacted);
-    const span = trace.getActiveSpan();
-    span?.setAttribute('plan.confidence', result.confidence);
-    span?.setAttribute('plan.step_count', result.steps.length);
-    return result;
-  });
-  emit?.('plan', plan);
-
-  const dispatch = await traced('tools.dispatch', async () => {
     const result = await dispatchTools({
       plan,
       messages,
       salience: compacted.salience,
       emit,
+      preferLazy: config.ENABLE_LAZY_RETRIEVAL && routeConfig.retrieverStrategy !== 'web',
       tools: {
         retrieve: tools.retrieve,
+        lazyRetrieve: tools.lazyRetrieve,
         webSearch: tools.webSearch
       }
     });
@@ -318,11 +579,15 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     contextBudget.web_tokens = dispatch.webContextTokens;
   }
 
+  const lazyReferenceState: LazyReference[] = dispatch.lazyReferences.map((ref) => ({ ...ref }));
+  const lazyRetrievalEnabled = dispatch.retrievalMode === 'lazy' && lazyReferenceState.length > 0;
+
   const scoreValues = dispatch.references
     .map((ref) => ref.score)
     .filter((score): score is number => typeof score === 'number');
+  const attemptedMode: 'direct' | 'lazy' | 'fallback_vector' = dispatch.retrievalMode === 'lazy' ? 'lazy' : dispatch.source;
   const retrievalDiagnostics: RetrievalDiagnostics = {
-    attempted: dispatch.source,
+    attempted: attemptedMode,
     succeeded: dispatch.references.length > 0,
     retryCount: 0,
     documents: dispatch.references.length,
@@ -330,38 +595,65 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     minScore: min(scoreValues),
     maxScore: max(scoreValues),
     thresholdUsed: config.RERANKER_THRESHOLD,
-    fallbackReason: dispatch.source === 'fallback_vector' ? 'knowledge_agent_unavailable' : undefined,
-    escalated: dispatch.escalated
+    fallbackReason: dispatch.source === 'fallback_vector' ? 'direct_search_fallback' : undefined,
+    escalated: dispatch.escalated,
+    mode: dispatch.retrievalMode,
+    summaryTokens: dispatch.summaryTokens
   };
 
   if (dispatch.references.length < config.RETRIEVAL_MIN_DOCS) {
     retrievalDiagnostics.fallbackReason = retrievalDiagnostics.fallbackReason ?? 'insufficient_documents';
   }
 
-  let combinedContext = [dispatch.contextText, dispatch.webContextText].filter(Boolean).join('\n\n');
+  const combinedSegments = [dispatch.contextText, dispatch.webContextText];
+  if (memoryContextAugmented) {
+    combinedSegments.push(memoryContextAugmented);
+  }
+
+  let combinedContext = combinedSegments
+    .filter((segment) => typeof segment === 'string' && segment.trim().length > 0)
+    .join('\n\n');
+
   if (!combinedContext) {
-    combinedContext = sections.history;
+    const fallbackSegments = [sections.history];
+    if (memoryContextAugmented) {
+      fallbackSegments.push(memoryContextAugmented);
+    }
+    combinedContext = fallbackSegments
+      .filter((segment) => typeof segment === 'string' && segment.trim().length > 0)
+      .join('\n\n');
   }
 
   // Critic retry loop
   let answer = '';
   let attempt = 0;
   let finalCritic: CriticReport | undefined;
-  const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[] }> = [];
+  const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[]; usedFullContent?: boolean }> = [];
 
   while (attempt <= config.CRITIC_MAX_RETRIES) {
     const isRevision = attempt > 0;
     const revisionNotes = isRevision && finalCritic?.issues?.length ? finalCritic.issues : undefined;
 
     emit?.('status', { stage: isRevision ? 'revising' : 'generating' });
-    const answerResult = await traced(isRevision ? 'synthesis.revision' : 'synthesis', () =>
-      generateAnswer(mode, question, combinedContext, tools, emit, revisionNotes)
+    const answerResult = await traced(isRevision ? 'agent.synthesis.revision' : 'agent.synthesis', () =>
+      generateAnswer(
+        mode,
+        question,
+        combinedContext,
+        tools,
+        routeConfig,
+        modelDeployment,
+        emit,
+        revisionNotes,
+        lazyReferenceState
+      )
     );
     answer = answerResult.answer;
+    combinedContext = answerResult.contextText;
 
-    emit?.('status', { stage: 'review' });
-    const criticResult = await traced('critic', async () => {
-      const result = await tools.critic({ draft: answer, evidence: combinedContext, question });
+  emit?.('status', { stage: 'review' });
+  const criticResult = await traced('agent.critique', async () => {
+    const result = await tools.critic({ draft: answer, evidence: answerResult.contextText, question });
       const span = trace.getActiveSpan();
       span?.setAttribute('critic.attempt', attempt);
       span?.setAttribute('critic.coverage', result.coverage);
@@ -375,7 +667,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       grounded: criticResult.grounded,
       coverage: criticResult.coverage,
       action: criticResult.action,
-      issues: criticResult.issues
+      issues: criticResult.issues,
+      usedFullContent: answerResult.usedFullContent
     });
 
     emit?.('critique', { ...criticResult, attempt });
@@ -394,6 +687,37 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       break;
     }
 
+    // Consider loading full content if lazy summaries proved insufficient
+    if (
+      lazyRetrievalEnabled &&
+      !answerResult.usedFullContent &&
+      config.ENABLE_LAZY_RETRIEVAL &&
+      (criticResult.coverage < config.LAZY_LOAD_THRESHOLD || (criticResult.issues?.length ?? 0) > 0)
+    ) {
+      const loadTargets = identifyLoadCandidates(lazyReferenceState, criticResult.issues ?? []);
+      if (loadTargets.length) {
+        emit?.('activity', {
+          steps: [{
+            type: 'lazy_load_triggered',
+            description: `Loading full content for ${loadTargets.length} retrieval results based on critic feedback.`
+          }]
+        });
+
+        const fullContentMap = await loadFullContent(lazyReferenceState, loadTargets);
+        for (const [idx, content] of fullContentMap.entries()) {
+          const existing = lazyReferenceState[idx];
+          if (!existing) {
+            continue;
+          }
+          lazyReferenceState[idx] = {
+            ...existing,
+            content,
+            isSummary: false
+          };
+        }
+      }
+    }
+
     // Prepare for next iteration
     finalCritic = criticResult;
     attempt += 1;
@@ -406,18 +730,64 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     issues: []
   };
 
-  const response: ChatResponse = {
+  const evaluation: SessionEvaluation = buildSessionEvaluation({
+    question,
     answer,
+    retrieval: retrievalDiagnostics,
+    critic,
     citations: dispatch.references,
-    activity: dispatch.activity,
-    metadata: {
-      retrieval_time_ms: undefined,
+    summarySelection: summaryStats,
+    plan,
+    route: routeMetadata,
+    referencesUsed: dispatch.references.length,
+    webResultsUsed: dispatch.webResults.length,
+    retrievalMode: dispatch.retrievalMode,
+    lazySummaryTokens: dispatch.summaryTokens,
+    criticIterations: attempt + 1,
+    finalCriticAction: critic.action,
+    activity: dispatch.activity
+  });
+
+      const response: ChatResponse = {
+        answer,
+        citations: dispatch.references,
+        activity: dispatch.activity,
+        metadata: {
+          retrieval_time_ms: undefined,
       critic_iterations: attempt + 1,
       plan,
       trace_id: options.sessionId,
       context_budget: contextBudget,
       critic_report: critic,
       summary_selection: summaryStats,
+      route: routeMetadata,
+      retrieval_mode: dispatch.retrievalMode,
+      lazy_summary_tokens: dispatch.summaryTokens,
+      semantic_memory: recalledMemories.length
+        ? {
+            recalled: recalledMemories.length,
+            entries: recalledMemories.map((memory) => ({
+              id: memory.id,
+              type: memory.type,
+              similarity: memory.similarity,
+              preview: memory.text.slice(0, 120)
+            }))
+          }
+        : undefined,
+      query_decomposition: decompositionResult
+        ? {
+            active: decompositionApplied,
+            complexityScore: complexityAssessment?.complexity,
+            subQueries: decompositionResult.subQueries.map((item) => ({
+              id: item.id,
+              query: item.query,
+              dependencies: item.dependencies
+            })),
+            synthesisPrompt: decompositionResult.synthesisPrompt
+          }
+        : decompositionApplied
+        ? { active: true, complexityScore: complexityAssessment?.complexity }
+        : undefined,
       web_context: dispatch.webContextText
         ? {
             tokens: dispatch.webContextTokens,
@@ -436,27 +806,57 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         coverage: entry.coverage,
         grounded: entry.grounded,
         action: entry.action,
-        issues: entry.issues
-      }))
+        issues: entry.issues,
+        usedFullContent: entry.usedFullContent
+      })),
+      evaluation
     }
   };
 
-  const completedAt = Date.now();
-  const criticSummary = {
-    grounded: critic.grounded,
-    coverage: critic.coverage,
-    action: critic.action,
-    iterations: attempt + 1,
-    issues: critic.issues
-  };
+      const completedAt = Date.now();
+      const criticSummary = {
+        grounded: critic.grounded,
+        coverage: critic.coverage,
+        action: critic.action,
+        iterations: attempt + 1,
+        issues: critic.issues
+      };
 
-  emit?.('complete', { answer });
-  emit?.('telemetry', {
-    traceId: options.sessionId,
-    plan,
-    contextBudget,
-    critic,
-    retrieval: retrievalDiagnostics,
+      emit?.('complete', { answer });
+      emit?.('telemetry', {
+        traceId: options.sessionId,
+        plan,
+        contextBudget,
+        critic,
+        retrieval: retrievalDiagnostics,
+    route: routeMetadata,
+    retrievalMode: dispatch.retrievalMode,
+    lazySummaryTokens: dispatch.summaryTokens,
+    semanticMemory: recalledMemories.length
+      ? {
+          recalled: recalledMemories.length,
+          entries: recalledMemories.map((memory) => ({
+            id: memory.id,
+            type: memory.type,
+            similarity: memory.similarity,
+            preview: memory.text.slice(0, 120)
+          }))
+        }
+      : undefined,
+    queryDecomposition: decompositionResult
+      ? {
+          active: decompositionApplied,
+          complexityScore: complexityAssessment?.complexity,
+          subQueries: decompositionResult.subQueries.map((item) => ({
+            id: item.id,
+            query: item.query,
+            dependencies: item.dependencies
+          })),
+          synthesisPrompt: decompositionResult.synthesisPrompt
+        }
+      : decompositionApplied
+      ? { active: true, complexityScore: complexityAssessment?.complexity }
+      : undefined,
     summarySelection: summaryStats,
     webContext: dispatch.webContextText
       ? {
@@ -469,7 +869,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
             rank: result.rank
           }))
         }
-      : undefined
+      : undefined,
+    evaluation
   });
   const sessionTrace: SessionTrace = {
     sessionId: options.sessionId,
@@ -478,12 +879,39 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     completedAt: new Date(completedAt).toISOString(),
     plan,
     planConfidence: plan.confidence,
+    route: routeMetadata,
     contextBudget,
     retrieval: retrievalDiagnostics,
     critic: criticSummary,
     summarySelection: summaryStats,
-    critiqueHistory,
+    critiqueHistory: critiqueHistory.map((entry) => ({ ...entry })),
+    semanticMemory: recalledMemories.length
+      ? {
+          recalled: recalledMemories.length,
+          entries: recalledMemories.map((memory) => ({
+            id: memory.id,
+            type: memory.type,
+            similarity: memory.similarity,
+            preview: memory.text.slice(0, 120)
+          }))
+        }
+      : undefined,
+    queryDecomposition: decompositionResult
+      ? {
+          active: decompositionApplied,
+          complexityScore: complexityAssessment?.complexity,
+          subQueries: decompositionResult.subQueries.map((item) => ({
+            id: item.id,
+            query: item.query,
+            dependencies: item.dependencies
+          })),
+          synthesisPrompt: decompositionResult.synthesisPrompt
+        }
+      : decompositionApplied
+      ? { active: true, complexityScore: complexityAssessment?.complexity }
+      : undefined,
     events: [],
+    evaluation,
     error: undefined
   };
   if (dispatch.webContextText) {
@@ -501,25 +929,78 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   emit?.('trace', { session: sessionTrace });
   emit?.('done', { status: 'complete' });
 
-  sessionSpan.setAttributes({
-    'plan.confidence': plan.confidence,
-    'plan.steps': plan.steps.length,
-    'context.tokens.history': contextBudget.history_tokens,
-    'context.tokens.summary': contextBudget.summary_tokens,
-    'context.tokens.salience': contextBudget.salience_tokens,
-    'context.tokens.web': contextBudget.web_tokens ?? 0,
-    'summary.selection.mode': summaryStats.mode,
-    'summary.selection.selected': summaryStats.selectedCount,
-    'summary.selection.total': summaryStats.totalCandidates,
-    'critic.grounded': critic.grounded,
-    'critic.coverage': critic.coverage,
-    'critic.iterations': attempt + 1,
-    'retrieval.documents': dispatch.references.length,
-    'retrieval.escalated': dispatch.escalated,
-    'web.results': dispatch.webResults.length,
-    'web.context.trimmed': dispatch.webContextTrimmed
-  });
-  sessionSpan.end();
+      if (
+    config.ENABLE_SEMANTIC_MEMORY &&
+    question.trim() &&
+    answer.trim() &&
+    !answer.trim().startsWith('I do not know')
+  ) {
+    try {
+      await semanticMemoryStore.addMemory(
+        `Q: ${question}\nA: ${answer.slice(0, 500)}`,
+        'episodic',
+        {
+          planConfidence: plan.confidence,
+          criticCoverage: critic.coverage,
+          criticGrounded: critic.grounded
+        },
+        { sessionId: options.sessionId }
+      );
+    } catch (error) {
+      console.warn('Failed to persist semantic memory entry:', error);
+    }
+  }
 
-  return response;
+      const evaluationEvent: Record<string, unknown> = {
+        'evaluation.summary.status': evaluation.summary.status,
+        'evaluation.safety.flagged': evaluation.safety?.flagged ?? false
+      };
+      if (evaluation.summary.failingMetrics.length > 0) {
+        evaluationEvent['evaluation.summary.failures'] = evaluation.summary.failingMetrics.join(',');
+      }
+      if (evaluation.rag?.retrieval) {
+        evaluationEvent['evaluation.rag.retrieval.score'] = evaluation.rag.retrieval.score;
+      }
+      if (evaluation.agent?.intentResolution) {
+        evaluationEvent['evaluation.agent.intent_resolution.score'] = evaluation.agent.intentResolution.score;
+      }
+      if (evaluation.agent?.toolCallAccuracy) {
+        evaluationEvent['evaluation.agent.tool_call_accuracy.score'] = evaluation.agent.toolCallAccuracy.score;
+      }
+      if (evaluation.agent?.taskAdherence) {
+        evaluationEvent['evaluation.agent.task_adherence.score'] = evaluation.agent.taskAdherence.score;
+      }
+      sessionSpan.addEvent('evaluation', evaluationEvent);
+
+      sessionSpan.setAttributes({
+        'agent.plan.confidence': plan.confidence,
+        'agent.plan.step_count': plan.steps.length,
+        'context.tokens.history': contextBudget.history_tokens,
+        'context.tokens.summary': contextBudget.summary_tokens,
+        'context.tokens.salience': contextBudget.salience_tokens,
+        'context.tokens.web': contextBudget.web_tokens ?? 0,
+        'summary.selection.mode': summaryStats.mode,
+        'summary.selection.selected': summaryStats.selectedCount,
+        'summary.selection.total': summaryStats.totalCandidates,
+        'agent.critic.grounded': critic.grounded,
+        'agent.critic.coverage': critic.coverage,
+        'agent.critic.iterations': attempt + 1,
+        'agent.retrieval.documents': dispatch.references.length,
+        'agent.retrieval.escalated': dispatch.escalated,
+        'agent.retrieval.mode': dispatch.retrievalMode,
+        'agent.retrieval.lazy_summary_tokens': dispatch.summaryTokens ?? 0,
+        'agent.web.results': dispatch.webResults.length,
+        'agent.web.context_trimmed': dispatch.webContextTrimmed,
+        'gen_ai.response.latency_ms': completedAt - startedAt
+      });
+
+      return response;
+    } catch (error) {
+      sessionSpan.recordException(error as Error);
+      sessionSpan.setStatus({ code: SpanStatusCode.ERROR, message: (error as Error).message });
+      throw error;
+    } finally {
+      sessionSpan.end();
+    }
+  });
 }

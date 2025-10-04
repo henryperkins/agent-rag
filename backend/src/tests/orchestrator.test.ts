@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../orchestrator/semanticMemoryStore.js', () => ({
+  semanticMemoryStore: {
+    recallMemories: vi.fn().mockResolvedValue([]),
+    addMemory: vi.fn().mockResolvedValue(1)
+  }
+}));
+
 import { runSession } from '../orchestrator/index.js';
 import * as planModule from '../orchestrator/plan.js';
 import { clearMemory } from '../orchestrator/memoryStore.js';

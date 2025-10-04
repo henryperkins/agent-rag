@@ -24,7 +24,8 @@ const toolMocks = {
 const plannerMock = vi.fn();
 
 vi.mock('../tools/index.js', () => ({
-  agenticRetrieveTool: (args: any) => toolMocks.retrieve(args),
+  retrieveTool: (args: any) => toolMocks.retrieve(args),
+  lazyRetrieveTool: (args: any) => toolMocks.retrieve(args),
   webSearchTool: (args: any) => toolMocks.webSearch(args),
   answerTool: (args: any) => toolMocks.answer(args)
 }));
@@ -40,6 +41,13 @@ vi.mock('../orchestrator/plan.js', () => ({
 vi.mock('../azure/openaiClient.js', () => ({
   createResponseStream: vi.fn(),
   createEmbeddings: vi.fn()
+}));
+
+vi.mock('../orchestrator/semanticMemoryStore.js', () => ({
+  semanticMemoryStore: {
+    recallMemories: vi.fn().mockResolvedValue([]),
+    addMemory: vi.fn().mockResolvedValue(1)
+  }
 }));
 
 const openaiClient = await import('../azure/openaiClient.js');
@@ -111,6 +119,8 @@ describe('orchestrator integration via /chat route', () => {
     expect(body.citations[0].id).toBe('doc-azure-search');
     expect(body.metadata?.plan?.confidence).toBeCloseTo(0.82);
     expect(body.metadata?.web_context).toBeUndefined();
+    expect(body.metadata?.evaluation?.summary.status).toBeDefined();
+    expect(body.metadata?.evaluation?.agent?.intentResolution?.metric).toBe('intent_resolution');
     expect(toolMocks.webSearch).not.toHaveBeenCalled();
     expect(toolMocks.retrieve).toHaveBeenCalledTimes(1);
   });
@@ -212,7 +222,7 @@ describe('orchestrator integration via /chat route', () => {
     expect(body.citations[0].id).toBe('doc-fallback');
     const telemetry = getSessionTelemetry();
     expect(telemetry[0]?.retrieval?.fallbackReason ?? telemetry[0]?.retrieval?.fallback_reason).toBe(
-      'knowledge_agent_unavailable'
+      'direct_search_fallback'
     );
     expect(toolMocks.webSearch).not.toHaveBeenCalled();
   });
@@ -355,7 +365,8 @@ describe('orchestrator integration via /chat route', () => {
       });
 
     const statusStages = events.filter((entry) => entry.event === 'status').map((entry) => entry.data.stage);
-    expect(statusStages[0]).toBe('context');
+    expect(statusStages[0]).toBe('intent_classification');
+    expect(statusStages).toContain('context');
     expect(statusStages).toContain('confidence_escalation');
     expect(statusStages).toContain('retrieval');
     expect(statusStages).toContain('web_search');

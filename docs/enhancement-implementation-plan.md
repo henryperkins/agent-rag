@@ -25,7 +25,8 @@ backend/src/
 │   ├── chatStreamService.ts     # Streaming service using runSession
 │   └── enhancedChatService.ts   # Sync service using runSession (current prod)
 ├── agents/
-│   └── enhancedCritic.ts        # Advanced critic (activity + reference aware)
+│   ├── critic.ts                # Legacy critic prompt wrapper
+│   └── planner.ts               # Heuristic planner helper
 ├── azure/indexSetup.ts          # Index creation, document ingestion, embeddings
 ├── azure/openaiClient.ts        # Embeddings, chat, streaming
 ├── tools/index.ts               # agenticRetrieveTool, answerTool, webSearchTool

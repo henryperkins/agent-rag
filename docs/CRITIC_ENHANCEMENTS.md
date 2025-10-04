@@ -28,7 +28,6 @@ while (attempt <= config.CRITIC_MAX_RETRIES) {
 **Configuration** (`backend/src/config/app.ts`):
 - `CRITIC_MAX_RETRIES`: Max revision attempts (default: 1)
 - `CRITIC_THRESHOLD`: Auto-accept coverage threshold (default: 0.8)
-- `ENABLE_CRITIC`: Master toggle (default: true)
 
 ---
 
@@ -234,7 +233,6 @@ curl http://localhost:8787/admin/telemetry | jq '.sessions[0].critiqueHistory'
 # Critic settings
 CRITIC_MAX_RETRIES=1           # Max revision attempts
 CRITIC_THRESHOLD=0.8           # Auto-accept coverage threshold
-ENABLE_CRITIC=true             # Master toggle
 
 # Context settings (affect critic input quality)
 CONTEXT_MAX_RECENT_TURNS=12

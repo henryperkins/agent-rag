@@ -4,22 +4,28 @@ import type {
   Reference,
   ActivityStep,
   WebResult,
-  WebSearchResponse
+  WebSearchResponse,
+  LazyReference
 } from '../../../shared/types.js';
-import { agenticRetrieveTool, webSearchTool } from '../tools/index.js';
+import { retrieveTool, webSearchTool, lazyRetrieveTool } from '../tools/index.js';
 import type { SalienceNote } from './compact.js';
 import { config } from '../config/app.js';
 import { estimateTokens } from './contextBudget.js';
+import { reciprocalRankFusion, applySemanticBoost } from './reranker.js';
+import { generateEmbedding } from '../azure/directSearch.js';
 
 export interface DispatchResult {
   contextText: string;
   references: Reference[];
+  lazyReferences: LazyReference[];
   activity: ActivityStep[];
   webResults: WebResult[];
   webContextText: string;
   webContextTokens: number;
   webContextTrimmed: boolean;
-  source: 'knowledge_agent' | 'fallback_vector';
+  summaryTokens?: number;
+  source: 'direct' | 'fallback_vector';
+  retrievalMode: 'direct' | 'lazy';
   escalated: boolean;
 }
 
@@ -29,13 +35,27 @@ interface DispatchOptions {
   salience: SalienceNote[];
   emit?: (event: string, data: unknown) => void;
   tools?: {
-    retrieve?: (args: { messages: AgentMessage[] }) => Promise<{
+    retrieve?: (args: { query: string; filter?: string; top?: number; messages?: AgentMessage[] }) => Promise<{
       response: string;
       references: Reference[];
       activity: ActivityStep[];
+      lazyReferences?: LazyReference[];
+      summaryTokens?: number;
+      mode?: 'direct' | 'lazy';
+      fullContentAvailable?: boolean;
+    }>;
+    lazyRetrieve?: (args: { query: string; filter?: string; top?: number }) => Promise<{
+      response: string;
+      references: Reference[];
+      activity: ActivityStep[];
+      lazyReferences?: LazyReference[];
+      summaryTokens?: number;
+      mode?: 'direct' | 'lazy';
+      fullContentAvailable?: boolean;
     }>;
     webSearch?: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
   };
+  preferLazy?: boolean;
 }
 
 function buildWebContext(results: WebResult[], maxTokens: number) {
@@ -93,18 +113,22 @@ function latestUserQuery(messages: AgentMessage[]): string {
   return last?.content ?? '';
 }
 
-export async function dispatchTools({ plan, messages, salience, emit, tools }: DispatchOptions): Promise<DispatchResult> {
+export async function dispatchTools({ plan, messages, salience, emit, tools, preferLazy }: DispatchOptions): Promise<DispatchResult> {
   const references: Reference[] = [];
+  const lazyReferences: LazyReference[] = [];
   const activity: ActivityStep[] = [];
   const webResults: WebResult[] = [];
   const retrievalSnippets: string[] = [];
-  let source: 'knowledge_agent' | 'fallback_vector' = 'knowledge_agent';
+  let source: 'direct' | 'fallback_vector' = 'direct';
+  let retrievalMode: 'direct' | 'lazy' = 'direct';
+  let summaryTokens: number | undefined;
   const confidence = typeof plan.confidence === 'number' ? plan.confidence : 1;
   const threshold = config.PLANNER_CONFIDENCE_DUAL_RETRIEVAL;
   const escalated = confidence < threshold;
 
   const queryFallback = latestUserQuery(messages);
-  const retrieve = tools?.retrieve ?? agenticRetrieveTool;
+  const retrieve = tools?.retrieve ?? retrieveTool;
+  const lazyRetrieve = tools?.lazyRetrieve ?? lazyRetrieveTool;
   const webSearch = tools?.webSearch ?? webSearchTool;
 
   if (escalated) {
@@ -118,13 +142,26 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
   const shouldRetrieve = escalated || plan.steps.some((step) => step.action === 'vector_search' || step.action === 'both');
   if (shouldRetrieve) {
     emit?.('status', { stage: 'retrieval' });
-    const retrieval = await retrieve({ messages });
+    // Extract query from plan step or use latest user query
+    const retrievalStep = plan.steps.find((s) => s.action === 'vector_search' || s.action === 'both');
+    const query = retrievalStep?.query?.trim() || queryFallback;
+    const useLazy = (preferLazy ?? config.ENABLE_LAZY_RETRIEVAL) === true;
+    const retrieval = useLazy
+      ? await lazyRetrieve({ query, top: retrievalStep?.k })
+      : await retrieve({ query, messages });
+
     references.push(...(retrieval.references ?? []));
+    if ('lazyReferences' in retrieval && Array.isArray(retrieval.lazyReferences) && retrieval.lazyReferences.length) {
+      lazyReferences.push(...retrieval.lazyReferences);
+      summaryTokens = retrieval.summaryTokens;
+      retrievalMode = retrieval.mode === 'lazy' ? 'lazy' : 'direct';
+    }
+
     activity.push(
       ...(retrieval.activity ?? []),
       {
         type: 'plan',
-        description: 'Knowledge agent retrieval executed via orchestrator.'
+        description: `${useLazy ? 'Lazy' : 'Direct'} Azure AI Search retrieval executed via orchestrator.`
       }
     );
     if (typeof retrieval.response === 'string' && retrieval.response.trim().length) {
@@ -208,13 +245,133 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
     }
   }
 
+  if (
+    config.ENABLE_WEB_RERANKING &&
+    references.length > 0 &&
+    webResults.length > 0
+  ) {
+    const originalAzureCount = references.length;
+    const originalWebCount = webResults.length;
+    const originalAzureMap = new Map(
+      references.map((ref, index) => [ref.id ?? `azure-${index}`, ref])
+    );
+    const originalWebMap = new Map(
+      webResults.map((result, index) => [result.id ?? result.url ?? `web-${index}`, result])
+    );
+
+    emit?.('status', { stage: 'reranking' });
+    let reranked = reciprocalRankFusion(references, webResults, config.RRF_K_CONSTANT);
+
+    if (config.ENABLE_SEMANTIC_BOOST) {
+      try {
+        const queryEmbedding = await generateEmbedding(queryFallback);
+        const documentEmbeddings = new Map<string, number[]>();
+        const boostCandidates = reranked.slice(0, config.RERANKING_TOP_K);
+
+        for (const candidate of boostCandidates) {
+          const content = candidate.content?.slice(0, 1000);
+          if (content) {
+            const embedding = await generateEmbedding(content);
+            documentEmbeddings.set(candidate.id, embedding);
+          }
+        }
+
+        reranked = applySemanticBoost(
+          reranked,
+          queryEmbedding,
+          documentEmbeddings,
+          config.SEMANTIC_BOOST_WEIGHT
+        );
+      } catch (error) {
+        console.warn('Semantic boost failed during reranking:', error);
+      }
+    }
+
+    const topReranked = reranked.slice(0, config.RERANKING_TOP_K);
+
+    references.splice(
+      0,
+      references.length,
+      ...topReranked.map((item) => {
+        const original = originalAzureMap.get(item.id);
+        return {
+          id: item.id,
+          title: item.title ?? original?.title,
+          content: item.content || original?.content || original?.chunk || '',
+          chunk: original?.chunk,
+          url: item.url ?? original?.url,
+          page_number: original?.page_number,
+          score: item.rrfScore
+        } satisfies Reference;
+      })
+    );
+
+    const rerankedWebResults = topReranked
+      .filter((item) => item.source === 'web')
+      .map((item, index) => {
+        const original = originalWebMap.get(item.id);
+        return {
+          id: item.id,
+          title: item.title,
+          snippet: original?.snippet ?? item.content,
+          body: original?.body,
+          url: item.url ?? original?.url ?? '',
+          rank: index + 1,
+          relevance: item.rrfScore,
+          fetchedAt: original?.fetchedAt ?? new Date().toISOString()
+        } satisfies WebResult;
+      });
+
+    if (rerankedWebResults.length) {
+      webResults.splice(0, webResults.length, ...rerankedWebResults);
+      const { text, tokens, trimmed, usedResults } = buildWebContext(
+        rerankedWebResults,
+        config.WEB_CONTEXT_MAX_TOKENS
+      );
+      webContextText = text;
+      webContextTokens = tokens;
+      webContextTrimmed = trimmed;
+
+      emit?.('web_context', {
+        tokens,
+        trimmed,
+        results: usedResults.map((result) => ({
+          id: result.id,
+          title: result.title,
+          url: result.url,
+          rank: result.rank
+        })),
+        text
+      });
+    } else {
+      webResults.splice(0, webResults.length);
+      webContextText = '';
+      webContextTokens = 0;
+      webContextTrimmed = false;
+    }
+
+    activity.push({
+      type: 'reranking',
+      description: `Applied RRF to ${originalAzureCount} Azure and ${originalWebCount} web results → ${references.length} combined.`
+    });
+
+    emit?.('reranking', {
+      inputAzure: originalAzureCount,
+      inputWeb: originalWebCount,
+      output: references.length,
+      method: config.ENABLE_SEMANTIC_BOOST ? 'rrf+semantic' : 'rrf'
+    });
+  }
+
   const salienceText = salience.map((note, idx) => `[Salience ${idx + 1}] ${note.fact}`).join('\n');
-  const referenceText = references
+  const primaryReferences = lazyReferences.length ? lazyReferences : references;
+  const referenceText = primaryReferences
     .map((ref, idx) => `[${idx + 1}] ${ref.content ?? ''}`)
     .join('\n\n');
 
-  const contextText = [referenceText, retrievalSnippets.join('\n\n'), salienceText]
-    .filter(Boolean)
+  const referenceBlock = lazyReferences.length ? '' : referenceText;
+  const contextText = [referenceBlock, retrievalSnippets.join('\n\n'), salienceText]
+    .filter((block) => Boolean(block && block.trim()))
     .join('\n\n');
 
   if (references.length < config.RETRIEVAL_MIN_DOCS) {
@@ -227,12 +384,15 @@ export async function dispatchTools({ plan, messages, salience, emit, tools }: D
   return {
     contextText,
     references,
+    lazyReferences,
     activity,
     webResults,
     webContextText,
     webContextTokens,
     webContextTrimmed,
+    summaryTokens,
     source,
+    retrievalMode,
     escalated
   };
 }

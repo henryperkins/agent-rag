@@ -179,4 +179,61 @@ describe('sessionTelemetryStore redaction', () => {
     expect(entry.summarySelection?.selectedCount).toBe(2);
     expect(entry.metadata?.summary_selection?.maxScore).toBeCloseTo(0.91);
   });
+
+  it('sanitizes evaluation telemetry payloads', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-eval',
+      mode: 'sync',
+      question: 'Evaluate telemetry'
+    });
+
+    const evaluation = {
+      rag: {
+        retrieval: {
+          metric: 'retrieval',
+          score: 1,
+          threshold: 3,
+          passed: false,
+          reason: 'Reach analyst@example.com for details',
+          evidence: { fallback: 'triggered' }
+        }
+      },
+      quality: undefined,
+      agent: {
+        intentResolution: {
+          metric: 'intent_resolution',
+          score: 4,
+          threshold: 3,
+          passed: true,
+          reason: 'Intent resolved successfully',
+          evidence: { confidence: 0.9 }
+        }
+      },
+      safety: {
+        flagged: false,
+        categories: [],
+        reason: undefined,
+        evidence: undefined
+      },
+      summary: {
+        status: 'needs_review' as const,
+        failingMetrics: ['rag.retrieval'],
+        generatedAt: new Date().toISOString()
+      }
+    };
+
+    recorder.emit('telemetry', { evaluation });
+
+    recorder.complete({
+      answer: 'done',
+      metadata: {
+        evaluation
+      }
+    } as any);
+
+    const [entry] = getSessionTelemetry();
+    expect(entry.evaluation?.rag?.retrieval?.reason).toContain('[EMAIL]');
+    expect(entry.evaluation?.agent?.intentResolution?.metric).toBe('intent_resolution');
+    expect(entry.metadata?.evaluation?.summary.status).toBe('needs_review');
+  });
 });

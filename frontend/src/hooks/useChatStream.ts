@@ -1,5 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
-import type { ActivityStep, AgentMessage, Citation, SummarySelectionStats } from '../types';
+import type {
+  ActivityStep,
+  AgentMessage,
+  Citation,
+  RouteMetadata,
+  SessionEvaluation,
+  SummarySelectionStats
+} from '../types';
 
 interface CritiqueAttempt {
   attempt: number;
@@ -32,6 +39,10 @@ interface StreamState {
     trimmed?: boolean;
     results?: Array<{ id?: string; title?: string; url?: string; rank?: number }>;
   };
+  route?: RouteMetadata;
+  retrievalMode?: string;
+  lazySummaryTokens?: number;
+  evaluation?: SessionEvaluation;
   error?: string;
 }
 
@@ -43,7 +54,8 @@ export function useChatStream() {
     citations: [],
     activity: [],
     critiqueHistory: [],
-    telemetry: {}
+    telemetry: {},
+    evaluation: undefined
   });
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -54,10 +66,11 @@ export function useChatStream() {
       status: 'idle',
       answer: '',
       citations: [],
-    activity: [],
-    critiqueHistory: [],
-    telemetry: {}
-  });
+      activity: [],
+      critiqueHistory: [],
+      telemetry: {},
+      evaluation: undefined
+    });
   }, []);
 
   const stream = useCallback(async (messages: AgentMessage[]) => {
@@ -104,7 +117,7 @@ export function useChatStream() {
             const data = JSON.parse(line.replace('data:', '').trim());
             switch (eventType) {
               case 'status':
-                setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
+                 setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
                 break;
               case 'token':
                 setState((prev) => ({ ...prev, answer: prev.answer + (data.content ?? '') }));
@@ -134,8 +147,25 @@ export function useChatStream() {
               case 'context':
                 setState((prev) => ({ ...prev, context: data }));
                 break;
+              case 'route':
+                setState((prev) => ({ ...prev, route: data as RouteMetadata }));
+                break;
               case 'telemetry':
-                setState((prev) => ({ ...prev, telemetry: { ...(prev.telemetry ?? {}), ...data } }));
+                setState((prev) => {
+                  const mergedTelemetry = { ...(prev.telemetry ?? {}), ...data } as TelemetryState;
+                  const nextRoute = (data.route ?? data.metadata?.route) as RouteMetadata | undefined;
+                  const nextRetrievalMode = (data.retrievalMode ?? data.retrieval_mode ?? prev.retrievalMode) as string | undefined;
+                  const nextLazyTokens = (data.lazySummaryTokens ?? data.lazy_summary_tokens ?? prev.lazySummaryTokens) as number | undefined;
+                  const nextEvaluation = (data.evaluation ?? data.metadata?.evaluation) as SessionEvaluation | undefined;
+                  return {
+                    ...prev,
+                    telemetry: mergedTelemetry,
+                    route: nextRoute ?? prev.route,
+                    retrievalMode: nextRetrievalMode,
+                    lazySummaryTokens: nextLazyTokens,
+                    evaluation: nextEvaluation ?? prev.evaluation
+                  };
+                });
                 break;
               case 'web_context':
                 setState((prev) => ({
@@ -190,6 +220,10 @@ export function useChatStream() {
     telemetry: state.telemetry,
     trace: state.trace,
     webContext: state.webContext,
-    critiqueHistory: state.critiqueHistory
+    critiqueHistory: state.critiqueHistory,
+    route: state.route,
+    retrievalMode: state.retrievalMode,
+    lazySummaryTokens: state.lazySummaryTokens,
+    evaluation: state.evaluation
   };
 }

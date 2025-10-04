@@ -16,6 +16,18 @@ export interface Reference {
   score?: number;
 }
 
+export interface LazyReference extends Reference {
+  summary?: string;
+  isSummary?: boolean;
+  loadFull?: () => Promise<string>;
+}
+
+export interface LazyRetrievalResponse {
+  references: LazyReference[];
+  summaryTokens: number;
+  fullContentAvailable: boolean;
+}
+
 export interface ActivityStep {
   type: string;
   description: string;
@@ -31,6 +43,15 @@ export interface PlanStep {
 export interface PlanSummary {
   confidence: number;
   steps: PlanStep[];
+}
+
+export interface RouteMetadata {
+  intent: string;
+  confidence: number;
+  reasoning: string;
+  model: string;
+  retrieverStrategy: string;
+  maxTokens: number;
 }
 
 export interface CriticReport {
@@ -54,10 +75,76 @@ export interface SummarySelectionStats {
   error?: string;
 }
 
+export interface EvaluationDimension {
+  metric: string;
+  score: number;
+  threshold: number;
+  passed: boolean;
+  reason: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface RagEvaluationSnapshot {
+  retrieval?: EvaluationDimension;
+  documentRetrieval?: EvaluationDimension;
+  groundedness?: EvaluationDimension;
+  groundednessPro?: EvaluationDimension;
+  relevance?: EvaluationDimension;
+  responseCompleteness?: EvaluationDimension;
+}
+
+export interface QualityEvaluationSnapshot {
+  coherence?: EvaluationDimension;
+  fluency?: EvaluationDimension;
+  qa?: EvaluationDimension;
+}
+
+export type SafetyEvaluationCategory =
+  | 'hate_and_unfairness'
+  | 'sexual'
+  | 'violence'
+  | 'self_harm'
+  | 'content_safety'
+  | 'protected_materials'
+  | 'code_vulnerability'
+  | 'ungrounded_attributes'
+  | 'indirect_attack';
+
+export interface SafetyEvaluationSnapshot {
+  flagged: boolean;
+  categories: SafetyEvaluationCategory[];
+  reason?: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface AgentEvaluationSnapshot {
+  intentResolution?: EvaluationDimension;
+  toolCallAccuracy?: EvaluationDimension;
+  taskAdherence?: EvaluationDimension;
+}
+
+export interface SessionEvaluationSummary {
+  status: 'pass' | 'needs_review';
+  failingMetrics: string[];
+  generatedAt: string;
+}
+
+export interface SessionEvaluation {
+  rag?: RagEvaluationSnapshot;
+  quality?: QualityEvaluationSnapshot;
+  safety?: SafetyEvaluationSnapshot;
+  agent?: AgentEvaluationSnapshot;
+  summary: SessionEvaluationSummary;
+}
+
 export interface AgenticRetrievalResponse {
   response: string;
   references: Reference[];
   activity: ActivityStep[];
+  lazyReferences?: LazyReference[];
+  summaryTokens?: number;
+  mode?: 'direct' | 'lazy';
+  fullContentAvailable?: boolean;
 }
 
 export interface WebResult {
@@ -101,8 +188,32 @@ export interface ChatResponse {
       grounded: boolean;
       action: 'accept' | 'revise';
       issues?: string[];
+      usedFullContent?: boolean;
     }>;
     summary_selection?: SummarySelectionStats;
+    route?: RouteMetadata;
+    retrieval_mode?: 'direct' | 'lazy';
+    lazy_summary_tokens?: number;
+    semantic_memory?: {
+      recalled: number;
+      entries: Array<{
+        id: number;
+        type: string;
+        similarity?: number;
+        preview?: string;
+      }>;
+    };
+    query_decomposition?: {
+      active: boolean;
+      complexityScore?: number;
+      subQueries?: Array<{
+        id: number;
+        query: string;
+        dependencies: number[];
+      }>;
+      synthesisPrompt?: string;
+    };
+    evaluation?: SessionEvaluation;
   };
 }
 
@@ -117,7 +228,7 @@ export interface TraceEvent {
 }
 
 export interface RetrievalDiagnostics {
-  attempted: 'knowledge_agent' | 'fallback_vector';
+  attempted: 'direct' | 'lazy' | 'fallback_vector';
   succeeded: boolean;
   retryCount: number;
   documents: number;
@@ -128,6 +239,8 @@ export interface RetrievalDiagnostics {
   fallbackReason?: string;
   fallback_reason?: string;
   escalated?: boolean;
+  mode?: 'direct' | 'lazy';
+  summaryTokens?: number;
 }
 
 export interface SessionTrace {
@@ -137,6 +250,7 @@ export interface SessionTrace {
   completedAt?: string;
   plan?: PlanSummary;
   planConfidence?: number;
+  route?: RouteMetadata;
   contextBudget?: {
     history_tokens: number;
     summary_tokens: number;
@@ -157,6 +271,7 @@ export interface SessionTrace {
     coverage: number;
     action: 'accept' | 'revise';
     issues?: string[];
+    usedFullContent?: boolean;
   }>;
   webContext?: {
     tokens: number;
@@ -165,17 +280,42 @@ export interface SessionTrace {
   };
   summarySelection?: SummarySelectionStats;
   events: TraceEvent[];
+  semanticMemory?: {
+    recalled: number;
+    entries: Array<{
+      id: number;
+      type: string;
+      similarity?: number;
+      preview?: string;
+    }>;
+  };
+  queryDecomposition?: {
+    active: boolean;
+    complexityScore?: number;
+    subQueries?: Array<{
+      id: number;
+      query: string;
+      dependencies: number[];
+    }>;
+    synthesisPrompt?: string;
+  };
   error?: string;
+  evaluation?: SessionEvaluation;
 }
 
 export interface OrchestratorTools {
-  retrieve: (args: { messages: AgentMessage[] }) => Promise<AgenticRetrievalResponse>;
+  retrieve: (args: { query: string; filter?: string; top?: number; messages?: AgentMessage[] }) => Promise<AgenticRetrievalResponse>;
+  lazyRetrieve?: (args: { query: string; filter?: string; top?: number }) => Promise<AgenticRetrievalResponse>;
   webSearch: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
   answer: (args: {
     question: string;
     context: string;
     citations?: Reference[];
     revisionNotes?: string[];
+    model?: string;
+    maxTokens?: number;
+    systemPrompt?: string;
+    temperature?: number;
   }) => Promise<{ answer: string; citations?: Reference[] }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
 }

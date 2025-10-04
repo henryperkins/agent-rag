@@ -25,10 +25,15 @@ const envSchema = z.object({
   AZURE_OPENAI_EMBEDDING_ENDPOINT: z.string().url().optional(),
   AZURE_OPENAI_EMBEDDING_API_KEY: z.string().optional(),
 
-  AZURE_BING_SUBSCRIPTION_KEY: z.string().optional(),
-  AZURE_BING_ENDPOINT: z.string().url().default('https://api.bing.microsoft.com/v7.0/search'),
+  GOOGLE_SEARCH_API_KEY: z.string().optional(),
+  GOOGLE_SEARCH_ENGINE_ID: z.string().optional(),
+  GOOGLE_SEARCH_ENDPOINT: z.string().url().default('https://customsearch.googleapis.com/customsearch/v1'),
 
   RAG_TOP_K: z.coerce.number().default(5),
+  ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(false),
+  LAZY_SUMMARY_MAX_CHARS: z.coerce.number().default(300),
+  LAZY_PREFETCH_COUNT: z.coerce.number().default(10),
+  LAZY_LOAD_THRESHOLD: z.coerce.number().default(0.5),
   RERANKER_THRESHOLD: z.coerce.number().default(2.5),
   TARGET_INDEX_MAX_DOCUMENTS: z.coerce.number().default(100),
 
@@ -47,8 +52,34 @@ const envSchema = z.object({
   RETRIEVAL_MIN_DOCS: z.coerce.number().default(3),
   RETRIEVAL_FALLBACK_RERANKER_THRESHOLD: z.coerce.number().default(1.5),
   ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
+  ENABLE_INTENT_ROUTING: z.coerce.boolean().default(false),
+  INTENT_CLASSIFIER_MODEL: z.string().default('gpt-4o-mini'),
+  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(10),
+  MODEL_FAQ: z.string().default('gpt-4o-mini'),
+  MODEL_RESEARCH: z.string().default('gpt-4o'),
+  MODEL_FACTUAL: z.string().default('gpt-4o-mini'),
+  MODEL_CONVERSATIONAL: z.string().default('gpt-4o-mini'),
+  MAX_TOKENS_FAQ: z.coerce.number().default(500),
+  MAX_TOKENS_RESEARCH: z.coerce.number().default(2000),
+  MAX_TOKENS_FACTUAL: z.coerce.number().default(600),
+  MAX_TOKENS_CONVERSATIONAL: z.coerce.number().default(400),
 
-  ENABLE_CRITIC: z.coerce.boolean().default(true),
+  SEMANTIC_MEMORY_DB_PATH: z.string().default('./data/semantic-memory.db'),
+  ENABLE_SEMANTIC_MEMORY: z.coerce.boolean().default(false),
+  SEMANTIC_MEMORY_RECALL_K: z.coerce.number().default(3),
+  SEMANTIC_MEMORY_MIN_SIMILARITY: z.coerce.number().default(0.6),
+  SEMANTIC_MEMORY_PRUNE_AGE_DAYS: z.coerce.number().default(90),
+
+  ENABLE_QUERY_DECOMPOSITION: z.coerce.boolean().default(false),
+  DECOMPOSITION_COMPLEXITY_THRESHOLD: z.coerce.number().default(0.6),
+  DECOMPOSITION_MAX_SUBQUERIES: z.coerce.number().default(8),
+
+  ENABLE_WEB_RERANKING: z.coerce.boolean().default(false),
+  RRF_K_CONSTANT: z.coerce.number().default(60),
+  RERANKING_TOP_K: z.coerce.number().default(10),
+  ENABLE_SEMANTIC_BOOST: z.coerce.boolean().default(false),
+  SEMANTIC_BOOST_WEIGHT: z.coerce.number().default(0.3),
+
   CRITIC_MAX_RETRIES: z.coerce.number().default(1),
   CRITIC_THRESHOLD: z.coerce.number().default(0.8),
 

@@ -78,7 +78,8 @@ function ChatApp() {
           contextBudget: chatMutation.data.metadata.context_budget,
           critic: chatMutation.data.metadata.critic_report,
           webContext: chatMutation.data.metadata.web_context,
-          summarySelection: chatMutation.data.metadata.summary_selection
+          summarySelection: chatMutation.data.metadata.summary_selection,
+          evaluation: chatMutation.data.metadata.evaluation
         }
       : undefined;
   const traceDetails = mode === 'stream' ? stream.trace : undefined;
@@ -86,6 +87,10 @@ function ChatApp() {
   const critiqueHistory = mode === 'stream'
     ? stream.critiqueHistory
     : chatMutation.data?.metadata?.critique_history;
+  const routeDetails = mode === 'stream' ? stream.route : chatMutation.data?.metadata?.route;
+  const retrievalMode = mode === 'stream' ? stream.retrievalMode : chatMutation.data?.metadata?.retrieval_mode;
+  const lazySummaryTokens = mode === 'stream' ? stream.lazySummaryTokens : chatMutation.data?.metadata?.lazy_summary_tokens;
+  const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
 
   return (
     <div className="layout">
@@ -140,6 +145,10 @@ function ChatApp() {
             trace={traceDetails}
             webContext={webContextDetails}
             critiqueHistory={critiqueHistory}
+            route={routeDetails}
+            retrievalMode={retrievalMode}
+            lazySummaryTokens={lazySummaryTokens}
+            evaluation={evaluationDetails}
           />
         </section>
       </main>

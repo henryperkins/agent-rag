@@ -106,7 +106,7 @@
   - Generates retrieval strategy (vector, web, hybrid)
   - Confidence scoring for dual-retrieval escalation
 
-- **Enhanced Critic Agent** (`backend/src/agents/enhancedCritic.ts`):
+- **Critique Module** (`backend/src/orchestrator/critique.ts`):
   - Multi-iteration answer validation
   - Groundedness verification against evidence
   - Coverage scoring (0-1 scale)
@@ -516,7 +516,7 @@ Backend (Fastify + TypeScript)
 │   ├── Context Pipeline: compact, memoryStore, summarySelector
 │   ├── Planning: plan.ts (structured plan schema)
 │   ├── Tool Dispatch: retrieve, webSearch, answer
-│   ├── Critique: enhancedCritic (multi-iteration)
+│   ├── Critique: critique.ts (multi-iteration)
 │   └── Telemetry: sessionTelemetryStore, trace
 ├── Services: chatStreamService, enhancedChatService
 └── Azure Integrations
