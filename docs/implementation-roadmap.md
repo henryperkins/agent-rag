@@ -3,10 +3,69 @@
 **Project:** Agent-RAG Enhancement Initiative
 **Timeline:** 12 months (4 quarters)
 **Priority:** Incremental feature delivery with backward compatibility
+**Last Updated**: 2025-10-04
 
 ---
 
-## Quick Reference: Feature Status
+## Current Status: P1 Features (IMPLEMENTED - Disabled by Default)
+
+⚠️ **IMPORTANT**: The following P1 agentic enhancements are **code complete and tested** but **disabled by default via feature flags**. See [Production Deployment Guide](./PRODUCTION_DEPLOYMENT.md) for enablement instructions.
+
+| Feature | Status | Feature Flag | Default | Cost Impact | Documentation |
+|---------|--------|--------------|---------|-------------|---------------|
+| **Semantic Memory** | ✅ Implemented | `ENABLE_SEMANTIC_MEMORY` | `false` | +$50-100/mo | [IMPLEMENTATION_ASSESSMENT.md](./IMPLEMENTATION_ASSESSMENT.md#p1-1) |
+| **Query Decomposition** | ✅ Implemented | `ENABLE_QUERY_DECOMPOSITION` | `false` | +2-3× tokens | [IMPLEMENTATION_ASSESSMENT.md](./IMPLEMENTATION_ASSESSMENT.md#p1-2) |
+| **Web Reranking (RRF)** | ✅ Implemented | `ENABLE_WEB_RERANKING` | `false` | Minimal | [IMPLEMENTATION_ASSESSMENT.md](./IMPLEMENTATION_ASSESSMENT.md#p1-3) |
+| **Intent Routing** | ✅ Implemented | `ENABLE_INTENT_ROUTING` | `false` | **-20-30%** 💰 | `backend/src/orchestrator/router.ts` |
+| **Lazy Retrieval** | ✅ Implemented | `ENABLE_LAZY_RETRIEVAL` | `false` | **-40-50%** 💰 | `backend/src/azure/lazyRetrieval.ts` |
+| **Semantic Summary** | ✅ Implemented | `ENABLE_SEMANTIC_SUMMARY` | `false` | +$20-30/mo | `backend/src/orchestrator/summarySelector.ts` |
+| **Multi-Pass Critic** | ✅ Implemented | `ENABLE_CRITIC` | **`true`** | Standard | `backend/src/orchestrator/critique.ts` |
+
+### Enablement Roadmap (Phase 4)
+
+**Recommended Progressive Enablement**:
+
+```bash
+# Week 1: Cost Optimization (Lowest Risk)
+ENABLE_CRITIC=true              # Already default
+ENABLE_INTENT_ROUTING=true      # Saves 20-30%
+ENABLE_LAZY_RETRIEVAL=true      # Saves 40-50%
+# Monitor: 72 hours, validate cost reduction
+
+# Week 2: Quality Enhancement (After Week 1 Success)
+ENABLE_WEB_RERANKING=true       # Better multi-source results
+ENABLE_SEMANTIC_SUMMARY=true    # Improved context selection
+# Monitor: 72 hours, validate quality metrics
+
+# Week 3: Advanced Features (After Week 2 Success)
+ENABLE_QUERY_DECOMPOSITION=true # Complex query support
+ENABLE_SEMANTIC_MEMORY=true     # Persistent memory
+# Monitor: 72 hours, watch token spikes and disk space
+```
+
+**Prerequisites by Feature**:
+
+- **SEMANTIC_MEMORY**: Requires `pnpm rebuild better-sqlite3` + disk space
+- **QUERY_DECOMPOSITION**: Set Azure OpenAI quota alerts (can spike tokens)
+- **WEB_RERANKING**: Requires Google Custom Search API configured
+- **All others**: No special prerequisites
+
+**Breaking Changes**:
+- None (all features are additive when enabled)
+- Semantic memory creates new SQLite database at `./data/semantic-memory.db`
+- Query decomposition may increase latency on complex queries (8-15s vs 3-5s)
+
+**Rollback Procedures**:
+- Set flag to `false` in `.env`
+- Restart backend (`pm2 restart` or equivalent)
+- No data loss (semantic memory DB persists if disabled)
+
+See **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)** for complete deployment guide.
+See **[COST_OPTIMIZATION.md](./COST_OPTIMIZATION.md)** for cost analysis and optimization strategies.
+
+---
+
+## Quick Reference: Future Features
 
 | Feature | Priority | Complexity | Timeline | Dependencies |
 |---------|----------|------------|----------|--------------|
