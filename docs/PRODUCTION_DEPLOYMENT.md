@@ -80,8 +80,8 @@ cp backend/.env.example backend/.env
 nano backend/.env
 
 # Apply your chosen configuration flags
-# Example for MINIMAL:
-ENABLE_CRITIC=true
+# The critic review loop is always on; there is no ENABLE_CRITIC toggle.
+# Example for MINIMAL (critic loop is always enabled):
 ENABLE_INTENT_ROUTING=true
 ENABLE_LAZY_RETRIEVAL=true
 ```

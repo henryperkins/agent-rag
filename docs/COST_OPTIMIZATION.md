@@ -572,7 +572,7 @@ A: Yes - reduce `CONTEXT_HISTORY_TOKEN_CAP`, `RAG_TOP_K`, or `WEB_RESULTS_MAX`. 
 
 ## Tools and Scripts
 
-### Cost Calculator Script
+### Cost Calculator Script (copy locally before running)
 
 ```bash
 #!/bin/bash
@@ -605,8 +605,39 @@ fi
 echo "Estimated monthly cost: \$$TOTAL_COST"
 ```
 
-Usage:
+Save the snippet above into a local file named `cost-calculator.sh`, then mark it as executable before running:
+
 ```bash
+cat <<'EOF' > cost-calculator.sh
+#!/bin/bash
+
+REQUESTS_PER_MONTH=$1
+INTENT_ROUTING=${2:-true}
+LAZY_RETRIEVAL=${3:-true}
+
+if [ "$LAZY_RETRIEVAL" = true ]; then
+  INPUT_TOKENS=1250
+else
+  INPUT_TOKENS=3700
+fi
+
+OUTPUT_TOKENS=400
+
+if [ "$INTENT_ROUTING" = true ]; then
+  MINI_REQUESTS=$(echo "$REQUESTS_PER_MONTH * 0.6" | bc)
+  GPT4_REQUESTS=$(echo "$REQUESTS_PER_MONTH * 0.4" | bc)
+
+  MINI_COST=$(echo "scale=2; ($MINI_REQUESTS * $INPUT_TOKENS * 0.00015 / 1000) + ($MINI_REQUESTS * $OUTPUT_TOKENS * 0.0006 / 1000)" | bc)
+  GPT4_COST=$(echo "scale=2; ($GPT4_REQUESTS * $INPUT_TOKENS * 0.01 / 1000) + ($GPT4_REQUESTS * $OUTPUT_TOKENS * 0.03 / 1000)" | bc)
+
+  TOTAL_COST=$(echo "$MINI_COST + $GPT4_COST" | bc)
+else
+  TOTAL_COST=$(echo "scale=2; ($REQUESTS_PER_MONTH * $INPUT_TOKENS * 0.01 / 1000) + ($REQUESTS_PER_MONTH * $OUTPUT_TOKENS * 0.03 / 1000)" | bc)
+fi
+
+echo "Estimated monthly cost: \$$TOTAL_COST"
+EOF
+chmod +x cost-calculator.sh
 ./cost-calculator.sh 10000 true true
 # Estimated monthly cost: $172.14
 ```

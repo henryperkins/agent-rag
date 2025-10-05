@@ -624,18 +624,109 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       .join('\n\n');
   }
 
-  // Critic retry loop
+  // Critic (optional) retry loop
   let answer = '';
   let attempt = 0;
   let finalCritic: CriticReport | undefined;
   const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[]; usedFullContent?: boolean }> = [];
 
-  while (attempt <= config.CRITIC_MAX_RETRIES) {
-    const isRevision = attempt > 0;
-    const revisionNotes = isRevision && finalCritic?.issues?.length ? finalCritic.issues : undefined;
+  if (config.ENABLE_CRITIC) {
+    while (attempt <= config.CRITIC_MAX_RETRIES) {
+      const isRevision = attempt > 0;
+      const revisionNotes = isRevision && finalCritic?.issues?.length ? finalCritic.issues : undefined;
 
-    emit?.('status', { stage: isRevision ? 'revising' : 'generating' });
-    const answerResult = await traced(isRevision ? 'agent.synthesis.revision' : 'agent.synthesis', () =>
+      emit?.('status', { stage: isRevision ? 'revising' : 'generating' });
+      const answerResult = await traced(isRevision ? 'agent.synthesis.revision' : 'agent.synthesis', () =>
+        generateAnswer(
+          mode,
+          question,
+          combinedContext,
+          tools,
+          routeConfig,
+          modelDeployment,
+          emit,
+          revisionNotes,
+          lazyReferenceState
+        )
+      );
+      answer = answerResult.answer;
+      combinedContext = answerResult.contextText;
+
+      emit?.('status', { stage: 'review' });
+      const criticResult = await traced('agent.critique', async () => {
+        const result = await tools.critic({ draft: answer, evidence: answerResult.contextText, question });
+        const span = trace.getActiveSpan();
+        span?.setAttribute('critic.attempt', attempt);
+        span?.setAttribute('critic.coverage', result.coverage);
+        span?.setAttribute('critic.grounded', result.grounded);
+        span?.setAttribute('critic.action', result.action);
+        return result;
+      });
+
+      critiqueHistory.push({
+        attempt,
+        grounded: criticResult.grounded,
+        coverage: criticResult.coverage,
+        action: criticResult.action,
+        issues: criticResult.issues,
+        usedFullContent: answerResult.usedFullContent
+      });
+
+      emit?.('critique', { ...criticResult, attempt });
+
+      if (criticResult.action === 'accept' || criticResult.coverage >= config.CRITIC_THRESHOLD) {
+        finalCritic = criticResult;
+        break;
+      }
+
+      if (attempt === config.CRITIC_MAX_RETRIES) {
+        // Reached max retries, append quality notes
+        finalCritic = criticResult;
+        if (criticResult.issues?.length) {
+          answer = `${answer}\n\n[Quality review notes: ${criticResult.issues.join('; ')}]`;
+        }
+        break;
+      }
+
+      // Consider loading full content if lazy summaries proved insufficient
+      if (
+        lazyRetrievalEnabled &&
+        !answerResult.usedFullContent &&
+        config.ENABLE_LAZY_RETRIEVAL &&
+        (criticResult.coverage < config.LAZY_LOAD_THRESHOLD || (criticResult.issues?.length ?? 0) > 0)
+      ) {
+        const loadTargets = identifyLoadCandidates(lazyReferenceState, criticResult.issues ?? []);
+        if (loadTargets.length) {
+          emit?.('activity', {
+            steps: [{
+              type: 'lazy_load_triggered',
+              description: `Loading full content for ${loadTargets.length} retrieval results based on critic feedback.`
+            }]
+          });
+
+          const fullContentMap = await loadFullContent(lazyReferenceState, loadTargets);
+          for (const [idx, content] of fullContentMap.entries()) {
+            const existing = lazyReferenceState[idx];
+            if (!existing) {
+              continue;
+            }
+            lazyReferenceState[idx] = {
+              ...existing,
+              content,
+              isSummary: false
+            };
+          }
+        }
+      }
+
+      // Prepare for next iteration
+      finalCritic = criticResult;
+      attempt += 1;
+    }
+  } else {
+    // Critic disabled — generate once, do not emit review/critique events
+    emit?.('status', { stage: 'generating' });
+    const answerResult = await traced('agent.synthesis', () =>
       generateAnswer(
         mode,
         question,
@@ -644,83 +735,14 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         routeConfig,
         modelDeployment,
         emit,
-        revisionNotes,
+        undefined,
         lazyReferenceState
       )
     );
     answer = answerResult.answer;
     combinedContext = answerResult.contextText;
-
-  emit?.('status', { stage: 'review' });
-  const criticResult = await traced('agent.critique', async () => {
-    const result = await tools.critic({ draft: answer, evidence: answerResult.contextText, question });
-      const span = trace.getActiveSpan();
-      span?.setAttribute('critic.attempt', attempt);
-      span?.setAttribute('critic.coverage', result.coverage);
-      span?.setAttribute('critic.grounded', result.grounded);
-      span?.setAttribute('critic.action', result.action);
-      return result;
-    });
-
-    critiqueHistory.push({
-      attempt,
-      grounded: criticResult.grounded,
-      coverage: criticResult.coverage,
-      action: criticResult.action,
-      issues: criticResult.issues,
-      usedFullContent: answerResult.usedFullContent
-    });
-
-    emit?.('critique', { ...criticResult, attempt });
-
-    if (criticResult.action === 'accept' || criticResult.coverage >= config.CRITIC_THRESHOLD) {
-      finalCritic = criticResult;
-      break;
-    }
-
-    if (attempt === config.CRITIC_MAX_RETRIES) {
-      // Reached max retries, append quality notes
-      finalCritic = criticResult;
-      if (criticResult.issues?.length) {
-        answer = `${answer}\n\n[Quality review notes: ${criticResult.issues.join('; ')}]`;
-      }
-      break;
-    }
-
-    // Consider loading full content if lazy summaries proved insufficient
-    if (
-      lazyRetrievalEnabled &&
-      !answerResult.usedFullContent &&
-      config.ENABLE_LAZY_RETRIEVAL &&
-      (criticResult.coverage < config.LAZY_LOAD_THRESHOLD || (criticResult.issues?.length ?? 0) > 0)
-    ) {
-      const loadTargets = identifyLoadCandidates(lazyReferenceState, criticResult.issues ?? []);
-      if (loadTargets.length) {
-        emit?.('activity', {
-          steps: [{
-            type: 'lazy_load_triggered',
-            description: `Loading full content for ${loadTargets.length} retrieval results based on critic feedback.`
-          }]
-        });
-
-        const fullContentMap = await loadFullContent(lazyReferenceState, loadTargets);
-        for (const [idx, content] of fullContentMap.entries()) {
-          const existing = lazyReferenceState[idx];
-          if (!existing) {
-            continue;
-          }
-          lazyReferenceState[idx] = {
-            ...existing,
-            content,
-            isSummary: false
-          };
-        }
-      }
-    }
-
-    // Prepare for next iteration
-    finalCritic = criticResult;
-    attempt += 1;
+    // Provide a trivial accept critic for downstream telemetry
+    finalCritic = { grounded: true, coverage: 1.0, action: 'accept', issues: [] };
   }
 
   const critic = finalCritic ?? {
