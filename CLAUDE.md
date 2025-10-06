@@ -56,7 +56,7 @@ The orchestrator (`runSession`) is the single entry point for both synchronous (
 
 4. **Tool Dispatch** – `dispatchTools()` executes planned actions. Primary path runs direct Azure AI Search hybrid semantic search; fallback lowers the reranker threshold before falling back to pure vector search. When `ENABLE_LAZY_RETRIEVAL` is on, dispatch returns summary-only references first (via `lazyRetrieveTool`) and defers full document hydration until the critic demands more detail. Web search leverages Google Custom Search, and all paths use `withRetry()` resilience wrappers.
 
-5. **Synthesis** – `generateAnswer()` creates responses via Azure OpenAI `/chat/completions`, honoring the routed model and token limits. Streaming mode uses `createResponseStream()`; sync mode calls `answerTool()` directly while accepting critic revision notes.
+5. **Synthesis** – `generateAnswer()` creates responses via Azure OpenAI Responses API (`/responses`), honoring the routed model and token limits. Streaming mode uses `createResponseStream()` (Responses API streaming); sync mode calls `answerTool()` directly while accepting critic revision notes.
 
 6. **Multi-Pass Critic Loop** – Evaluates answer quality using structured outputs, retries up to `CRITIC_MAX_RETRIES`, and can trigger lazy retrieval to load full documents when summaries lack coverage. Iterations (including whether full content was used) are recorded in `critiqueHistory`.
 
@@ -111,7 +111,7 @@ Environment variables validated with Zod schema:
    - Supports pagination and result ranking
 
 4. **answerTool**: Synthesis with optional revision guidance
-   - Uses Azure OpenAI `/chat/completions` endpoint
+   - Uses Azure OpenAI Responses API (`/responses`)
    - Accepts `revisionNotes` for critic-driven improvements
    - Returns answer + citations with inline references ([1], [2], etc.)
 
@@ -129,7 +129,7 @@ Environment variables validated with Zod schema:
   - `MessageList`: Chat history
   - `ChatInput`: User input with mode toggle
 
-- **Critique History UI** (`frontend/src/components/PlanPanel.tsx:33-60`):
+- **Critique History UI** (`frontend/src/components/PlanPanel.tsx`):
   - Timeline view of all critic iterations
   - Color-coded badges (✓ Accepted / ↻ Revise)
   - Coverage percentage, grounded status, issue lists
@@ -146,6 +146,8 @@ Environment variables validated with Zod schema:
 - Orchestrator emits typed events: `status`, `route`, `plan`, `context`, `tool`, `tokens`, `critique`, `complete`, `telemetry`, `trace`, `done`
 - Frontend subscribes via EventSource and updates UI reactively
 - Critic iterations tracked but only final answer tokens streamed
+- Note: Internally the orchestrator emits a `tokens` event for partial answer chunks; the streaming service maps this to an SSE event named `token` (see `backend/src/services/chatStreamService.ts`). Frontend listeners should subscribe to `token` for incremental answer content.
+
 
 ### Type Safety
 - Shared types in `shared/types.ts` used by both frontend/backend
@@ -170,7 +172,7 @@ Environment variables validated with Zod schema:
 | `backend/src/tools/webSearch.ts` | Google Custom Search JSON API integration |
 | `backend/src/azure/directSearch.ts` | Direct Azure AI Search REST API with hybrid semantic search |
 | `backend/src/azure/lazyRetrieval.ts` | Summary-first Azure AI Search wrapper with deferred hydration |
-| `backend/src/azure/openaiClient.ts` | Azure OpenAI API client (/chat/completions, /embeddings) |
+| `backend/src/azure/openaiClient.ts` | Azure OpenAI API client (/responses, /embeddings) |
 | `backend/src/config/app.ts` | Environment configuration with Zod validation |
 | `backend/src/utils/resilience.ts` | Retry logic wrapper (withRetry) |
 | `backend/src/utils/session.ts` | Session ID derivation and utilities |

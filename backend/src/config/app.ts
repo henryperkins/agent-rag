@@ -80,6 +80,7 @@ const envSchema = z.object({
   ENABLE_SEMANTIC_BOOST: z.coerce.boolean().default(false),
   SEMANTIC_BOOST_WEIGHT: z.coerce.number().default(0.3),
 
+  ENABLE_CRITIC: z.coerce.boolean().default(true),
   CRITIC_MAX_RETRIES: z.coerce.number().default(1),
   CRITIC_THRESHOLD: z.coerce.number().default(0.8),
 

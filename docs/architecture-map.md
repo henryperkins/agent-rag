@@ -25,7 +25,7 @@
 │                      BACKEND (Fastify)                         │
 │  ┌────────────────────────────────────────────────────────┐   │
 │  │                       Routes                            │   │
-│  │  /chat  │  /chat/stream  │  /documents/upload          │   │
+│  │  /chat  │  /chat/stream  │  /documents/upload (planned) │   │
 │  └────┬─────────────┬──────────────────┬──────────────────┘   │
 │       │             │                  │                       │
 │  ┌────▼─────────────▼──────────────────▼──────────────────┐   │
@@ -59,7 +59,7 @@
 │                      External Services                                │
 │  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐ │
 │  │  Azure AI Search   │  │  Azure OpenAI API  │  │ Google Custom Search │ │
-│  │  REST API          │  │  /chat/completions │  │ REST API             │ │
+│  │  REST API          │  │  /responses        │  │ REST API             │ │
 │  │  Hybrid Semantic   │  │  /embeddings       │  │ Web Results          │ │
 │  └────────────────────┘  └────────────────────┘  └────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────┘
@@ -190,8 +190,14 @@ Frontend sends to /chat/stream
 │ - Displays progressive results                         │
 └─────────────────────────────────────────────────────────┘
 ```
+[!NOTE]
+The orchestrator emits an internal `tokens` event for partial answer chunks. The streaming service maps this to an SSE event named `token` for clients. In the frontend, subscribe to `token` to append streamed content.
 
-### 3. Document Upload Flow (New Feature)
+
+> [!IMPORTANT]
+> Planned feature — not implemented. The following document upload flow is a blueprint only; the `/documents/upload` route and `DocumentUpload.tsx` component are not present in the current codebase.
+
+### 3. Document Upload Flow (Planned Feature)
 
 ```
 User selects PDF
@@ -305,7 +311,7 @@ backend/src/
 ├── azure/                         # Azure integrations
 │   ├── directSearch.ts            # Direct Azure AI Search (hybrid semantic)
 │   ├── lazyRetrieval.ts           # Summary-first Azure AI Search helper
-│   ├── openaiClient.ts            # Azure OpenAI client (/chat/completions, /embeddings)
+│   ├── openaiClient.ts            # Azure OpenAI client (/responses, /embeddings)
 │   └── indexSetup.ts              # Index creation utilities
 │
 ├── utils/
@@ -595,7 +601,7 @@ SSE Stream
 │ on 'plan':       setPlan(data)                         │
 │ on 'citations':  setCitations(data.citations)          │
 │ on 'activity':   addActivity(data.steps)               │
-│ on 'tokens':     answer += data.content                │
+│ on 'token':      answer += data.content                │
 │ on 'critique':   setCritique(data)                     │
 │ on 'telemetry':  setTelemetry(data)                    │
 │ on 'complete':   setAnswer(data.answer)                │
@@ -618,7 +624,7 @@ SSE Stream
 ```
 1. Create tool file:
    backend/src/tools/myTool.ts
-   
+
 2. Implement function:
    export async function myTool(args: MyArgs) {
      // Logic
@@ -631,7 +637,7 @@ SSE Stream
 
 4. Add to orchestrator dispatch:
    backend/src/orchestrator/dispatch.ts
-   
+
 5. Add to tool routing:
    if (plan.steps.includes('my_action')) {
      result = await myTool(args);
@@ -643,17 +649,17 @@ SSE Stream
 ```
 1. Define handler:
    backend/src/routes/feature.ts
-   
+
 2. Register in main routes:
    backend/src/routes/index.ts
    app.post('/feature/action', handler);
 
 3. Add type definitions:
    shared/types.ts
-   
+
 4. Create frontend API call:
    frontend/src/api/client.ts
-   
+
 5. Use in component:
    frontend/src/components/Feature.tsx
 ```
@@ -663,7 +669,7 @@ SSE Stream
 ```
 1. Create component file:
    frontend/src/components/NewFeature.tsx
-   
+
 2. Define props interface:
    interface NewFeatureProps { ... }
 
@@ -782,5 +788,5 @@ This architecture map provides a visual and structural guide to:
 
 ---
 
-**Last Updated:** October 3, 2025  
+**Last Updated:** October 3, 2025
 **Version:** 1.0

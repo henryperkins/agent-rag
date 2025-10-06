@@ -169,6 +169,32 @@ SEMANTIC_MEMORY_RECALL_K=3
 SEMANTIC_MEMORY_MIN_SIMILARITY=0.7
 ```
 
+## Advanced Configuration
+
+See `backend/.env.example` for the full list of configuration options and feature flags. Common flags:
+- ENABLE_LAZY_RETRIEVAL
+- ENABLE_INTENT_ROUTING
+- ENABLE_SEMANTIC_SUMMARY
+- ENABLE_WEB_RERANKING
+- ENABLE_QUERY_DECOMPOSITION
+- ENABLE_SEMANTIC_MEMORY
+
+Note: The code uses placeholder defaults for some model names/deployments. Always set your real Azure OpenAI deployment/model names in `.env` (e.g., `gpt-4o-2024-08-06`, `text-embedding-3-large`).
+
+
+## Advanced Configuration
+
+See `backend/.env.example` for the full list of configuration options and feature flags. Common flags:
+- ENABLE_LAZY_RETRIEVAL
+- ENABLE_INTENT_ROUTING
+- ENABLE_SEMANTIC_SUMMARY
+- ENABLE_WEB_RERANKING
+- ENABLE_QUERY_DECOMPOSITION
+- ENABLE_SEMANTIC_MEMORY
+
+Note: The code uses placeholder defaults for some model names/deployments. Always set your real Azure OpenAI deployment/model names in `.env` (e.g., `gpt-4o-2024-08-06`, `text-embedding-3-large`).
+
+
 ### 4. Run Application
 
 **Option 1: Using the startup script**
