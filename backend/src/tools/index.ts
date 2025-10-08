@@ -197,6 +197,7 @@ export async function answerTool(args: {
   maxTokens?: number;
   systemPrompt?: string;
   temperature?: number;
+  previousResponseId?: string;
 }) {
   let userPrompt = `Question: ${args.question}\n\nContext:\n${args.context}`;
   if (args.revisionNotes && args.revisionNotes.length > 0) {
@@ -222,7 +223,11 @@ export async function answerTool(args: {
     max_output_tokens: args.maxTokens ?? 600,
     model: args.model,
     textFormat: { type: 'text' },
-    parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS
+    parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
+    truncation: 'auto',
+    store: config.ENABLE_RESPONSE_STORAGE,
+    // Only send previous_response_id when storage is enabled
+    ...(config.ENABLE_RESPONSE_STORAGE && args.previousResponseId ? { previous_response_id: args.previousResponseId } : {})
   });
 
   let answer = extractOutputText(response);
@@ -230,5 +235,7 @@ export async function answerTool(args: {
     answer = 'I do not know.';
   }
 
-  return { answer, citations: args.citations ?? [] };
+  const responseId = (response as { id?: string } | undefined)?.id;
+
+  return { answer, citations: args.citations ?? [], responseId };
 }

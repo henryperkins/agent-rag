@@ -90,6 +90,8 @@ function ChatApp() {
   const routeDetails = mode === 'stream' ? stream.route : chatMutation.data?.metadata?.route;
   const retrievalMode = mode === 'stream' ? stream.retrievalMode : chatMutation.data?.metadata?.retrieval_mode;
   const lazySummaryTokens = mode === 'stream' ? stream.lazySummaryTokens : chatMutation.data?.metadata?.lazy_summary_tokens;
+  const retrievalDetails = mode === 'stream' ? stream.retrieval : chatMutation.data?.metadata?.retrieval;
+  const responsesDetails = mode === 'stream' ? stream.responses : chatMutation.data?.metadata?.responses;
   const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
 
   return (
@@ -148,6 +150,8 @@ function ChatApp() {
             route={routeDetails}
             retrievalMode={retrievalMode}
             lazySummaryTokens={lazySummaryTokens}
+            retrieval={retrievalDetails}
+            responses={responsesDetails}
             evaluation={evaluationDetails}
           />
         </section>

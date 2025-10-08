@@ -1,8 +1,19 @@
+import DOMPurify from 'dompurify';
 import type { Citation } from '../types';
 
 interface SourcesPanelProps {
   citations: Citation[];
   isStreaming?: boolean;
+}
+
+// Sanitize HTML highlights from Azure Search to prevent XSS
+// Only allow <em> tags which are used for highlighting matched terms
+function sanitizeHighlight(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['em'],
+    ALLOWED_ATTR: [],
+    KEEP_CONTENT: true
+  });
 }
 
 export function SourcesPanel({ citations, isStreaming }: SourcesPanelProps) {
@@ -35,6 +46,17 @@ export function SourcesPanel({ citations, isStreaming }: SourcesPanelProps) {
                 {citation.content?.slice(0, 160)}
                 {citation.content && citation.content.length > 160 ? '…' : ''}
               </p>
+              {citation.highlights?.page_chunk?.length ? (
+                <div className="source-highlights">
+                  {citation.highlights.page_chunk.map((highlight, highlightIndex) => (
+                    <div
+                      key={highlightIndex}
+                      className="source-highlight"
+                      dangerouslySetInnerHTML={{ __html: sanitizeHighlight(highlight) }}
+                    />
+                  ))}
+                </div>
+              ) : null}
               {citation.url && (
                 <a href={citation.url} target="_blank" rel="noreferrer" className="source-link">
                   View source →

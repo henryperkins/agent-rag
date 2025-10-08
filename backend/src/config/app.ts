@@ -97,7 +97,8 @@ const envSchema = z.object({
 
   // Responses API feature gates
   RESPONSES_PARALLEL_TOOL_CALLS: z.coerce.boolean().default(true),
-  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(false)
+  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(false),
+  ENABLE_RESPONSE_STORAGE: z.coerce.boolean().default(false)
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

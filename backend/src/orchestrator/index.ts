@@ -56,6 +56,7 @@ interface GenerateAnswerResult {
   events: ActivityStep[];
   usedFullContent: boolean;
   contextText: string;
+  responseId?: string;
 }
 
 function mergeSalienceForContext(existing: SalienceNote[], fresh: SalienceNote[]) {
@@ -124,7 +125,8 @@ async function generateAnswer(
   modelDeployment: string,
   emit?: (event: string, data: unknown) => void,
   revisionNotes?: string[],
-  lazyRefs: LazyReference[] = []
+  lazyRefs: LazyReference[] = [],
+  previousResponseId?: string
 ): Promise<GenerateAnswerResult> {
   const routePromptHint = routeConfig.systemPromptHints ? `${routeConfig.systemPromptHints}\n\n` : '';
   const basePrompt = `${routePromptHint}Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.`;
@@ -242,12 +244,17 @@ async function generateAnswer(
       max_output_tokens: routeConfig.maxTokens,
       parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
       stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
-      textFormat: { type: 'text' }
+      textFormat: { type: 'text' },
+      truncation: 'auto',
+      store: config.ENABLE_RESPONSE_STORAGE,
+      // Only send previous_response_id when storage is enabled
+      ...(config.ENABLE_RESPONSE_STORAGE && previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
 
     let answer = '';
     const decoder = new TextDecoder();
     let successfulChunks = 0;
+    let responseId: string | undefined;
 
     emit?.('status', { stage });
 
@@ -274,6 +281,12 @@ async function generateAnswer(
             extractStreamText(delta.delta) ||
             extractStreamText(delta.output_text) ||
             extractStreamText(delta);
+          if (typeof delta?.response?.id === 'string') {
+            responseId = delta.response.id;
+          }
+          if (typeof (delta as Record<string, unknown>)?.id === 'string') {
+            responseId = (delta as Record<string, unknown>).id as string;
+          }
           if (content) {
             successfulChunks++;
             answer += content;
@@ -287,6 +300,12 @@ async function generateAnswer(
             extractStreamText(delta.text) ||
             extractStreamText(delta.delta) ||
             extractStreamText(delta.response);
+          if (typeof delta?.response?.id === 'string') {
+            responseId = delta.response.id;
+          }
+          if (typeof (delta as Record<string, unknown>)?.id === 'string') {
+            responseId = (delta as Record<string, unknown>).id as string;
+          }
           if (text) {
             answer += text;
             emit?.('token', { content: text });
@@ -296,6 +315,9 @@ async function generateAnswer(
 
         if (type === 'response.output_item.added') {
           const text = extractStreamText(delta.output_item);
+          if (typeof delta?.response?.id === 'string') {
+            responseId = delta.response.id;
+          }
           if (text) {
             successfulChunks++;
             answer += text;
@@ -306,6 +328,9 @@ async function generateAnswer(
 
         if (type === 'response.delta') {
           const text = extractStreamText(delta.delta);
+          if (typeof delta?.response?.id === 'string') {
+            responseId = delta.response.id;
+          }
           if (text) {
             successfulChunks++;
             answer += text;
@@ -326,6 +351,9 @@ async function generateAnswer(
         if (type === 'response.completed') {
           if (!answer && typeof delta.response?.output_text === 'string') {
             answer = delta.response.output_text;
+          }
+          if (typeof delta.response?.id === 'string') {
+            responseId = delta.response.id;
           }
           completed = true;
         }
@@ -376,7 +404,7 @@ async function generateAnswer(
       throw new Error('Streaming failed: no valid chunks received');
     }
 
-    return { answer, events: [], usedFullContent, contextText: activeContext };
+    return { answer, events: [], usedFullContent, contextText: activeContext, responseId };
   }
 
   emit?.('status', { stage });
@@ -387,11 +415,12 @@ async function generateAnswer(
     model: modelDeployment,
     maxTokens: routeConfig.maxTokens,
     systemPrompt: basePrompt,
-    temperature: 0.4
+    temperature: 0.4,
+    previousResponseId
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
-  return { answer, events: [], usedFullContent, contextText: activeContext };
+  return { answer, events: [], usedFullContent, contextText: activeContext, responseId: result.responseId };
 }
 
 async function buildContextSections(
@@ -707,6 +736,17 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     summaryTokens: dispatch.summaryTokens
   };
 
+  const highlightedDocuments = dispatch.references.filter((ref) => {
+    if (!ref.highlights) {
+      return false;
+    }
+    return Object.values(ref.highlights).some((entries) => Array.isArray(entries) && entries.length > 0);
+  }).length;
+
+  if (highlightedDocuments > 0) {
+    retrievalDiagnostics.highlightedDocuments = highlightedDocuments;
+  }
+
   if (dispatch.references.length < config.RETRIEVAL_MIN_DOCS) {
     retrievalDiagnostics.fallbackReason = retrievalDiagnostics.fallbackReason ?? 'insufficient_documents';
   }
@@ -737,6 +777,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const MAX_LAZY_LOAD_ATTEMPTS = 2;
   let finalCritic: CriticReport | undefined;
   const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[]; usedFullContent?: boolean }> = [];
+  const responseHistory: Array<{ attempt: number; responseId?: string }> = [];
+  let previousResponseId: string | undefined;
 
   if (config.ENABLE_CRITIC) {
     while (attempt <= config.CRITIC_MAX_RETRIES) {
@@ -754,11 +796,16 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
           modelDeployment,
           emit,
           revisionNotes,
-          lazyReferenceState
+          lazyReferenceState,
+          previousResponseId
         )
       );
       answer = answerResult.answer;
       combinedContext = answerResult.contextText;
+      if (answerResult.responseId) {
+        previousResponseId = answerResult.responseId;
+      }
+      responseHistory.push({ attempt, responseId: answerResult.responseId });
 
       emit?.('status', { stage: 'review' });
       const criticResult = await traced('agent.critique', async () => {
@@ -846,11 +893,16 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         modelDeployment,
         emit,
         undefined,
-        lazyReferenceState
+        lazyReferenceState,
+        previousResponseId
       )
     );
     answer = answerResult.answer;
     combinedContext = answerResult.contextText;
+    if (answerResult.responseId) {
+      previousResponseId = answerResult.responseId;
+    }
+    responseHistory.push({ attempt, responseId: answerResult.responseId });
     // Provide a trivial accept critic for downstream telemetry
     finalCritic = { grounded: true, coverage: 1.0, action: 'accept', issues: [] };
   }
@@ -933,7 +985,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     queryDecomposition: queryDecompositionSummary,
     summarySelection: summaryStats,
     webContext: webContextSummary,
-    evaluation
+    evaluation,
+    responses: responseHistory
   } as const;
 
   const response: ChatResponse = {
@@ -951,6 +1004,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       route: telemetrySnapshot.route,
       retrieval_mode: telemetrySnapshot.retrievalMode,
       lazy_summary_tokens: telemetrySnapshot.lazySummaryTokens,
+      retrieval: telemetrySnapshot.retrieval,
+      responses: telemetrySnapshot.responses,
       semantic_memory: telemetrySnapshot.semanticMemory,
       query_decomposition: telemetrySnapshot.queryDecomposition,
       web_context: telemetrySnapshot.webContext,
@@ -993,6 +1048,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     critic: criticSummary,
     summarySelection: summaryStats,
     critiqueHistory: critiqueHistory.map((entry) => ({ ...entry })),
+    responses: responseHistory.map((entry) => ({ ...entry })),
     semanticMemory: semanticMemorySummary,
     queryDecomposition: queryDecompositionSummary,
     events: [],

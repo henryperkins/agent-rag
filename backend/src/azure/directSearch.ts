@@ -91,11 +91,19 @@ export interface DirectSearchResponse {
 // ============================================================================
 
 const credential = new DefaultAzureCredential();
+const openAIEmbeddingScope = 'https://cognitiveservices.azure.com/.default';
 
 let cachedSearchToken: {
   token: string;
   expiresOnTimestamp: number;
 } | null = null;
+
+let cachedOpenAIToken:
+  | {
+      token: string;
+      expiresOnTimestamp: number;
+    }
+  | null = null;
 
 /**
  * Get Azure Search authentication headers.
@@ -136,17 +144,40 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const endpoint = config.AZURE_OPENAI_EMBEDDING_ENDPOINT || config.AZURE_OPENAI_ENDPOINT;
   const apiKey = config.AZURE_OPENAI_EMBEDDING_API_KEY || config.AZURE_OPENAI_API_KEY;
 
-  if (!endpoint || !apiKey) {
-    throw new Error('Azure OpenAI embedding endpoint and API key required for vector search');
+  if (!endpoint) {
+    throw new Error('Azure OpenAI embedding endpoint required for vector search');
   }
 
   const url = `${endpoint}/openai/deployments/${config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT}/embeddings?api-version=2024-02-01`;
+
+  // Build auth headers
+  let authHeaders: Record<string, string>;
+  if (apiKey) {
+    authHeaders = { 'api-key': apiKey };
+  } else {
+    const now = Date.now();
+    if (cachedOpenAIToken && cachedOpenAIToken.expiresOnTimestamp - now > 120000) {
+      authHeaders = { Authorization: `Bearer ${cachedOpenAIToken.token}` };
+    } else {
+      const tokenResponse = await credential.getToken(openAIEmbeddingScope);
+      if (!tokenResponse?.token) {
+        throw new Error('Failed to obtain Azure OpenAI token for managed identity authentication');
+      }
+
+      cachedOpenAIToken = {
+        token: tokenResponse.token,
+        expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? now + 15 * 60 * 1000
+      };
+
+      authHeaders = { Authorization: `Bearer ${tokenResponse.token}` };
+    }
+  }
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'api-key': apiKey
+      ...authHeaders
     },
     body: JSON.stringify({
       input: text,

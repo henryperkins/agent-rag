@@ -14,6 +14,9 @@ export interface Reference {
   page_number?: number;
   pageNumber?: number;
   score?: number;
+  metadata?: Record<string, unknown>;
+  highlights?: Record<string, string[]>;
+  captions?: Array<{ text: string; highlights?: string }>;
 }
 
 export interface LazyReference extends Reference {
@@ -194,6 +197,8 @@ export interface ChatResponse {
     route?: RouteMetadata;
     retrieval_mode?: 'direct' | 'lazy';
     lazy_summary_tokens?: number;
+    retrieval?: RetrievalDiagnostics;
+    responses?: Array<{ attempt: number; responseId?: string }>;
     semantic_memory?: {
       recalled: number;
       entries: Array<{
@@ -241,6 +246,7 @@ export interface RetrievalDiagnostics {
   escalated?: boolean;
   mode?: 'direct' | 'lazy';
   summaryTokens?: number;
+  highlightedDocuments?: number;
 }
 
 export interface SessionTrace {
@@ -273,6 +279,7 @@ export interface SessionTrace {
     issues?: string[];
     usedFullContent?: boolean;
   }>;
+  responses?: Array<{ attempt: number; responseId?: string }>;
   webContext?: {
     tokens: number;
     trimmed: boolean;
@@ -316,6 +323,7 @@ export interface OrchestratorTools {
     maxTokens?: number;
     systemPrompt?: string;
     temperature?: number;
-  }) => Promise<{ answer: string; citations?: Reference[] }>;
+    previousResponseId?: string;
+  }) => Promise<{ answer: string; citations?: Reference[]; responseId?: string }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
 }

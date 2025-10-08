@@ -181,7 +181,9 @@ describe('runSession orchestrator', () => {
     const webSearch = vi.fn();
     const events: Array<{ event: string; data: any }> = [];
     const originalRetries = config.CRITIC_MAX_RETRIES;
+    const originalLazy = config.ENABLE_LAZY_RETRIEVAL;
     config.CRITIC_MAX_RETRIES = 1;
+    config.ENABLE_LAZY_RETRIEVAL = false;
 
     try {
       const result = await runSession({
@@ -202,6 +204,7 @@ describe('runSession orchestrator', () => {
       expect(statusStages).toContain('revising');
     } finally {
       config.CRITIC_MAX_RETRIES = originalRetries;
+      config.ENABLE_LAZY_RETRIEVAL = originalLazy;
     }
   });
 });

@@ -21,12 +21,18 @@ Agent-RAG is a **production-grade agentic RAG system** with 10 major feature dom
 - ✅ **TypeScript Strict Mode** (zero compilation errors)
 - ✅ **Vitest Test Suite** (12 test files, 41/41 tests passing)
 
-**Recent Fixes (Oct 7, 2025):**
+**Recent Fixes (Oct 7-8, 2025):**
 
 - Fixed tool injection bug: `options.tools` → `tools` (orchestrator/index.ts:669)
 - Added `lazyRetrieve` mocks to all tests for complete coverage
 - Updated test assertions to handle lazy vs direct retrieval paths
 - See [TEST_FIXES_SUMMARY.md](./TEST_FIXES_SUMMARY.md) for details
+
+**Critical Bug Fixes (Oct 8, 2025):**
+
+- ✅ **SSE Timeout Bug** - Fixed server.ts:60 to skip timeout for `/chat/stream` endpoint, preventing premature stream termination
+- ✅ **Sanitization Error Handling** - Fixed sanitize.ts:23 to return proper 400 responses instead of 500 errors
+- See [backend-fixes.md](./backend-fixes.md) for detailed analysis
 
 ---
 

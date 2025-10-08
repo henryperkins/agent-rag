@@ -1,4 +1,4 @@
-import type { EvaluationDimension, RouteMetadata, SessionEvaluation, SummarySelectionStats } from '../types';
+import type { EvaluationDimension, RetrievalDiagnostics, RouteMetadata, SessionEvaluation, SummarySelectionStats } from '../types';
 
 interface CritiqueAttempt {
   attempt: number;
@@ -68,6 +68,8 @@ interface PlanPanelProps {
   route?: RouteMetadata;
   retrievalMode?: string;
   lazySummaryTokens?: number;
+  retrieval?: RetrievalDiagnostics;
+  responses?: Array<{ attempt: number; responseId?: string }>;
   evaluation?: SessionEvaluation;
 }
 
@@ -81,6 +83,8 @@ export function PlanPanel({
   route,
   retrievalMode,
   lazySummaryTokens,
+  retrieval,
+  responses,
   evaluation: evaluationProp
 }: PlanPanelProps) {
   const hasCritique = Boolean(critiqueHistory && critiqueHistory.length);
@@ -101,6 +105,8 @@ export function PlanPanel({
 
   const hasTelemetry = cleanedTelemetry ? Object.keys(cleanedTelemetry).length > 0 : false;
   const hasRouting = Boolean(route || retrievalMode || typeof lazySummaryTokens === 'number');
+  const hasRetrieval = Boolean(retrieval);
+  const hasResponses = Boolean(responses && responses.length > 0);
   const telemetryEvaluation = normalizedTelemetry?.evaluation;
   const evaluation = isSessionEvaluation(evaluationProp)
     ? evaluationProp
@@ -108,7 +114,7 @@ export function PlanPanel({
       ? telemetryEvaluation
       : undefined;
 
-  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb && !hasRouting && !evaluation) {
+  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb && !hasRouting && !hasRetrieval && !hasResponses && !evaluation) {
     return null;
   }
 
@@ -241,6 +247,72 @@ export function PlanPanel({
           {typeof lazySummaryTokens === 'number' && (
             <div className="plan-routing-meta">Lazy Summary Tokens: {lazySummaryTokens}</div>
           )}
+        </div>
+      )}
+
+      {hasRetrieval && retrieval && (
+        <div className="plan-section">
+          <h4>Retrieval Diagnostics</h4>
+          <div className="summary-selection-grid">
+            <StatBlock label="Mode" value={retrieval.attempted} />
+            <StatBlock label="Status" value={retrieval.succeeded ? 'Success' : 'Failed'} />
+            <StatBlock label="Documents" value={retrieval.documents.toString()} />
+            {typeof retrieval.highlightedDocuments === 'number' && (
+              <StatBlock label="Highlighted" value={retrieval.highlightedDocuments.toString()} />
+            )}
+            {typeof retrieval.meanScore === 'number' && (
+              <StatBlock label="Mean Score" value={retrieval.meanScore.toFixed(3)} />
+            )}
+            {typeof retrieval.minScore === 'number' && (
+              <StatBlock label="Min Score" value={retrieval.minScore.toFixed(3)} />
+            )}
+            {typeof retrieval.maxScore === 'number' && (
+              <StatBlock label="Max Score" value={retrieval.maxScore.toFixed(3)} />
+            )}
+            {typeof retrieval.thresholdUsed === 'number' && (
+              <StatBlock label="Threshold" value={retrieval.thresholdUsed.toFixed(2)} />
+            )}
+            {retrieval.escalated && <StatBlock label="Escalated" value="Yes" />}
+            {typeof retrieval.summaryTokens === 'number' && (
+              <StatBlock label="Summary Tokens" value={retrieval.summaryTokens.toString()} />
+            )}
+          </div>
+          {retrieval.fallbackReason && (
+            <div className="plan-routing-meta" style={{ marginTop: '0.5rem' }}>
+              Fallback Reason: {retrieval.fallbackReason.replace(/_/g, ' ')}
+            </div>
+          )}
+        </div>
+      )}
+
+      {hasResponses && responses && (
+        <div className="plan-section">
+          <h4>Response History ({responses.length} attempt{responses.length > 1 ? 's' : ''})</h4>
+          <div className="responses-list">
+            {responses.map((response, idx) => (
+              <div key={idx} className="response-entry">
+                <span className="response-attempt">Attempt {response.attempt + 1}</span>
+                {response.responseId ? (
+                  <div className="response-actions">
+                    <code className="response-id" title={response.responseId}>
+                      {response.responseId.slice(0, 12)}...
+                    </code>
+                    <button
+                      className="response-action-btn"
+                      onClick={() => {
+                        navigator.clipboard.writeText(response.responseId!);
+                      }}
+                      title="Copy Response ID"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                ) : (
+                  <span className="response-no-id">No ID</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

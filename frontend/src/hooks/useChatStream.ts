@@ -3,6 +3,7 @@ import type {
   ActivityStep,
   AgentMessage,
   Citation,
+  RetrievalDiagnostics,
   RouteMetadata,
   SessionEvaluation,
   SummarySelectionStats
@@ -41,6 +42,8 @@ interface StreamState {
   route?: RouteMetadata;
   retrievalMode?: string;
   lazySummaryTokens?: number;
+  retrieval?: RetrievalDiagnostics;
+  responses?: Array<{ attempt: number; responseId?: string }>;
   evaluation?: SessionEvaluation;
   error?: string;
 }
@@ -72,6 +75,16 @@ function normalizeTelemetryEvent(data: Record<string, unknown> | undefined) {
   }
   if (data.semantic_memory && !data.semanticMemory) {
     normalized.semanticMemory = data.semantic_memory;
+  }
+  if (data.retrieval && !normalized.retrieval) {
+    const retrieval = data.retrieval as Record<string, unknown>;
+    normalized.retrieval = {
+      ...retrieval,
+      fallbackReason: retrieval.fallback_reason ?? retrieval.fallbackReason
+    };
+  }
+  if (data.responses && Array.isArray(data.responses)) {
+    normalized.responses = data.responses;
   }
   if (data.metadata && typeof data.metadata === 'object') {
     const metadata = data.metadata as Record<string, unknown>;
@@ -196,15 +209,27 @@ export function useChatStream() {
                     route?: RouteMetadata;
                     retrievalMode?: string;
                     lazySummaryTokens?: number;
+                    retrieval?: RetrievalDiagnostics;
+                    responses?: Array<{ attempt: number; responseId?: string }>;
                     evaluation?: SessionEvaluation;
                   };
-                  const { route: nextRoute, retrievalMode: nextRetrievalMode, lazySummaryTokens: nextLazyTokens, evaluation: nextEvaluation, ...rest } = normalized;
+                  const {
+                    route: nextRoute,
+                    retrievalMode: nextRetrievalMode,
+                    lazySummaryTokens: nextLazyTokens,
+                    retrieval: nextRetrieval,
+                    responses: nextResponses,
+                    evaluation: nextEvaluation,
+                    ...rest
+                  } = normalized;
                   return {
                     ...prev,
                     telemetry: { ...(prev.telemetry ?? {}), ...rest },
                     route: nextRoute ?? prev.route,
                     retrievalMode: nextRetrievalMode ?? prev.retrievalMode,
                     lazySummaryTokens: nextLazyTokens ?? prev.lazySummaryTokens,
+                    retrieval: nextRetrieval ?? prev.retrieval,
+                    responses: nextResponses ?? prev.responses,
                     evaluation: nextEvaluation ?? prev.evaluation
                   };
                 });
@@ -266,6 +291,8 @@ export function useChatStream() {
     route: state.route,
     retrievalMode: state.retrievalMode,
     lazySummaryTokens: state.lazySummaryTokens,
+    retrieval: state.retrieval,
+    responses: state.responses,
     evaluation: state.evaluation
   };
 }
