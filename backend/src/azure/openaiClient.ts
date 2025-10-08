@@ -4,6 +4,12 @@ import { config } from '../config/app.js';
 const credential = new DefaultAzureCredential();
 const scope = 'https://cognitiveservices.azure.com/.default';
 const baseUrl = `${config.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '')}/openai/${config.AZURE_OPENAI_API_VERSION}`;
+const query = config.AZURE_OPENAI_API_QUERY.startsWith('?')
+  ? config.AZURE_OPENAI_API_QUERY
+  : `?${config.AZURE_OPENAI_API_QUERY}`;
+function withQuery(path: string) {
+  return `${baseUrl}${path}${path.includes('?') ? `&${config.AZURE_OPENAI_API_QUERY}` : query}`;
+}
 
 let cachedBearer:
   | {
@@ -37,7 +43,6 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 function buildMessage(role: 'system' | 'user' | 'assistant' | 'developer', text: string) {
   return {
-    type: 'message',
     role,
     content: [
       {
@@ -60,7 +65,7 @@ function sanitizeRequest<T extends Record<string, any>>(body: T) {
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const headers = await authHeaders();
-  const response = await fetch(`${baseUrl}${path}`, {
+  const response = await fetch(withQuery(path), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -94,6 +99,16 @@ export interface ResponsePayload {
   tools?: Array<Record<string, unknown>>;
   tool_choice?: Record<string, unknown> | 'none';
   parallel_tool_calls?: boolean;
+  previous_response_id?: string;
+  store?: boolean;
+  background?: boolean;
+  include?: string[];
+  truncation?: 'auto' | 'none';
+  // Advanced streaming options pass-through
+  stream_options?: { include_usage?: boolean };
+  // Optional raw fields for direct mapping
+  instructions?: string | Array<Record<string, unknown>>;
+  input?: Array<Record<string, unknown>>;
 }
 
 export async function createResponse(payload: ResponsePayload) {
@@ -102,8 +117,15 @@ export async function createResponse(payload: ResponsePayload) {
     max_output_tokens: payload.max_output_tokens,
     tools: payload.tools,
     tool_choice: payload.tool_choice,
-    parallel_tool_calls: payload.parallel_tool_calls ?? false,
-    input: payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
+    parallel_tool_calls: payload.parallel_tool_calls,
+    previous_response_id: payload.previous_response_id,
+    store: payload.store,
+    background: payload.background,
+    include: payload.include,
+    truncation: payload.truncation,
+    input:
+      payload.input ?? payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
+    instructions: payload.instructions,
     text:
       payload.textFormat !== undefined
         ? {
@@ -125,9 +147,17 @@ export async function createResponseStream(payload: ResponsePayload) {
     max_output_tokens: payload.max_output_tokens,
     tools: payload.tools,
     tool_choice: payload.tool_choice,
-    parallel_tool_calls: payload.parallel_tool_calls ?? false,
+    parallel_tool_calls: payload.parallel_tool_calls,
     stream: true,
-    input: payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
+    stream_options: payload.stream_options,
+    previous_response_id: payload.previous_response_id,
+    store: payload.store,
+    background: payload.background,
+    include: payload.include,
+    truncation: payload.truncation,
+    input:
+      payload.input ?? payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
+    instructions: payload.instructions,
     text:
       payload.textFormat !== undefined
         ? {
@@ -136,10 +166,11 @@ export async function createResponseStream(payload: ResponsePayload) {
         : undefined
   });
 
-  const response = await fetch(`${baseUrl}/responses`, {
+  const response = await fetch(withQuery('/responses'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
       ...headers
     },
     body: JSON.stringify(body)
@@ -173,14 +204,17 @@ export async function createEmbeddings(inputs: string[] | string, model?: string
     headers['Authorization'] = `Bearer ${tokenResponse.token}`;
   }
 
-  const response = await fetch(`${embeddingBaseUrl}/embeddings`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: model ?? config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
-      input: inputs
-    })
-  });
+  const response = await fetch(
+    `${embeddingBaseUrl}/embeddings${embeddingBaseUrl.includes('?') ? `&${config.AZURE_OPENAI_API_QUERY}` : query}`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: model ?? config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+        input: inputs
+      })
+    }
+  );
 
   if (!response.ok) {
     const text = await response.text();
@@ -190,4 +224,44 @@ export async function createEmbeddings(inputs: string[] | string, model?: string
   return response.json() as Promise<{
     data: Array<{ embedding: number[] }>;
   }>;
+}
+
+// Helpers for stateful operations
+export async function retrieveResponse(responseId: string, include?: string[]) {
+  const headers = await authHeaders();
+  const includeQuery = include?.length
+    ? `?${include.map((i) => `include[]=${encodeURIComponent(i)}`).join('&')}`
+    : '';
+  const url = withQuery(`/responses/${encodeURIComponent(responseId)}${includeQuery}`);
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Azure OpenAI retrieve failed: ${res.status} ${res.statusText} - ${text}`);
+  }
+  return res.json();
+}
+
+export async function deleteResponse(responseId: string) {
+  const headers = await authHeaders();
+  const res = await fetch(withQuery(`/responses/${encodeURIComponent(responseId)}`), {
+    method: 'DELETE',
+    headers
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Azure OpenAI delete failed: ${res.status} ${res.statusText} - ${text}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+export async function listInputItems(responseId: string) {
+  const headers = await authHeaders();
+  const res = await fetch(withQuery(`/responses/${encodeURIComponent(responseId)}/input_items`), {
+    headers
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Azure OpenAI input items failed: ${res.status} ${res.statusText} - ${text}`);
+  }
+  return res.json();
 }

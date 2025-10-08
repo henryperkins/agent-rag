@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Backend for the Agentic Azure AI Search chat application",
   "main": "dist/server.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
@@ -13,7 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "setup": "tsx scripts/setup.ts",
     "cleanup": "tsx scripts/cleanup.ts",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@azure/identity": "^4.2.0",

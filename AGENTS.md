@@ -1,19 +1,45 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-The monorepo contains `backend/`, `frontend/`, `shared/`, plus reference material in `docs/`. The Fastify backend lives under `backend/src/`: `server.ts` boots the service, `routes/` define HTTP endpoints, `agents/` and `orchestrator/` drive retrieval planning, `services/` integrate Azure Search/OpenAI, `tools/` expose external actions, `middleware/` handles sanitation, and `config/` loads environment settings. Builds emit to `backend/dist/`. The Vite + React client sits in `frontend/src/` with UI components in `components/`, data hooks in `hooks/`, API helpers in `api/`, and production assets in `frontend/dist/`. Shared TypeScript contracts live in `shared/types.ts` to keep both runtimes aligned.
+
+- Monorepo folders: `backend/`, `frontend/`, `shared/`, `docs/`.
+- Backend (Fastify) in `backend/src/`:
+  - `server.ts` boots the service.
+  - `routes/` HTTP endpoints; `agents/` and `orchestrator/` plan retrieval; `services/` integrate Azure Search/OpenAI; `tools/` external actions; `middleware/` sanitation; `config/` env loading.
+  - Builds emit to `backend/dist/`.
+- Frontend (Vite + React) in `frontend/src/` with `components/`, `hooks/`, `api/`; build to `frontend/dist/`.
+- Shared TypeScript contracts in `shared/types.ts`.
 
 ## Build, Test, and Development Commands
-Install dependencies per package: `cd backend && pnpm install`, `cd frontend && pnpm install`. Run the API with `pnpm dev`, build via `pnpm build`, and serve compiled code with `pnpm start`. Frontend workflows mirror that flow: `pnpm dev`, `pnpm build`, and `pnpm preview`. Run `pnpm lint` before committing. Use `pnpm setup` / `pnpm cleanup` in `backend/` to seed or reset local Search indexes.
+
+- Install: `cd backend && pnpm install`, `cd frontend && pnpm install`.
+- Backend: `pnpm dev` (watch), `pnpm build` (compile), `pnpm start` (run dist).
+- Frontend: `pnpm dev` (local), `pnpm build`, `pnpm preview` (serve build).
+- Index utilities (backend): `pnpm setup` to seed, `pnpm cleanup` to reset Search indexes.
+- Lint/format: `pnpm lint`, `pnpm lint --fix`.
 
 ## Coding Style & Naming Conventions
-TypeScript and ES modules are standard. Follow 2-space indentation, single quotes, and trailing commas (see `backend/src/server.ts`). Name utilities in kebab-case (`chunk-resolver.ts`), React components in PascalCase (`ChatPanel.tsx`), and share interfaces from `shared/types.ts`. Prefer async/await, guard logic with early returns, and funnel configuration through `config/app.ts`. Run `pnpm lint --fix` as the formatter.
+
+- TypeScript + ES modules; 2-space indent, single quotes, trailing commas (see `backend/src/server.ts`).
+- Naming: utilities kebab-case (e.g., `chunk-resolver.ts`), React components PascalCase (e.g., `ChatPanel.tsx`).
+- Share interfaces via `shared/types.ts`. Prefer async/await and early returns. Route all config through `config/app.ts`.
 
 ## Testing Guidelines
-Backend verification uses Vitest. Place specs under `backend/src/tests/` or co-locate as `*.test.ts`, covering orchestrators, services, and middleware edges. Run `pnpm test` for CI parity, `pnpm test:watch` while iterating, and `pnpm test:coverage` before merging. Add frontend tests when introducing significant UI logic, pairing React Testing Library with Vitest.
+
+- Backend: Vitest. Place specs in `backend/src/tests/` or as `*.test.ts` near sources.
+- Commands: `pnpm test` (CI parity), `pnpm test:watch` (iterate), `pnpm test:coverage` (run before merging).
+- Frontend: add tests for significant UI logic with React Testing Library + Vitest.
+- Focus on orchestrators, services, and middleware edge cases; mirror file structure in tests.
 
 ## Environment & Configuration
-Create a `.env` at the repo root; `backend/src/config/app.ts` lists required values (Azure Search/OpenAI keys, rate limits, context caps, CORS). Keep secrets out of git, align `NODE_ENV` with the run mode, adjust `CORS_ORIGIN` when exposing new hosts, and toggle `ENABLE_SEMANTIC_SUMMARY` on once embeddings are evaluated so summary selection uses similarity ranking.
+
+- Create a root `.env`. Required values listed in `backend/src/config/app.ts` (Azure Search/OpenAI keys, rate limits, context caps, CORS).
+- Keep secrets out of git; set `NODE_ENV` to match mode; adjust `CORS_ORIGIN` when exposing new hosts.
+- Toggle `ENABLE_SEMANTIC_SUMMARY` after embeddings are validated to enable similarity-based summary selection.
 
 ## Commit & Pull Request Guidelines
-Write short, imperative commits (`Add request timeout`, `Update agent planner`). Keep backend and frontend changes isolated unless the feature spans both. Before pushing, run lint, build, and tests, and note those commands plus screenshots for UI updates in the PR description. Link issues or planning docs, highlight risks, and tag the owning reviewers (API, UI, shared contracts).
+
+- Commits: short, imperative (e.g., `Add request timeout`, `Update agent planner`).
+- Scope: keep backend and frontend changes isolated unless the feature spans both.
+- Before pushing: run lint, build, and tests; attach screenshots for UI updates.
+- PRs: include clear description, commands run, linked issues/plans, risks, and tag owning reviewers (API, UI, shared contracts).

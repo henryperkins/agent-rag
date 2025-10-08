@@ -17,10 +17,14 @@ const envSchema = z.object({
   AZURE_KNOWLEDGE_AGENT_NAME: z.string().default('earth-knowledge-agent'),
 
   AZURE_OPENAI_ENDPOINT: z.string().url(),
-  AZURE_OPENAI_API_VERSION: z.string().default('v1'),
-  AZURE_OPENAI_GPT_DEPLOYMENT: z.string().default('gpt-5'),
-  AZURE_OPENAI_GPT_MODEL_NAME: z.string().default('gpt-5'),
+  // v1 path segment is required for Responses API; coerce any value to 'v1'
+  AZURE_OPENAI_API_VERSION: z.string().default('v1').transform(() => 'v1'),
+  // Query string appended to all OpenAI requests, defaults to v1 preview
+  AZURE_OPENAI_API_QUERY: z.string().default('api-version=preview'),
+  AZURE_OPENAI_GPT_DEPLOYMENT: z.string().default('gpt-4o'),
+  AZURE_OPENAI_GPT_MODEL_NAME: z.string().default('gpt-4o-2024-08-06'),
   AZURE_OPENAI_EMBEDDING_DEPLOYMENT: z.string().default('text-embedding-3-large'),
+  AZURE_OPENAI_EMBEDDING_MODEL_NAME: z.string().default('text-embedding-3-large'),
   AZURE_OPENAI_API_KEY: z.string().optional(),
   AZURE_OPENAI_EMBEDDING_ENDPOINT: z.string().url().optional(),
   AZURE_OPENAI_EMBEDDING_API_KEY: z.string().optional(),
@@ -89,7 +93,11 @@ const envSchema = z.object({
   REQUEST_TIMEOUT_MS: z.coerce.number().default(30000),
 
   CORS_ORIGIN: z.string().default('http://localhost:5173,http://localhost:5174'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info')
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+  // Responses API feature gates
+  RESPONSES_PARALLEL_TOOL_CALLS: z.coerce.boolean().default(true),
+  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(false)
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

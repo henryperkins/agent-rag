@@ -139,7 +139,7 @@ async function generateAnswer(
         .join('\n\n')
     : '';
   const supplementalContext = hasLazyReferences ? (contextText?.trim() ?? '') : contextText;
-  let activeContext = hasLazyReferences
+  const activeContext = hasLazyReferences
     ? [lazyContext, supplementalContext].filter((segment) => segment && segment.length > 0).join('\n\n')
     : supplementalContext;
   const usedFullContent = hasLazyReferences && lazyRefs.some((ref) => ref.isSummary === false);
@@ -164,6 +164,74 @@ async function generateAnswer(
   }
 
   if (mode === 'stream') {
+    const extractStreamText = (payload: unknown): string => {
+      if (!payload) {
+        return '';
+      }
+
+      if (typeof payload === 'string') {
+        return payload;
+      }
+
+      if (Array.isArray(payload)) {
+        return payload.map((item) => extractStreamText(item)).join('');
+      }
+
+      if (typeof payload === 'object') {
+        const candidate = payload as Record<string, unknown>;
+        const textValue = candidate.text;
+        if (typeof textValue === 'string') {
+          return textValue;
+        }
+        const deltaValue = candidate.delta;
+        if (typeof deltaValue === 'string') {
+          return deltaValue;
+        }
+        const outputText = candidate.output_text;
+        if (typeof outputText === 'string') {
+          return outputText;
+        }
+        if (Array.isArray(candidate.content)) {
+          return candidate.content
+            .map((part) => {
+              if (typeof part === 'string') {
+                return part;
+              }
+              if (typeof part === 'object' && part) {
+                const partRecord = part as Record<string, unknown>;
+                if (typeof partRecord.text === 'string') {
+                  return partRecord.text;
+                }
+                if (typeof partRecord.output_text === 'string') {
+                  return partRecord.output_text;
+                }
+              }
+              return '';
+            })
+            .join('');
+        }
+        if (Array.isArray(candidate.output)) {
+          return candidate.output.map((item) => extractStreamText(item)).join('');
+        }
+        if (candidate.response) {
+          const response = candidate.response as Record<string, unknown>;
+          const responseText =
+            extractStreamText(response['output_text']) || extractStreamText(response['output']);
+          if (responseText) {
+            return responseText;
+          }
+        }
+        if (candidate.output_item) {
+          const outputItem = candidate.output_item as Record<string, unknown>;
+          return (
+            extractStreamText(outputItem['output_text']) || extractStreamText(outputItem['content'])
+          );
+        }
+      }
+
+      return '';
+    };
+
     const reader = await createResponseStream({
       messages: [
         { role: 'system', content: basePrompt },
@@ -172,12 +240,14 @@ async function generateAnswer(
       temperature: 0.4,
       model: modelDeployment,
       max_output_tokens: routeConfig.maxTokens,
-      parallel_tool_calls: false,
+      parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
+      stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
       textFormat: { type: 'text' }
     });
 
     let answer = '';
     const decoder = new TextDecoder();
+    let successfulChunks = 0;
 
     emit?.('status', { stage });
 
@@ -200,8 +270,12 @@ async function generateAnswer(
         const type = delta.type as string | undefined;
 
         if (type === 'response.output_text.delta') {
-          const content = delta.delta ?? '';
+          const content =
+            extractStreamText(delta.delta) ||
+            extractStreamText(delta.output_text) ||
+            extractStreamText(delta);
           if (content) {
+            successfulChunks++;
             answer += content;
             emit?.('token', { content });
           }
@@ -209,10 +283,42 @@ async function generateAnswer(
         }
 
         if (type === 'response.output_text.done') {
-          const text = delta.text ?? '';
+          const text =
+            extractStreamText(delta.text) ||
+            extractStreamText(delta.delta) ||
+            extractStreamText(delta.response);
           if (text) {
             answer += text;
             emit?.('token', { content: text });
+          }
+          return;
+        }
+
+        if (type === 'response.output_item.added') {
+          const text = extractStreamText(delta.output_item);
+          if (text) {
+            successfulChunks++;
+            answer += text;
+            emit?.('token', { content: text });
+          }
+          return;
+        }
+
+        if (type === 'response.delta') {
+          const text = extractStreamText(delta.delta);
+          if (text) {
+            successfulChunks++;
+            answer += text;
+            emit?.('token', { content: text });
+          }
+          return;
+        }
+
+        // Optional usage snapshots when stream_options.include_usage=true
+        if (type === 'response.usage' || delta?.response?.usage) {
+          const usage = delta.response?.usage ?? delta.usage;
+          if (usage) {
+            emit?.('usage', usage);
           }
           return;
         }
@@ -264,6 +370,10 @@ async function generateAnswer(
 
       buffer += decoder.decode(value, { stream: true });
       processBuffer();
+    }
+
+    if (!answer && successfulChunks === 0) {
+      throw new Error('Streaming failed: no valid chunks received');
     }
 
     return { answer, events: [], usedFullContent, contextText: activeContext };
@@ -382,7 +492,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         await buildContextSections(compacted, memorySnapshot.summaryBullets, memorySnapshot.salience, question);
       upsertMemory(options.sessionId, messages.length, compacted, summaryCandidates);
 
-      let summarySection = summaryText;
+      const summarySection = summaryText;
       let salienceSection = salienceText;
       let memoryContextBlock = '';
       let memoryContextAugmented = '';
@@ -451,7 +561,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       let decompositionContextText = '';
       let decompositionReferences: Reference[] = [];
       let decompositionWebResults: WebResult[] = [];
-      let decompositionActivity: ActivityStep[] = [];
+      const decompositionActivity: ActivityStep[] = [];
       let complexityAssessment: Awaited<ReturnType<typeof assessComplexity>> | undefined;
 
       const plan = await traced('agent.plan', async () => {
@@ -556,11 +666,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       salience: compacted.salience,
       emit,
       preferLazy: config.ENABLE_LAZY_RETRIEVAL && routeConfig.retrieverStrategy !== 'web',
-      tools: {
-        retrieve: tools.retrieve,
-        lazyRetrieve: tools.lazyRetrieve,
-        webSearch: tools.webSearch
-      }
+      tools
     });
     const span = trace.getActiveSpan();
     span?.setAttribute('retrieval.references', result.references.length);
@@ -627,6 +733,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   // Critic (optional) retry loop
   let answer = '';
   let attempt = 0;
+  let lazyLoadAttempts = 0;
+  const MAX_LAZY_LOAD_ATTEMPTS = 2;
   let finalCritic: CriticReport | undefined;
   const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[]; usedFullContent?: boolean }> = [];
 
@@ -693,8 +801,10 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         lazyRetrievalEnabled &&
         !answerResult.usedFullContent &&
         config.ENABLE_LAZY_RETRIEVAL &&
+        lazyLoadAttempts < MAX_LAZY_LOAD_ATTEMPTS &&
         (criticResult.coverage < config.LAZY_LOAD_THRESHOLD || (criticResult.issues?.length ?? 0) > 0)
       ) {
+        lazyLoadAttempts++;
         const loadTargets = identifyLoadCandidates(lazyReferenceState, criticResult.issues ?? []);
         if (loadTargets.length) {
           emit?.('activity', {
@@ -917,7 +1027,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     }
   }
 
-      const evaluationEvent: Record<string, unknown> = {
+      const evaluationEvent: import('@opentelemetry/api').Attributes = {
         'evaluation.summary.status': evaluation.summary.status,
         'evaluation.safety.flagged': evaluation.safety?.flagged ?? false
       };

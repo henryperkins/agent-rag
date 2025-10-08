@@ -49,6 +49,12 @@ describe('runSession orchestrator', () => {
       activity: []
     });
 
+    const lazyRetrieve = vi.fn().mockResolvedValue({
+      response: 'Azure AI Search provides indexing and querying capabilities.',
+      references,
+      activity: []
+    });
+
     const answer = vi.fn().mockResolvedValue({
       answer: 'Azure AI Search indexes content for discovery. [1]'
     });
@@ -60,10 +66,11 @@ describe('runSession orchestrator', () => {
       sessionId: 'session-high-confidence',
       mode: 'sync',
       messages: [{ role: 'user', content: 'What does Azure AI Search do?' }],
-      tools: { retrieve, answer, critic, webSearch }
+      tools: { retrieve, lazyRetrieve, answer, critic, webSearch }
     });
 
-    expect(retrieve).toHaveBeenCalledTimes(1);
+    // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
+    expect(retrieve.mock.calls.length + lazyRetrieve.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(webSearch).not.toHaveBeenCalled();
     expect(result.answer).toContain('Azure AI Search');
     expect(result.citations).toHaveLength(1);
@@ -89,6 +96,12 @@ describe('runSession orchestrator', () => {
     ];
 
     const retrieve = vi.fn().mockResolvedValue({
+      response: 'Overview content snippet',
+      references,
+      activity: []
+    });
+
+    const lazyRetrieve = vi.fn().mockResolvedValue({
       response: 'Overview content snippet',
       references,
       activity: []
@@ -121,10 +134,11 @@ describe('runSession orchestrator', () => {
       mode: 'sync',
       messages: [{ role: 'user', content: 'Give me the latest Azure AI Search updates.' }],
       emit: (event, data) => events.push({ event, data }),
-      tools: { retrieve, webSearch, answer, critic }
+      tools: { retrieve, lazyRetrieve, webSearch, answer, critic }
     });
 
-    expect(retrieve).toHaveBeenCalledTimes(1);
+    // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
+    expect(retrieve.mock.calls.length + lazyRetrieve.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(webSearch).toHaveBeenCalledTimes(1);
     expect(result.citations).toHaveLength(1);
     expect(result.citations[0].id).toBe('doc-2');

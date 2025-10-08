@@ -1,0 +1,11 @@
+{
+  "backend/**/*.ts": [
+    "bash -lc 'cd backend && pnpm lint --fix'"
+  ],
+  "frontend/**/*.{ts,tsx}": [
+    "bash -lc 'cd frontend && pnpm lint --fix'"
+  ],
+  "**/*.{md,json,yml,yaml}": [
+    "prettier --write"
+  ]
+}

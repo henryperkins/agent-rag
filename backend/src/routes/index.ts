@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AgentMessage } from '../../../shared/types.js';
 import { handleEnhancedChat } from '../services/enhancedChatService.js';
 import { setupStreamRoute } from './chatStream.js';
+import { setupResponsesRoutes } from './responses.js';
 import { config, isDevelopment } from '../config/app.js';
 import { getSessionTelemetry, clearSessionTelemetry } from '../orchestrator/sessionTelemetryStore.js';
 import { clearMemory } from '../orchestrator/memoryStore.js';
@@ -15,6 +16,8 @@ export async function registerRoutes(app: FastifyInstance) {
       health: '/health',
       chat: '/chat',
       chatStream: '/chat/stream',
+      responses: '/responses/:id',
+      responseInputItems: '/responses/:id/input_items',
       ...(isDevelopment ? { adminTelemetry: '/admin/telemetry' } : {})
     }
   }));
@@ -44,6 +47,7 @@ export async function registerRoutes(app: FastifyInstance) {
   });
 
   await setupStreamRoute(app);
+  await setupResponsesRoutes(app);
 
   if (isDevelopment) {
     app.get('/admin/telemetry', async () => ({

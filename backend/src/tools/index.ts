@@ -10,59 +10,54 @@ import { extractOutputText } from '../utils/openai.js';
 export const toolSchemas = {
   retrieve: {
     type: 'function' as const,
-    function: {
-      name: 'retrieve',
-      description: 'Search the knowledge base using hybrid semantic search (vector + keyword + semantic ranking).',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'The search query'
-          },
-          filter: {
-            type: 'string',
-            description: 'Optional OData filter (e.g., "metadata/category eq \'nasa\'")'
-          },
-          top: {
-            type: 'number',
-            description: 'Maximum number of results to return',
-            default: 5
-          }
+    name: 'retrieve',
+    description:
+      'Search the knowledge base using hybrid semantic search (vector + keyword + semantic ranking).',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query'
         },
-        required: ['query']
-      }
+        filter: {
+          type: 'string',
+          description: "Optional OData filter (e.g., \"metadata/category eq 'nasa'\")"
+        },
+        top: {
+          type: 'number',
+          description: 'Maximum number of results to return',
+          default: 5
+        }
+      },
+      required: ['query']
     }
   },
   web_search: {
     type: 'function' as const,
-    function: {
-      name: 'web_search',
-      description: 'Search the web using Google for up-to-date information.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string' },
-          count: { type: 'number', default: 5 }
-        },
-        required: ['query']
-      }
+    name: 'web_search',
+    description: 'Search the web using Google for up-to-date information.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        count: { type: 'number', default: 5 }
+      },
+      required: ['query']
     }
   },
   answer: {
     type: 'function' as const,
-    function: {
-      name: 'answer',
-      description: 'Generate a final answer from retrieved context with citations.',
-      parameters: {
-        type: 'object',
-        properties: {
-          question: { type: 'string' },
-          context: { type: 'string' },
-          citations: { type: 'array', items: { type: 'object' } }
-        },
-        required: ['question', 'context']
-      }
+    name: 'answer',
+    description: 'Generate a final answer from retrieved context with citations.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string' },
+        context: { type: 'string' },
+        citations: { type: 'array', items: { type: 'object' } }
+      },
+      required: ['question', 'context']
     }
   }
 };
@@ -227,7 +222,7 @@ export async function answerTool(args: {
     max_output_tokens: args.maxTokens ?? 600,
     model: args.model,
     textFormat: { type: 'text' },
-    parallel_tool_calls: false
+    parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS
   });
 
   let answer = extractOutputText(response);

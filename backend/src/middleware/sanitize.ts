@@ -19,24 +19,29 @@ export function sanitizeInput(request: FastifyRequest, reply: FastifyReply, done
       return;
     }
 
-    body.messages = body.messages.map((msg: any) => {
+    const sanitized: any[] = [];
+    for (const msg of body.messages) {
       if (typeof msg.content !== 'string') {
-        throw new Error('Message content must be a string.');
+        reply.code(400).send({ error: 'Message content must be a string.' });
+        return;
       }
 
       if (msg.content.length > MAX_MESSAGE_LENGTH) {
-        throw new Error(`Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters.`);
+        reply.code(400).send({ error: `Message too long. Maximum ${MAX_MESSAGE_LENGTH} characters.` });
+        return;
       }
 
-      let sanitized = msg.content.replace(SCRIPT_REGEX, '');
-      sanitized = sanitized.replace(HTML_TAG_REGEX, '');
-      sanitized = sanitized.replace(/\s+/g, ' ').trim();
+      let content = msg.content.replace(SCRIPT_REGEX, '');
+      content = content.replace(HTML_TAG_REGEX, '');
+      content = content.replace(/\s+/g, ' ').trim();
 
-      return {
+      sanitized.push({
         role: msg.role,
-        content: sanitized
-      };
-    });
+        content
+      });
+    }
+
+    body.messages = sanitized;
   }
 
   done();

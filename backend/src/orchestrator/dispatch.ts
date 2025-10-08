@@ -145,7 +145,9 @@ export async function dispatchTools({ plan, messages, salience, emit, tools, pre
     // Extract query from plan step or use latest user query
     const retrievalStep = plan.steps.find((s) => s.action === 'vector_search' || s.action === 'both');
     const query = retrievalStep?.query?.trim() || queryFallback;
-    const useLazy = (preferLazy ?? config.ENABLE_LAZY_RETRIEVAL) === true;
+    const wantsLazy = (preferLazy ?? config.ENABLE_LAZY_RETRIEVAL) === true;
+    const supportsLazy = typeof lazyRetrieve === 'function';
+    const useLazy = wantsLazy && supportsLazy;
     const retrieval = useLazy
       ? await lazyRetrieve({ query, top: retrievalStep?.k })
       : await retrieve({ query, messages });

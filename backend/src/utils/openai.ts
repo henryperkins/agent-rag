@@ -8,7 +8,10 @@ export function extractOutputText(response: any): string {
     for (const item of response.output) {
       if (item?.type === 'message' && Array.isArray(item.content)) {
         for (const part of item.content) {
-          if (part?.type === 'output_text' && typeof part.text === 'string') {
+          if (
+            (part?.type === 'output_text' || part?.type === 'text') &&
+            typeof part.text === 'string'
+          ) {
             text += part.text;
           }
         }

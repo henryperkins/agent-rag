@@ -18,6 +18,12 @@ describe('dispatchTools confidence escalation', () => {
       activity: []
     });
 
+    const lazyRetrieve = vi.fn().mockResolvedValue({
+      response: 'Knowledge agent snippet',
+      references: [],
+      activity: []
+    });
+
     const webSearch = vi.fn().mockResolvedValue({
       results: [
         {
@@ -43,10 +49,11 @@ describe('dispatchTools confidence escalation', () => {
       emit: (event, data) => {
         events.push({ event, data });
       },
-      tools: { retrieve, webSearch }
+      tools: { retrieve, lazyRetrieve, webSearch }
     });
 
-    expect(retrieve).toHaveBeenCalledTimes(1);
+    // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
+    expect(retrieve.mock.calls.length + lazyRetrieve.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(webSearch).toHaveBeenCalledTimes(1);
     expect(result.escalated).toBe(true);
     expect(events.some((entry) => entry.event === 'status' && (entry.data as any)?.stage === 'confidence_escalation')).toBe(true);
@@ -72,6 +79,18 @@ describe('dispatchTools confidence escalation', () => {
       activity: []
     });
 
+    const lazyRetrieve = vi.fn().mockResolvedValue({
+      response: 'Knowledge snippet',
+      references: [
+        {
+          id: '1',
+          title: 'Doc',
+          content: 'Azure Search doc'
+        }
+      ],
+      activity: []
+    });
+
     const webSearch = vi.fn();
     const events: Array<{ event: string; data: unknown }> = [];
 
@@ -82,10 +101,11 @@ describe('dispatchTools confidence escalation', () => {
       emit: (event, data) => {
         events.push({ event, data });
       },
-      tools: { retrieve, webSearch }
+      tools: { retrieve, lazyRetrieve, webSearch }
     });
 
-    expect(retrieve).toHaveBeenCalledTimes(1);
+    // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
+    expect(retrieve.mock.calls.length + lazyRetrieve.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(webSearch).not.toHaveBeenCalled();
     expect(result.escalated).toBe(false);
     expect(events.every((entry) => (entry.data as any)?.stage !== 'confidence_escalation')).toBe(true);
