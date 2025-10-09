@@ -88,6 +88,13 @@ const envSchema = z.object({
   CRITIC_MAX_RETRIES: z.coerce.number().default(1),
   CRITIC_THRESHOLD: z.coerce.number().default(0.8),
 
+  ENABLE_CITATION_TRACKING: z.coerce.boolean().default(true),
+
+  ENABLE_WEB_QUALITY_FILTER: z.coerce.boolean().default(true),
+  WEB_MIN_AUTHORITY: z.coerce.number().default(0.3),
+  WEB_MAX_REDUNDANCY: z.coerce.number().default(0.9),
+  WEB_MIN_RELEVANCE: z.coerce.number().default(0.3),
+
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
   REQUEST_TIMEOUT_MS: z.coerce.number().default(30000),

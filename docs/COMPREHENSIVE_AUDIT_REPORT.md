@@ -138,26 +138,24 @@ The agent-rag application demonstrates **exceptional code quality** with all cor
 
 #### Key Documents by Category:
 
-**Current Status (7 docs):**
+**Current Status (3 docs):**
 
-- [`CURRENTLY_WORKING_FEATURES.md`](CURRENTLY_WORKING_FEATURES.md) - Complete feature inventory
-- [`CODEBASE_AUDIT_2025-10-04.md`](CODEBASE_AUDIT_2025-10-04.md) - Critical findings
-- [`AUDIT_VERIFICATION_2025-10-04.md`](AUDIT_VERIFICATION_2025-10-04.md) - Verification report
-- [`IMPLEMENTATION_ASSESSMENT.md`](IMPLEMENTATION_ASSESSMENT.md) - P1 features status
+- [`IMPLEMENTED_VS_PLANNED.md`](IMPLEMENTED_VS_PLANNED.md) - Complete feature inventory
 - [`TEST_FIXES_SUMMARY.md`](TEST_FIXES_SUMMARY.md) - Recent fixes (Oct 7, 2025)
+- [`CRITIC_ENHANCEMENTS.md`](CRITIC_ENHANCEMENTS.md) - Multi-pass critic implementation
 
-**Enhancement Planning (6 docs):**
+**Enhancement Planning (4 docs):**
 
-- [`agentic-rag-enhancements.md`](agentic-rag-enhancements.md) - P1/P2 guide (2,143 lines)
+- [`enhancement-implementation-plan.md`](enhancement-implementation-plan.md) - User-facing features (Liner-inspired)
 - [`azure-component-enhancements.md`](azure-component-enhancements.md) - Azure optimizations (1,948 lines)
-- [`enhancement-implementation-plan.md`](enhancement-implementation-plan.md) - Liner-inspired features
-- [`implementation-roadmap.md`](implementation-roadmap.md) - 12-month timeline
+- [`2025-agentic-rag-techniques-deepdive.md`](2025-agentic-rag-techniques-deepdive.md) - Research techniques
+- [`ROADMAP.md`](ROADMAP.md) - Consolidated development roadmap
 
-**Production & Operations (4 docs):**
+**Production & Operations (3 docs):**
 
 - [`PRODUCTION_DEPLOYMENT.md`](PRODUCTION_DEPLOYMENT.md) - Deployment guide (778 lines)
-- [`COST_OPTIMIZATION.md`](COST_OPTIMIZATION.md) - Cost analysis (670 lines)
-- [`CODEBASE_DOCUMENTATION_ALIGNMENT_PLAN.md`](CODEBASE_DOCUMENTATION_ALIGNMENT_PLAN.md) - Alignment plan
+- [`PRIORITIZED_ACTION_PLAN.md`](PRIORITIZED_ACTION_PLAN.md) - Immediate action items
+- [`MANAGED_IDENTITY_FIX.md`](MANAGED_IDENTITY_FIX.md) - Azure auth configuration
 
 **Architecture (5 docs):**
 
@@ -167,7 +165,7 @@ The agent-rag application demonstrates **exceptional code quality** with all cor
 
 ### 2.2 Critical Finding: Documentation-Reality Gap
 
-**Source:** [`CODEBASE_AUDIT_2025-10-04.md`](CODEBASE_AUDIT_2025-10-04.md)
+**Source:** [`IMPLEMENTED_VS_PLANNED.md`](IMPLEMENTED_VS_PLANNED.md)
 
 **Problem:** Documentation states P1 enhancements are "COMPLETE" and production-ready, but all 7 advanced features are **disabled by default**.
 
@@ -258,7 +256,7 @@ ENABLE_INTENT_ROUTING: z.coerce.boolean().default(true),
 **Effort:** 15 minutes  
 **File:** [`backend/src/server.ts`](../backend/src/server.ts:60)
 
-**Fix:** Documented in [`backend-fixes.md:5-18`](backend-fixes.md:5-18)
+**Fix:** ✅ Applied in v2.0.1 - See [`TEST_FIXES_SUMMARY.md`](TEST_FIXES_SUMMARY.md) and [`CHANGELOG.md`](../CHANGELOG.md)
 
 ---
 
@@ -268,7 +266,7 @@ ENABLE_INTENT_ROUTING: z.coerce.boolean().default(true),
 **Effort:** 15 minutes  
 **File:** [`backend/src/middleware/sanitize.ts`](../backend/src/middleware/sanitize.ts:23)
 
-**Fix:** Documented in [`backend-fixes.md:22-45`](backend-fixes.md:22-45)
+**Fix:** ✅ Applied in v2.0.1 - See [`TEST_FIXES_SUMMARY.md`](TEST_FIXES_SUMMARY.md) and [`CHANGELOG.md`](../CHANGELOG.md)
 
 ---
 
@@ -432,9 +430,9 @@ store: config.ENABLE_RESPONSE_STORAGE ?? false,
    - **Resolution:** Obtain from Azure documentation
 
 3. **🟡 Backend Fixes** (Severity: HIGH)
-   - Streaming timeout issue (documented fix available)
-   - Sanitization error handling (400 vs 500)
-   - **Resolution:** Apply fixes from [`backend-fixes.md`](backend-fixes.md)
+   - Streaming timeout issue ✅ Fixed in v2.0.1
+   - Sanitization error handling ✅ Fixed in v2.0.1
+   - **Resolution:** See [`TEST_FIXES_SUMMARY.md`](TEST_FIXES_SUMMARY.md) and [`CHANGELOG.md`](../CHANGELOG.md)
 
 4. **🟢 Underutilized API Features** (Severity: MEDIUM)
    - Response storage not enabled
@@ -647,8 +645,8 @@ Create `backend/.env.example` with:
 
 Fix both documented issues:
 
-- Streaming timeout ([`backend-fixes.md:5-18`](backend-fixes.md:5-18))
-- Sanitization errors ([`backend-fixes.md:22-45`](backend-fixes.md:22-45))
+- Streaming timeout ✅ Fixed in v2.0.1 - See [`CHANGELOG.md`](../CHANGELOG.md)
+- Sanitization errors ✅ Fixed in v2.0.1 - See [`CHANGELOG.md`](../CHANGELOG.md)
 
 **Impact:** Better reliability, proper HTTP status codes.
 

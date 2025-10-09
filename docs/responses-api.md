@@ -10,9 +10,45 @@ This backend calls Azure OpenAI’s v1 Responses API and exposes minimal helpers
 
 ## Streaming
 
-- Chat SSE: `POST /chat/stream` streams model output. The backend forwards Azure SSE events and emits:
-  - `response.output_text.delta`, `response.output_text.done`, `response.completed`
-  - Optional usage snapshots when `RESPONSES_STREAM_INCLUDE_USAGE=true`.
+Chat SSE (`POST /chat/stream`) streams model output via Server-Sent Events. The backend forwards Azure SSE events and emits custom orchestrator events.
+
+**Event Naming Convention**:
+
+- Clients should subscribe to `token` events (singular) for streamed answer content
+- Internally, the orchestrator emits `tokens` events, which the streaming service maps to `token` for SSE clients
+- See [`backend/src/services/chatStreamService.ts:20-23`](../backend/src/services/chatStreamService.ts:20-23) for mapping logic
+
+**Core SSE Events**:
+
+- `status` - Execution stage updates (context, planning, retrieval, generating, review)
+- `route` - Intent classification result with model/retriever strategy
+- `plan` - Query analysis and retrieval strategy
+- `context` - Context budget breakdown (history, summary, salience)
+- `tool` - Tool execution updates (references count, web results count)
+- `citations` - Retrieved references with metadata
+- `activity` - Execution steps timeline
+- `token` - Answer tokens (streamed progressively) ⚠️ **Listen to 'token' not 'tokens'**
+- `critique` - Critic evaluation (grounding, coverage, issues)
+- `complete` - Final answer with full metadata
+- `telemetry` - Performance metrics and diagnostics
+- `trace` - Session trace object
+- `done` - Stream completion signal
+
+**Advanced Events** (when features enabled):
+
+- `semantic_memory` - Recalled memories (when `ENABLE_SEMANTIC_MEMORY=true`)
+- `complexity` - Query complexity assessment (when `ENABLE_QUERY_DECOMPOSITION=true`)
+- `decomposition` - Sub-queries generated (when `ENABLE_QUERY_DECOMPOSITION=true`)
+- `web_context` - Web search context info (when web search used)
+- `reranking` - RRF reranking details (when `ENABLE_WEB_RERANKING=true`)
+- `summary_selection_stats` - Summary selection metrics for monitoring
+
+**Azure API Events** (forwarded from Azure OpenAI):
+
+- `response.output_text.delta` - Partial text chunks from Azure
+- `response.output_text.done` - Complete text from Azure
+- `response.completed` - Azure response completion
+- `response.usage` - Token usage (when `RESPONSES_STREAM_INCLUDE_USAGE=true`)
 
 ## Configuration
 

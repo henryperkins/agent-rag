@@ -32,6 +32,7 @@ import { buildSessionEvaluation } from './evaluationTelemetry.js';
 import { classifyIntent, getRouteConfig } from './router.js';
 import type { RouteConfig } from './router.js';
 import { loadFullContent, identifyLoadCandidates } from '../azure/lazyRetrieval.js';
+import { trackCitationUsage } from './citationTracker.js';
 
 type ExecMode = 'sync' | 'stream';
 
@@ -989,6 +990,11 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     responses: responseHistory
   } as const;
 
+  // Emit dedicated summary selection stats event for real-time monitoring
+  if (summaryStats && (summaryStats.selectedCount > 0 || summaryStats.error)) {
+    emit?.('summary_selection_stats', summaryStats);
+  }
+
   const response: ChatResponse = {
     answer,
     citations: dispatch.references,
@@ -1060,6 +1066,14 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   }
   emit?.('trace', { session: sessionTrace });
   emit?.('done', { status: 'complete' });
+
+      if (config.ENABLE_CITATION_TRACKING && config.ENABLE_SEMANTIC_MEMORY && !answer.startsWith('I do not know')) {
+    try {
+      await trackCitationUsage(answer, dispatch.references, question, options.sessionId);
+    } catch (error) {
+      console.warn('Citation tracking failed:', error);
+    }
+  }
 
       if (
     config.ENABLE_SEMANTIC_MEMORY &&

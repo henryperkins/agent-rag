@@ -4,7 +4,7 @@ import { handleEnhancedChat } from '../services/enhancedChatService.js';
 import { setupStreamRoute } from './chatStream.js';
 import { setupResponsesRoutes } from './responses.js';
 import { config, isDevelopment } from '../config/app.js';
-import { getSessionTelemetry, clearSessionTelemetry } from '../orchestrator/sessionTelemetryStore.js';
+import { getSessionTelemetry, clearSessionTelemetry, getSummaryAggregates, clearSummaryAggregates } from '../orchestrator/sessionTelemetryStore.js';
 import { clearMemory } from '../orchestrator/memoryStore.js';
 
 export async function registerRoutes(app: FastifyInstance) {
@@ -51,10 +51,13 @@ export async function registerRoutes(app: FastifyInstance) {
 
   if (isDevelopment) {
     app.get('/admin/telemetry', async () => ({
-      sessions: getSessionTelemetry()
+      sessions: getSessionTelemetry(),
+      summaryAggregates: getSummaryAggregates()
     }));
+    app.get('/admin/telemetry/summary-aggregates', async () => getSummaryAggregates());
     app.post('/admin/telemetry/clear', async () => {
       clearSessionTelemetry();
+      clearSummaryAggregates();
       clearMemory();
       return { status: 'cleared' };
     });

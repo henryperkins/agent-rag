@@ -13,6 +13,7 @@ import { config } from '../config/app.js';
 import { estimateTokens } from './contextBudget.js';
 import { reciprocalRankFusion, applySemanticBoost } from './reranker.js';
 import { generateEmbedding } from '../azure/directSearch.js';
+import { filterWebResults } from '../tools/webQualityFilter.js';
 
 export interface DispatchResult {
   contextText: string;
@@ -186,10 +187,27 @@ export async function dispatchTools({ plan, messages, salience, emit, tools, pre
     try {
       const search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE });
       if (search.results?.length) {
-        webResults.push(...search.results);
+        let resultsToUse = search.results;
+
+        if (config.ENABLE_WEB_QUALITY_FILTER) {
+          try {
+            const qualityFiltered = await filterWebResults(resultsToUse, query, references);
+            if (qualityFiltered.removed > 0) {
+              activity.push({
+                type: 'web_quality_filter',
+                description: `Filtered ${qualityFiltered.removed} low-quality web results (${qualityFiltered.filtered.length} remaining).`
+              });
+              resultsToUse = qualityFiltered.filtered;
+            }
+          } catch (error) {
+            console.warn('Web quality filtering failed:', error);
+          }
+        }
+
+        webResults.push(...resultsToUse);
         activity.push({
           type: 'web_search',
-          description: `Fetched ${search.results.length} web results for "${query}".`
+          description: `Fetched ${resultsToUse.length} web results for "${query}".`
         });
 
         if (search.contextText) {

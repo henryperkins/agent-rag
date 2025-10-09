@@ -72,6 +72,54 @@ export interface SessionTelemetryRecord {
 const MAX_RECORDS = 100;
 const sessionTelemetry: SessionTelemetryRecord[] = [];
 
+interface SummarySelectionAggregates {
+  totalSessions: number;
+  modeBreakdown: {
+    semantic: number;
+    recency: number;
+  };
+  totalSelected: number;
+  totalDiscarded: number;
+  errorCount: number;
+  scoreRanges: {
+    semantic: {
+      samples: number;
+      minScore: number;
+      maxScore: number;
+      avgScore: number;
+    };
+    recency: {
+      samples: number;
+      minScore: number;
+      maxScore: number;
+      avgScore: number;
+    };
+  };
+  recentSamples: Array<{
+    sessionId: string;
+    mode: 'semantic' | 'recency';
+    selectedCount: number;
+    discardedCount: number;
+    usedFallback: boolean;
+    timestamp: number;
+  }>;
+}
+
+const summaryAggregates: SummarySelectionAggregates = {
+  totalSessions: 0,
+  modeBreakdown: { semantic: 0, recency: 0 },
+  totalSelected: 0,
+  totalDiscarded: 0,
+  errorCount: 0,
+  scoreRanges: {
+    semantic: { samples: 0, minScore: Infinity, maxScore: -Infinity, avgScore: 0 },
+    recency: { samples: 0, minScore: Infinity, maxScore: -Infinity, avgScore: 0 }
+  },
+  recentSamples: []
+};
+
+const MAX_RECENT_SAMPLES = 50;
+
 const EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const SSN_REGEX = /\b\d{3}-\d{2}-\d{4}\b/g;
 const CREDIT_CARD_GROUPED_REGEX = /\b(?:\d{4}[ -]?){3}\d{4}\b/g;
@@ -260,6 +308,41 @@ function clone<T>(value: T): T {
   }
 }
 
+function aggregateSummarySelection(stats: SummarySelectionStats, sessionId: string): void {
+  summaryAggregates.totalSessions += 1;
+  summaryAggregates.modeBreakdown[stats.mode] += 1;
+  summaryAggregates.totalSelected += stats.selectedCount;
+  summaryAggregates.totalDiscarded += stats.discardedCount;
+
+  if (stats.error) {
+    summaryAggregates.errorCount += 1;
+  }
+
+  const range = summaryAggregates.scoreRanges[stats.mode];
+  if (stats.meanScore !== undefined) {
+    range.samples += 1;
+    range.minScore = Math.min(range.minScore, stats.minScore ?? stats.meanScore);
+    range.maxScore = Math.max(range.maxScore, stats.maxScore ?? stats.meanScore);
+    // Running average
+    range.avgScore = (range.avgScore * (range.samples - 1) + stats.meanScore) / range.samples;
+  }
+
+  // Store recent sample
+  summaryAggregates.recentSamples.unshift({
+    sessionId,
+    mode: stats.mode,
+    selectedCount: stats.selectedCount,
+    discardedCount: stats.discardedCount,
+    usedFallback: stats.usedFallback,
+    timestamp: Date.now()
+  });
+
+  // Trim old samples
+  if (summaryAggregates.recentSamples.length > MAX_RECENT_SAMPLES) {
+    summaryAggregates.recentSamples.length = MAX_RECENT_SAMPLES;
+  }
+}
+
 function pushRecord(record: SessionTelemetryRecord) {
   sessionTelemetry.unshift(record);
   if (sessionTelemetry.length > MAX_RECORDS) {
@@ -364,6 +447,12 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       }
       if (payload?.summarySelection) {
         state.summarySelection = clone(payload.summarySelection as SummarySelectionStats);
+        // Aggregate statistics for cross-session analysis
+        try {
+          aggregateSummarySelection(payload.summarySelection as SummarySelectionStats, state.sessionId);
+        } catch (error) {
+          console.warn('Failed to aggregate summary selection stats:', error);
+        }
       }
       if (payload?.webContext) {
         state.webContext = clone(payload.webContext);
@@ -493,6 +582,31 @@ export function createSessionRecorder(options: {
 
 export function getSessionTelemetry(): SessionTelemetryRecord[] {
   return sessionTelemetry.map((record) => clone(record));
+}
+
+export function getSummaryAggregates(): SummarySelectionAggregates {
+  return {
+    ...summaryAggregates,
+    scoreRanges: {
+      semantic: { ...summaryAggregates.scoreRanges.semantic },
+      recency: { ...summaryAggregates.scoreRanges.recency }
+    },
+    modeBreakdown: { ...summaryAggregates.modeBreakdown },
+    recentSamples: summaryAggregates.recentSamples.map((s) => ({ ...s }))
+  };
+}
+
+export function clearSummaryAggregates(): void {
+  summaryAggregates.totalSessions = 0;
+  summaryAggregates.modeBreakdown = { semantic: 0, recency: 0 };
+  summaryAggregates.totalSelected = 0;
+  summaryAggregates.totalDiscarded = 0;
+  summaryAggregates.errorCount = 0;
+  summaryAggregates.scoreRanges = {
+    semantic: { samples: 0, minScore: Infinity, maxScore: -Infinity, avgScore: 0 },
+    recency: { samples: 0, minScore: Infinity, maxScore: -Infinity, avgScore: 0 }
+  };
+  summaryAggregates.recentSamples = [];
 }
 
 export function clearSessionTelemetry() {

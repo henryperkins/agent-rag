@@ -39,4 +39,23 @@ build/
 
 # OS
 .DS_Store
+
+# Temporary and output files
+*.log
+error.log
+*.zip
+*.xml
+repomix-output.*
+
+# Backup and old files
+*.backup
+*.old
+*_old
+*_backup
+*_BACKUP
+BACKUP_*
+
+# Duplicate documentation (keep in docs/ only)
+/*AUDIT*.md
+/*DOCUMENTATION*.md
 Thumbs.db

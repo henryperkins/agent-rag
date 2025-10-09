@@ -10,6 +10,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 ## 🌟 Features
 
 ### Core Capabilities
+
 - **🤖 Intelligent Orchestration**: Advanced agentic workflow with planning, retrieval, synthesis, and critique
 - **🔍 Hybrid Retrieval**: Direct Azure AI Search integration with vector + BM25 + L2 semantic reranking
 - **🌐 Web Search**: Google Custom Search integration for real-time information
@@ -20,6 +21,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 - **📊 Rich Observability**: OpenTelemetry tracing, telemetry events, and evaluation metrics
 
 ### Advanced Features
+
 - **Intent Classification**: Automatic routing (FAQ, factual, research, conversational)
 - **Context Engineering**: Token-budgeted history compaction with summary/salience extraction
 - **Confidence-Based Escalation**: Automatic fallback to dual retrieval on low confidence
@@ -32,6 +34,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 ### Tech Stack
 
 **Backend**
+
 - **Runtime**: Node.js 20+ with TypeScript 5.6
 - **Framework**: Fastify (high-performance HTTP)
 - **AI/ML**: Azure OpenAI (GPT-4o, text-embedding-3-large)
@@ -41,6 +44,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 - **Testing**: Vitest with coverage
 
 **Frontend**
+
 - **Framework**: React 18 + TypeScript
 - **Build Tool**: Vite 5
 - **Styling**: CSS with responsive design
@@ -48,6 +52,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 - **Streaming**: EventSource for SSE
 
 **Shared**
+
 - **Types**: Common TypeScript interfaces
 - **Package Manager**: pnpm (monorepo-ready)
 
@@ -172,6 +177,7 @@ SEMANTIC_MEMORY_MIN_SIMILARITY=0.7
 ## Advanced Configuration
 
 See `backend/.env.example` for the full list of configuration options and feature flags. Common flags:
+
 - ENABLE_LAZY_RETRIEVAL
 - ENABLE_INTENT_ROUTING
 - ENABLE_SEMANTIC_SUMMARY
@@ -180,11 +186,11 @@ See `backend/.env.example` for the full list of configuration options and featur
 - ENABLE_SEMANTIC_MEMORY
 
 Note: The code uses placeholder defaults for some model names/deployments. Always set your real Azure OpenAI deployment/model names in `.env` (e.g., `gpt-4o-2024-08-06`, `text-embedding-3-large`).
-
 
 ## Advanced Configuration
 
 See `backend/.env.example` for the full list of configuration options and feature flags. Common flags:
+
 - ENABLE_LAZY_RETRIEVAL
 - ENABLE_INTENT_ROUTING
 - ENABLE_SEMANTIC_SUMMARY
@@ -194,15 +200,16 @@ See `backend/.env.example` for the full list of configuration options and featur
 
 Note: The code uses placeholder defaults for some model names/deployments. Always set your real Azure OpenAI deployment/model names in `.env` (e.g., `gpt-4o-2024-08-06`, `text-embedding-3-large`).
 
-
 ### 4. Run Application
 
 **Option 1: Using the startup script**
+
 ```bash
 ./start.sh
 ```
 
 **Option 2: Manual startup**
+
 ```bash
 # Terminal 1 - Backend
 cd backend
@@ -214,10 +221,36 @@ pnpm dev
 ```
 
 **Access the application:**
+
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8787
 
 ## 🎛️ Feature Flags
+
+### ⚠️ CRITICAL: Feature Enablement Required
+
+**Default State**: Only `ENABLE_CRITIC=true`. **All other advanced features are DISABLED by default**.
+
+**To activate advertised capabilities**, add to your `backend/.env`:
+
+```bash
+# Recommended for production (saves 50-65% cost):
+ENABLE_INTENT_ROUTING=true
+ENABLE_LAZY_RETRIEVAL=true
+```
+
+**Without these flags, you will NOT get:**
+
+- ❌ Adaptive model selection (20-30% cost savings)
+- ❌ Summary-first retrieval (40-50% token reduction)
+- ❌ Embedding-based context selection
+- ❌ Persistent cross-session memory
+- ❌ Complex query decomposition
+- ❌ Multi-source result reranking
+
+**See `backend/.env.example` for complete configuration options and progressive enablement guide.**
+
+---
 
 ### Overview
 
@@ -225,52 +258,60 @@ The application includes **7 advanced feature flags** that control optional capa
 
 ### Available Flags
 
-| Flag | Default | Purpose | Cost Impact | Risk | Recommended |
-|------|---------|---------|-------------|------|-------------|
-| `ENABLE_LAZY_RETRIEVAL` | `false` | Summary-first document loading | **-40-50%** tokens | Low | ✅ Production |
-| `ENABLE_INTENT_ROUTING` | `false` | Adaptive model selection (FAQ/Research/etc) | **-20-30%** cost | Low | ✅ Production |
-| `ENABLE_WEB_RERANKING` | `false` | Unified Azure + Web results (RRF) | Minimal | Low | ✅ With web search |
-| `ENABLE_SEMANTIC_SUMMARY` | `false` | Embedding-based context selection | **+$20-30/mo** | Low | Optional |
-| `ENABLE_SEMANTIC_MEMORY` | `false` | Persistent cross-session memory | **+$50-100/mo** | Low | Optional |
-| `ENABLE_QUERY_DECOMPOSITION` | `false` | Complex multi-step query handling | **+2-3x** for complex queries | Medium | Power users |
-| `ENABLE_CRITIC` | `true` | Multi-pass quality assurance | Standard | N/A | ✅ Always |
+| Flag                         | Default | Purpose                                     | Cost Impact                   | Risk   | Recommended        |
+| ---------------------------- | ------- | ------------------------------------------- | ----------------------------- | ------ | ------------------ |
+| `ENABLE_LAZY_RETRIEVAL`      | `false` | Summary-first document loading              | **-40-50%** tokens            | Low    | ✅ Production      |
+| `ENABLE_INTENT_ROUTING`      | `false` | Adaptive model selection (FAQ/Research/etc) | **-20-30%** cost              | Low    | ✅ Production      |
+| `ENABLE_WEB_RERANKING`       | `false` | Unified Azure + Web results (RRF)           | Minimal                       | Low    | ✅ With web search |
+| `ENABLE_SEMANTIC_SUMMARY`    | `false` | Embedding-based context selection           | **+$20-30/mo**                | Low    | Optional           |
+| `ENABLE_SEMANTIC_MEMORY`     | `false` | Persistent cross-session memory             | **+$50-100/mo**               | Low    | Optional           |
+| `ENABLE_QUERY_DECOMPOSITION` | `false` | Complex multi-step query handling           | **+2-3x** for complex queries | Medium | Power users        |
+| `ENABLE_CRITIC`              | `true`  | Multi-pass quality assurance                | Standard                      | N/A    | ✅ Always          |
 
 ### Progressive Enablement Guide
 
 **⚠️ DO NOT enable all features at once**. Follow this week-by-week rollout:
 
 #### Week 1: Cost Optimization (Lowest Risk)
+
 ```bash
 ENABLE_CRITIC=true              # Already default
 ENABLE_INTENT_ROUTING=true      # Saves 20-30% on costs
 ENABLE_LAZY_RETRIEVAL=true      # Saves 40-50% on retrieval tokens
 ```
+
 **Monitor**: Cost reduction, latency, error rates
 **Validate**: 72 hours of stable operation before proceeding
 
 #### Week 2: Quality Enhancement (After Week 1 Success)
+
 ```bash
 # Keep Week 1 settings, add:
 ENABLE_WEB_RERANKING=true       # Better multi-source results
 ENABLE_SEMANTIC_SUMMARY=true    # Improved context selection
 ```
+
 **Monitor**: Result quality, citation accuracy
 **Validate**: User feedback, critic scores
 
 #### Week 3: Advanced Features (After Week 2 Success)
+
 ```bash
 # Keep Week 1+2 settings, add:
 ENABLE_QUERY_DECOMPOSITION=true # Complex query support
 ENABLE_SEMANTIC_MEMORY=true     # Persistent memory
 ```
+
 **Monitor**: Token usage spikes, memory growth, disk space
 **Validate**: Complex query handling, memory recall quality
 
 ### Recommended Configurations
 
 #### Minimal (Development/Testing)
+
 **Estimated Cost**: $200-300/month
 **Use Case**: Development, testing, budget-constrained
+
 ```bash
 ENABLE_CRITIC=true
 ENABLE_INTENT_ROUTING=true
@@ -279,8 +320,10 @@ ENABLE_LAZY_RETRIEVAL=true
 ```
 
 #### Balanced (Production - Recommended)
+
 **Estimated Cost**: $400-600/month
 **Use Case**: Production with cost awareness
+
 ```bash
 ENABLE_CRITIC=true
 ENABLE_INTENT_ROUTING=true
@@ -291,8 +334,10 @@ ENABLE_SEMANTIC_SUMMARY=true
 ```
 
 #### Full Features (Enterprise)
+
 **Estimated Cost**: $700-1000/month
 **Use Case**: Enterprise prioritizing quality over cost
+
 ```bash
 # All flags enabled
 ENABLE_CRITIC=true
@@ -308,16 +353,19 @@ ENABLE_SEMANTIC_BOOST=true
 ### Cost Optimization Strategies
 
 **Maximum Cost Savings** (Est. savings: 50-60%):
+
 1. Enable `INTENT_ROUTING` - Routes simple queries to GPT-4o-mini
 2. Enable `LAZY_RETRIEVAL` - Loads summaries before full documents
 3. Keep other features disabled initially
 
 **Quality-Cost Balance**:
+
 1. Start with cost optimization flags (above)
 2. Add `WEB_RERANKING` for better multi-source results (minimal cost)
 3. Add `SEMANTIC_SUMMARY` only for long conversations (+$20-30/mo)
 
 **Avoid Cost Spikes**:
+
 - ⚠️ `QUERY_DECOMPOSITION` can multiply tokens 2-3x on complex queries
 - ⚠️ `SEMANTIC_MEMORY` adds embedding costs for every recall/store operation
 - ✅ Monitor Azure OpenAI quota and set spending alerts
@@ -339,6 +387,7 @@ ENABLE_SEMANTIC_BOOST=true
 ### Implementation Details
 
 All feature flags are defined in `backend/src/config/app.ts` with Zod schema validation. See:
+
 - Implementation: `docs/IMPLEMENTATION_ASSESSMENT.md`
 - Cost analysis: `docs/CODEBASE_DOCUMENTATION_ALIGNMENT_PLAN.md`
 - Full config reference: `backend/.env.example`
@@ -359,15 +408,15 @@ All feature flags are defined in `backend/src/config/app.ts` with Zod schema val
 ### API Endpoints
 
 #### `POST /chat` - Synchronous Chat
+
 ```json
 {
-  "messages": [
-    { "role": "user", "content": "What is Azure AI Search?" }
-  ]
+  "messages": [{ "role": "user", "content": "What is Azure AI Search?" }]
 }
 ```
 
 **Response:**
+
 ```json
 {
   "answer": "Azure AI Search is a cloud search service... [1]",
@@ -391,6 +440,7 @@ All feature flags are defined in `backend/src/config/app.ts` with Zod schema val
 #### `POST /chat/stream` - Streaming Chat (SSE)
 
 **Events emitted:**
+
 - `route`: Intent classification result
 - `plan`: Query analysis and strategy
 - `context`: Context budget breakdown
@@ -404,6 +454,7 @@ All feature flags are defined in `backend/src/config/app.ts` with Zod schema val
 ## 🧪 Testing
 
 ### Run Tests
+
 ```bash
 cd backend
 pnpm test                # Run all tests
@@ -412,6 +463,7 @@ pnpm test:coverage       # With coverage report
 ```
 
 ### Test Suites
+
 - `orchestrator.test.ts` - Core orchestration logic
 - `orchestrator.integration.test.ts` - End-to-end scenarios
 - `dispatch.test.ts` - Tool dispatch and fallback
@@ -481,7 +533,9 @@ agent-rag/
 ## 🔑 Key Concepts
 
 ### Intent Routing
+
 Automatically classifies queries into categories:
+
 - **FAQ**: Quick answers (e.g., "What is X?")
 - **Factual**: Specific information lookup
 - **Research**: Multi-source analysis required
@@ -490,14 +544,18 @@ Automatically classifies queries into categories:
 Each intent uses optimized model/token settings.
 
 ### Lazy Retrieval
+
 Summary-first approach to reduce costs:
+
 1. Retrieve document summaries (~200 chars)
 2. Critic evaluates if summaries are sufficient
 3. Load full documents only when needed
 4. Configurable via `ENABLE_LAZY_RETRIEVAL=true`
 
 ### Multi-Pass Critic
+
 Quality assurance loop:
+
 1. Generate answer from retrieved context
 2. Critic evaluates: grounding, coverage, quality
 3. If `action: 'revise'`, regenerate with revision notes
@@ -505,14 +563,18 @@ Quality assurance loop:
 5. Track iterations in critique history timeline
 
 ### Context Engineering
+
 Token-optimized context assembly:
+
 - **Compaction**: Extract summaries from old turns
 - **Salience**: Identify key information
 - **Budgeting**: Enforce caps per section
 - **Summary Selection**: Semantic similarity ranking
 
 ### Semantic Memory
+
 Persistent cross-session memory:
+
 - Stores episodic, semantic, procedural, preference memories
 - Vector similarity search with cosine distance
 - Automatic usage tracking and pruning
@@ -521,6 +583,7 @@ Persistent cross-session memory:
 ## 🛠️ Development
 
 ### Backend Development
+
 ```bash
 cd backend
 pnpm dev          # Start with hot reload
@@ -530,6 +593,7 @@ pnpm start        # Run production build
 ```
 
 ### Frontend Development
+
 ```bash
 cd frontend
 pnpm dev          # Start Vite dev server
@@ -543,6 +607,7 @@ pnpm preview      # Preview production build
 Full configuration reference in `backend/src/config/app.ts`
 
 **Categories:**
+
 - Azure endpoints and credentials
 - Feature flags (`ENABLE_*`)
 - Retrieval thresholds and limits
@@ -555,6 +620,7 @@ Full configuration reference in `backend/src/config/app.ts`
 ## 📊 Observability
 
 ### Telemetry Events
+
 - `SessionTrace`: Complete request lifecycle
 - `PlanSummary`: Query analysis results
 - `ContextBudget`: Token allocation breakdown
@@ -562,6 +628,7 @@ Full configuration reference in `backend/src/config/app.ts`
 - `ActivityStep`: Retrieval operations
 
 ### OpenTelemetry Spans
+
 - `execute_task`: End-to-end request
 - `agent.plan`: Planning phase
 - `agent.tool.dispatch`: Tool execution
@@ -569,6 +636,7 @@ Full configuration reference in `backend/src/config/app.ts`
 - `agent.critique`: Quality evaluation
 
 ### Metrics
+
 - Intent resolution accuracy
 - RAG retrieval precision/recall
 - Answer quality scores (fluency, coherence, completeness)
@@ -587,6 +655,7 @@ Full configuration reference in `backend/src/config/app.ts`
 ## 🚢 Deployment
 
 ### Production Build
+
 ```bash
 # Backend
 cd backend
@@ -600,6 +669,7 @@ pnpm build
 ```
 
 ### Environment Setup
+
 1. Provision Azure resources (AI Search, OpenAI)
 2. Configure index with semantic ranking
 3. Deploy embeddings to vector fields
@@ -608,6 +678,7 @@ pnpm build
 6. Start with process manager (PM2, systemd)
 
 ### Docker (Coming Soon)
+
 ```bash
 docker-compose up -d
 ```
@@ -628,6 +699,7 @@ docker-compose up -d
 5. Open a Pull Request
 
 **Development Standards:**
+
 - TypeScript strict mode enabled
 - ESLint + Prettier for code style
 - Vitest for testing (>80% coverage goal)
@@ -648,6 +720,7 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 ## 📧 Support
 
 For issues, questions, or contributions:
+
 - Open an [Issue](../../issues)
 - Submit a [Pull Request](../../pulls)
 - Check [Documentation](./docs/)
