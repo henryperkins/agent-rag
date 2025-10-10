@@ -1,5 +1,4 @@
 # Root level JSON files
-/*.json
 
 # Environment variables
 .env
