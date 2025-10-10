@@ -2,6 +2,7 @@ import type { AgentMessage } from '../../../shared/types.js';
 import { runSession } from '../orchestrator/index.js';
 import { createSessionRecorder } from '../orchestrator/sessionTelemetryStore.js';
 import { deriveSessionId, latestUserQuestion } from '../utils/session.js';
+import { sessionStore } from './sessionStore.js';
 
 interface StreamOptions {
   sessionId?: string;
@@ -31,6 +32,8 @@ export async function handleChatStream(messages: AgentMessage[], sendEvent: Even
       emit: recorder.emit
     });
     recorder.complete(response);
+    const updatedMessages: AgentMessage[] = [...messages, { role: 'assistant', content: response.answer }];
+    sessionStore.saveTranscript(sessionId, updatedMessages);
   } catch (error) {
     recorder.fail(error as Error);
     throw error;

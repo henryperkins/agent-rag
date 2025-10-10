@@ -126,7 +126,7 @@ export function useChatStream() {
     });
   }, []);
 
-  const stream = useCallback(async (messages: AgentMessage[]) => {
+  const stream = useCallback(async (messages: AgentMessage[], sessionId: string) => {
     reset();
 
     const controller = new AbortController();
@@ -134,11 +134,13 @@ export function useChatStream() {
 
     setState((prev) => ({ ...prev, isStreaming: true, status: 'starting', answer: '' }));
 
+    let finalAnswer = '';
+
     try {
       const response = await fetch(`${(import.meta.env.VITE_API_BASE ?? __API_BASE__) as string}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, sessionId }),
         signal: controller.signal
       });
 
@@ -170,11 +172,15 @@ export function useChatStream() {
             const data = JSON.parse(line.replace('data:', '').trim());
             switch (eventType) {
               case 'status':
-                 setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
+                setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
                 break;
-              case 'token':
-                setState((prev) => ({ ...prev, answer: prev.answer + (data.content ?? '') }));
+              case 'token': {
+                const rawContent = data.content ?? '';
+                const tokenSegment = typeof rawContent === 'string' ? rawContent : String(rawContent);
+                finalAnswer += tokenSegment;
+                setState((prev) => ({ ...prev, answer: prev.answer + tokenSegment }));
                 break;
+              }
               case 'citations':
                 setState((prev) => ({ ...prev, citations: data.citations ?? [] }));
                 break;
@@ -251,9 +257,17 @@ export function useChatStream() {
               case 'error':
                 setState((prev) => ({ ...prev, error: data.message, status: 'error' }));
                 break;
-              case 'complete':
-                setState((prev) => ({ ...prev, answer: data.answer ?? prev.answer }));
+              case 'complete': {
+                const answerValue = data.answer;
+                setState((prev) => ({
+                  ...prev,
+                  answer: typeof answerValue === 'string' ? answerValue : prev.answer
+                }));
+                if (typeof answerValue === 'string') {
+                  finalAnswer = answerValue;
+                }
                 break;
+              }
               case 'done':
                 setState((prev) => ({ ...prev, status: 'complete' }));
                 break;
@@ -269,10 +283,11 @@ export function useChatStream() {
       } else {
         setState((prev) => ({ ...prev, isStreaming: false, status: 'error', error: error.message }));
       }
-      return;
+      return finalAnswer;
     }
 
     setState((prev) => ({ ...prev, isStreaming: false }));
+    return finalAnswer;
   }, [reset]);
 
   return {

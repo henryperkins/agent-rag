@@ -577,21 +577,12 @@ export async function trackCitationUsage(
 
 ## User Features (Month 2-3)
 
-### 🔵 Task 13: PDF Upload (2-3 weeks)
+### ✅ Task 13: PDF Upload (Delivered)
 
-**Assignee:** Full-stack Developer  
-**Priority:** P3-LOW  
-**Complexity:** Medium
-
-**Implementation Plan:**
-
-- Add dependencies: `@fastify/multipart`, `pdf-parse`
-- Create `backend/src/routes/documents.ts`
-- Create `backend/src/services/documentService.ts`
-- Create `frontend/src/components/DocumentUpload.tsx`
-- Based on [`enhancement-implementation-plan.md:136-370`](enhancement-implementation-plan.md:136-370)
-
-**Estimated Effort:** 2-3 weeks
+- Runtime upload endpoint: `POST /documents/upload`
+- Processing pipeline: `backend/src/tools/documentProcessor.ts`
+- React UI: `frontend/src/components/DocumentUpload.tsx`
+- Follow-up work: auth, non-PDF formats, per-user quotas
 
 ---
 
@@ -621,11 +612,8 @@ export async function trackCitationUsage(
 
 **Implementation Plan:**
 
-- Choose database (PostgreSQL recommended)
-- Create schema (users, sessions, conversations)
-- Implement `backend/src/services/databaseService.ts`
-- Add authentication middleware
-- Update memory store for persistence
+- ✅ Session transcripts + salience snapshots persisted via SQLite (`backend/src/services/sessionStore.ts`)
+- ⏳ Remaining: user authentication, multi-tenant session listings, long-term history analytics
 - Based on [`enhancement-implementation-plan.md:526-794`](enhancement-implementation-plan.md:526-794)
 
 **Estimated Effort:** 3-4 weeks
@@ -644,10 +632,11 @@ export async function trackCitationUsage(
 **Priority:** P3-LOW  
 **Based on:** [`azure-component-enhancements.md:287-423`](azure-component-enhancements.md:287-423)
 
-### 🔵 Task 18: Multi-Index Federation (2 weeks)
+### ✅ Task 18: Multi-Index Federation (Delivered)
 
-**Priority:** P3-LOW  
-**Based on:** [`azure-component-enhancements.md:822-1009`](azure-component-enhancements.md:822-1009)
+- Federated search helper: `backend/src/azure/multiIndexSearch.ts`
+- Tool integration: `backend/src/tools/index.ts`
+- Config flag: `ENABLE_MULTI_INDEX_FEDERATION`
 
 ---
 

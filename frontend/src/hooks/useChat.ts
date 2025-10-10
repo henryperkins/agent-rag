@@ -8,8 +8,11 @@ export function useChat() {
 
   return useMutation({
     mutationKey: ['chat'],
-    mutationFn: async (messages: AgentMessage[]) => {
-      const { data } = await apiClient.post<ChatResponse>('/chat', { messages });
+    mutationFn: async (payload: { messages: AgentMessage[]; sessionId: string }) => {
+      const { data } = await apiClient.post<ChatResponse>('/chat', {
+        messages: payload.messages,
+        sessionId: payload.sessionId
+      });
       return data;
     },
     onSuccess: (data) => {

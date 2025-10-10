@@ -33,6 +33,9 @@ const envSchema = z.object({
   GOOGLE_SEARCH_ENGINE_ID: z.string().optional(),
   GOOGLE_SEARCH_ENDPOINT: z.string().url().default('https://customsearch.googleapis.com/customsearch/v1'),
 
+  ENABLE_MULTI_INDEX_FEDERATION: z.coerce.boolean().default(false),
+  AZURE_SEARCH_FEDERATED_INDEXES: z.string().default(''),
+
   RAG_TOP_K: z.coerce.number().default(5),
   ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(false),
   LAZY_SUMMARY_MAX_CHARS: z.coerce.number().default(300),
@@ -98,6 +101,8 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
   REQUEST_TIMEOUT_MS: z.coerce.number().default(30000),
+  DOCUMENT_UPLOAD_MAX_MB: z.coerce.number().default(10),
+  ENABLE_DOCUMENT_UPLOAD: z.coerce.boolean().default(true),
 
   CORS_ORIGIN: z.string().default('http://localhost:5173,http://localhost:5174'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
@@ -105,7 +110,9 @@ const envSchema = z.object({
   // Responses API feature gates
   RESPONSES_PARALLEL_TOOL_CALLS: z.coerce.boolean().default(true),
   RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(false),
-  ENABLE_RESPONSE_STORAGE: z.coerce.boolean().default(false)
+  ENABLE_RESPONSE_STORAGE: z.coerce.boolean().default(false),
+
+  SESSION_DB_PATH: z.string().default('./data/session-store.db')
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

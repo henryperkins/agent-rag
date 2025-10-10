@@ -1,14 +1,12 @@
-# Quick Start: Implementing PDF Upload
+# Quick Start: PDF Upload Pipeline
 
-**Goal:** Add PDF document upload capability to Agent-RAG
-**Time Estimate:** 8-16 hours
-**Difficulty:** Medium
+**Goal:** Understand and extend the PDF document upload capability in Agent-RAG  
+**Applies To:** v2.1.0 and later (feature implemented in repo)
 
-> [!IMPORTANT]
-> **Planned Feature Notice**
-> The PDF upload flow described below is **not yet implemented** in the repository. None of the referenced files (for example `backend/src/tools/documentProcessor.ts`, `/documents/upload`) exist today. Treat this as an implementation playbook to follow when you are ready to build the capability.
+> [!NOTE]
+> The upload pipeline ships with the codebase. Use this guide as a walkthrough of the existing implementation and as a checklist when customizing or re-enabling the feature in new environments.
 
-This guide walks through implementing the first enhancement: PDF upload and indexing.
+This guide walks through the end-to-end flow for PDF upload and indexing.
 
 ---
 
@@ -23,9 +21,11 @@ This guide walks through implementing the first enhancement: PDF upload and inde
 
 ## Step-by-Step Implementation
 
-### Phase 1: Backend Setup (4-6 hours, to be completed during implementation)
+### Phase 1: Backend Setup (already present in repository)
 
-#### Step 1: Install Dependencies (5 minutes)
+#### Step 1: Dependencies
+
+`@fastify/multipart`, `pdf-parse`, and `@types/pdf-parse` are already declared in `backend/package.json`. Re-run the commands below only if you are re-initialising the project or migrating the feature into another service.
 
 ```bash
 cd backend
@@ -33,9 +33,9 @@ pnpm add @fastify/multipart pdf-parse
 pnpm add -D @types/pdf-parse
 ```
 
-#### Step 2: Create Document Processor (45 minutes)
+#### Step 2: Document Processor (`backend/src/tools/documentProcessor.ts`)
 
-Create `backend/src/tools/documentProcessor.ts`:
+The processor handles parsing, chunking, and embedding generation:
 
 ```typescript
 import pdfParse from 'pdf-parse';
@@ -68,7 +68,8 @@ function chunkText(text: string, pageNumber: number): DocumentChunk[] {
     const end = Math.min(start + CHUNK_SIZE, text.length);
     const content = text.slice(start, end).trim();
 
-    if (content.length > 50) {  // Skip very short chunks
+    if (content.length > 50) {
+      // Skip very short chunks
       chunks.push({ content, page: pageNumber, chunkIndex });
       chunkIndex++;
     }
@@ -79,10 +80,7 @@ function chunkText(text: string, pageNumber: number): DocumentChunk[] {
   return chunks;
 }
 
-export async function processPDF(
-  buffer: Buffer,
-  filename: string
-): Promise<ProcessedDocument> {
+export async function processPDF(buffer: Buffer, filename: string): Promise<ProcessedDocument> {
   // Parse PDF
   const pdfData = await pdfParse(buffer);
 
@@ -104,7 +102,7 @@ export async function processPDF(
     filename,
     title,
     chunks,
-    uploadedAt: new Date().toISOString()
+    uploadedAt: new Date().toISOString(),
   };
 }
 
@@ -114,11 +112,11 @@ export async function embedAndIndex(doc: ProcessedDocument) {
 
   for (let i = 0; i < doc.chunks.length; i += batchSize) {
     const batch = doc.chunks.slice(i, i + batchSize);
-    const texts = batch.map(chunk => chunk.content);
+    const texts = batch.map((chunk) => chunk.content);
 
     // Get embeddings
     const embeddingResponse = await createEmbeddings(texts);
-    const embeddings = embeddingResponse.data.map(item => item.embedding);
+    const embeddings = embeddingResponse.data.map((item) => item.embedding);
 
     // Prepare for upload
     const documents = batch.map((chunk, idx) => ({
@@ -127,14 +125,14 @@ export async function embedAndIndex(doc: ProcessedDocument) {
       page_embedding_text_3_large: embeddings[idx],
       page_number: chunk.page,
       document_id: doc.id,
-      document_title: doc.title
+      document_title: doc.title,
     }));
 
     results.push(...documents);
 
     // Rate limiting
     if (i + batchSize < doc.chunks.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
@@ -145,7 +143,7 @@ export async function uploadToIndex(documents: any[]) {
   const url = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/docs/index?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   if (config.AZURE_SEARCH_API_KEY) {
@@ -153,16 +151,16 @@ export async function uploadToIndex(documents: any[]) {
   }
 
   const payload = {
-    value: documents.map(doc => ({
+    value: documents.map((doc) => ({
       '@search.action': 'mergeOrUpload',
-      ...doc
-    }))
+      ...doc,
+    })),
   };
 
   const response = await fetch(url, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -178,6 +176,7 @@ export async function uploadToIndex(documents: any[]) {
 #### Step 3: Update Index Schema (30 minutes)
 
 **Option A: Manually update via Azure Portal**
+
 1. Go to Azure Portal → Search Service → Indexes
 2. Edit `earth_at_night` index
 3. Add fields:
@@ -206,6 +205,7 @@ Modify `backend/src/azure/indexSetup.ts` in the `indexDefinition.fields` array:
 ```
 
 Then run:
+
 ```bash
 pnpm cleanup  # Delete existing index
 pnpm setup    # Recreate with new schema
@@ -226,8 +226,8 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(multipart, {
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB
-      files: 1
-    }
+      files: 1,
+    },
   });
 
   // ... existing routes ...
@@ -243,7 +243,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
       if (data.mimetype !== 'application/pdf') {
         return reply.code(400).send({
-          error: 'Invalid file type. Only PDF files are supported.'
+          error: 'Invalid file type. Only PDF files are supported.',
         });
       }
 
@@ -255,22 +255,31 @@ export async function registerRoutes(app: FastifyInstance) {
 
       // Process PDF
       const processedDoc = await processPDF(buffer, data.filename);
-      request.log.info({
-        documentId: processedDoc.id,
-        chunks: processedDoc.chunks.length
-      }, 'PDF processed');
+      request.log.info(
+        {
+          documentId: processedDoc.id,
+          chunks: processedDoc.chunks.length,
+        },
+        'PDF processed',
+      );
 
       // Generate embeddings and prepare for indexing
       const documents = await embedAndIndex(processedDoc);
-      request.log.info({
-        documents: documents.length
-      }, 'Embeddings generated');
+      request.log.info(
+        {
+          documents: documents.length,
+        },
+        'Embeddings generated',
+      );
 
       // Upload to Azure Search
       await uploadToIndex(documents);
-      request.log.info({
-        documentId: processedDoc.id
-      }, 'Documents indexed');
+      request.log.info(
+        {
+          documentId: processedDoc.id,
+        },
+        'Documents indexed',
+      );
 
       return {
         success: true,
@@ -278,14 +287,13 @@ export async function registerRoutes(app: FastifyInstance) {
         title: processedDoc.title,
         filename: processedDoc.filename,
         chunks: processedDoc.chunks.length,
-        uploadedAt: processedDoc.uploadedAt
+        uploadedAt: processedDoc.uploadedAt,
       };
-
     } catch (error: any) {
       request.log.error(error, 'PDF upload failed');
       return reply.code(500).send({
         error: 'Failed to process document',
-        message: error.message
+        message: error.message,
       });
     }
   });
@@ -322,11 +330,13 @@ describe('documentProcessor', () => {
 ```
 
 Run tests:
+
 ```bash
 pnpm test
 ```
 
 Manual test with curl:
+
 ```bash
 curl -X POST http://localhost:8787/documents/upload \
   -F "file=@path/to/test.pdf" \
@@ -546,8 +556,12 @@ Add to `frontend/src/App.css`:
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 ```
 
@@ -589,6 +603,7 @@ pnpm dev
 ```
 
 **Manual Testing Checklist:**
+
 - [ ] Click to upload works
 - [ ] Drag and drop works
 - [ ] Only PDFs accepted
@@ -621,6 +636,7 @@ pnpm dev
    - Check document_title appears in citations
 
 Example test:
+
 ```bash
 # Upload document
 curl -X POST http://localhost:8787/documents/upload \
@@ -645,10 +661,7 @@ Add comprehensive error handling:
 
 ```typescript
 // In documentProcessor.ts
-export async function processPDF(
-  buffer: Buffer,
-  filename: string
-): Promise<ProcessedDocument> {
+export async function processPDF(buffer: Buffer, filename: string): Promise<ProcessedDocument> {
   try {
     const pdfData = await pdfParse(buffer);
 
@@ -657,7 +670,6 @@ export async function processPDF(
     }
 
     // ... rest of processing ...
-
   } catch (error: any) {
     if (error.message.includes('Invalid PDF')) {
       throw new Error('File is not a valid PDF document');
@@ -673,19 +685,27 @@ Enhance logging for debugging:
 
 ```typescript
 // In upload route
-request.log.info({
-  filename: data.filename,
-  size: buffer.length,
-  timestamp: Date.now()
-}, 'PDF upload started');
+request.log.info(
+  {
+    filename: data.filename,
+    size: buffer.length,
+    timestamp: Date.now(),
+  },
+  'PDF upload started',
+);
 
 // After processing
-request.log.info({
-  documentId: processedDoc.id,
-  chunks: processedDoc.chunks.length,
-  avgChunkSize: processedDoc.chunks.reduce((sum, c) => sum + c.content.length, 0) / processedDoc.chunks.length,
-  processingTimeMs: Date.now() - startTime
-}, 'PDF processing completed');
+request.log.info(
+  {
+    documentId: processedDoc.id,
+    chunks: processedDoc.chunks.length,
+    avgChunkSize:
+      processedDoc.chunks.reduce((sum, c) => sum + c.content.length, 0) /
+      processedDoc.chunks.length,
+    processingTimeMs: Date.now() - startTime,
+  },
+  'PDF processing completed',
+);
 ```
 
 ---
@@ -695,15 +715,19 @@ request.log.info({
 ### Common Issues
 
 #### Issue 1: "Invalid PDF structure"
+
 **Cause:** Corrupted or password-protected PDF
 **Solution:**
+
 - Verify PDF opens in Adobe Reader
 - Remove password protection
 - Try re-exporting the PDF
 
 #### Issue 2: "Failed to upload to Azure Search"
+
 **Cause:** Index schema mismatch or authentication
 **Solution:**
+
 ```bash
 # Check index schema
 curl https://YOUR-SEARCH.search.windows.net/indexes/earth_at_night?api-version=2025-08-01-preview \
@@ -713,15 +737,19 @@ curl https://YOUR-SEARCH.search.windows.net/indexes/earth_at_night?api-version=2
 ```
 
 #### Issue 3: "Out of memory during processing"
+
 **Cause:** Large PDF file
 **Solution:**
+
 - Increase Node.js memory: `NODE_OPTIONS=--max-old-space-size=4096`
 - Process in smaller chunks
 - Stream instead of buffering
 
 #### Issue 4: "Rate limit exceeded"
+
 **Cause:** Too many embedding requests
 **Solution:**
+
 - Increase delay between batches (change 1000ms to 2000ms)
 - Reduce batch size from 10 to 5
 

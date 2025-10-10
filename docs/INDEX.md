@@ -114,7 +114,7 @@
 | ---------------------------------------------------------------- | ------ | ------------------------------------------ | --------------------------------------- |
 | [semantic-summary-plan.md](semantic-summary-plan.md)             | ✅     | Semantic summary selection design          | Implementation complete, telemetry TODO |
 | [semantic-summary-evaluation.md](semantic-summary-evaluation.md) | ✅     | Validation playbook for semantic selection | Testing strategy                        |
-| [quickstart-pdf-upload.md](quickstart-pdf-upload.md)             | 📋     | Step-by-step PDF upload implementation     | 788 lines, not yet implemented          |
+| [quickstart-pdf-upload.md](quickstart-pdf-upload.md)             | ✅     | PDF upload pipeline walkthrough            | 788 lines, implemented reference        |
 
 ---
 
@@ -314,6 +314,7 @@ Configuration-specific docs:
    - Kebab-case for technical docs (`feature-name.md`)
    - UPPERCASE for reports/tracking (`STATUS_REPORT.md`)
 3. **Include frontmatter**:
+
    ```markdown
    # Document Title
 
@@ -321,6 +322,7 @@ Configuration-specific docs:
    **Last Updated**: YYYY-MM-DD
    **Status**: ✅ Current / 📋 Planned / 🔄 In Progress
    ```
+
 4. **Add to this INDEX** with status and description
 5. **Cross-reference** related documents
 

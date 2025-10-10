@@ -833,9 +833,7 @@ if (config.ENABLE_SEMANTIC_MEMORY && !answer.startsWith('I do not know')) {
 
 **Reference:** context-engineering.md §2 - Select strategy & §4 - Tool integration
 
-**Problem:** All searches limited to single index; can't specialize by content type.
-
-**Solution:** Search across multiple indexes (docs, FAQs, code) in parallel, merge with source-specific weighting.
+**Status:** Implemented in `backend/src/azure/multiIndexSearch.ts` with optional federation flag. Use the structure below when adding new indexes or intent routing rules.
 
 ```typescript
 // backend/src/azure/multiIndexSearch.ts

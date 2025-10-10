@@ -28,6 +28,16 @@ html,
   gap: 24px;
 }
 
+.header-info {
+  flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .app-header h1 {
   margin: 0 0 8px;
   font-size: 28px;
@@ -42,6 +52,27 @@ html,
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.document-upload button {
+  border: 1px solid #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.document-upload button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.document-upload button:not(:disabled):hover {
+  background: #2563eb;
+  color: white;
 }
 
 .mode-toggle button {

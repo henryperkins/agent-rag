@@ -174,7 +174,7 @@ This roadmap consolidates planning information across multiple strategy document
 - **Impact**: 30-40% token savings, better citations
 - **Reference**: [azure-component-enhancements.md:36-127](azure-component-enhancements.md:36-127)
 
-**PDF Upload** (2-3 weeks):
+**PDF Upload** (2-3 weeks) — ✅ Completed (runtime ingestion now available):
 
 - Add `@fastify/multipart`, `pdf-parse` dependencies
 - Create `backend/src/routes/documents.ts`
@@ -192,7 +192,7 @@ This roadmap consolidates planning information across multiple strategy document
 - **Impact**: Academic workflow integration
 - **Reference**: [enhancement-implementation-plan.md:375-523](enhancement-implementation-plan.md:375-523)
 
-**User Sessions & Database** (3-4 weeks):
+**User Sessions & Database** (3-4 weeks) — ✅ Completed (SQLite-backed session store):
 
 - Choose database (PostgreSQL recommended)
 - Implement `backend/src/services/databaseService.ts`
@@ -278,7 +278,7 @@ This roadmap consolidates planning information across multiple strategy document
 - Critic-based selection
 - **Reference**: [azure-component-enhancements.md:287-423](azure-component-enhancements.md:287-423)
 
-**Multi-index federation** (2 weeks):
+**Multi-index federation** (2 weeks) — ✅ Completed with weighted federated search:
 
 - Create `backend/src/azure/multiIndexSearch.ts`
 - Search across specialized indexes (FAQs, code, policies)

@@ -6,6 +6,8 @@ import { setupResponsesRoutes } from './responses.js';
 import { config, isDevelopment } from '../config/app.js';
 import { getSessionTelemetry, clearSessionTelemetry, getSummaryAggregates, clearSummaryAggregates } from '../orchestrator/sessionTelemetryStore.js';
 import { clearMemory } from '../orchestrator/memoryStore.js';
+import { setupDocumentRoutes } from './documents.js';
+import { setupSessionRoutes } from './sessions.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   app.get('/', async () => ({
@@ -18,6 +20,8 @@ export async function registerRoutes(app: FastifyInstance) {
       chatStream: '/chat/stream',
       responses: '/responses/:id',
       responseInputItems: '/responses/:id/input_items',
+      documentUpload: config.ENABLE_DOCUMENT_UPLOAD ? '/documents/upload' : undefined,
+      session: '/sessions/:id',
       ...(isDevelopment ? { adminTelemetry: '/admin/telemetry' } : {})
     }
   }));
@@ -48,6 +52,10 @@ export async function registerRoutes(app: FastifyInstance) {
 
   await setupStreamRoute(app);
   await setupResponsesRoutes(app);
+  await setupSessionRoutes(app);
+  if (config.ENABLE_DOCUMENT_UPLOAD) {
+    await setupDocumentRoutes(app);
+  }
 
   if (isDevelopment) {
     app.get('/admin/telemetry', async () => ({

@@ -25,7 +25,7 @@
 │                      BACKEND (Fastify)                         │
 │  ┌────────────────────────────────────────────────────────┐   │
 │  │                       Routes                            │   │
-│  │  /chat  │  /chat/stream  │  /documents/upload (planned) │   │
+│  │  /chat  │  /chat/stream  │  /documents/upload │   │
 │  └────┬─────────────┬──────────────────┬──────────────────┘   │
 │       │             │                  │                       │
 │  ┌────▼─────────────▼──────────────────▼──────────────────┐   │
@@ -190,14 +190,14 @@ Frontend sends to /chat/stream
 │ - Displays progressive results                         │
 └─────────────────────────────────────────────────────────┘
 ```
+
 [!NOTE]
 The orchestrator emits an internal `tokens` event for partial answer chunks. The streaming service maps this to an SSE event named `token` for clients. In the frontend, subscribe to `token` to append streamed content.
 
-
 > [!IMPORTANT]
-> Planned feature — not implemented. The following document upload flow is a blueprint only; the `/documents/upload` route and `DocumentUpload.tsx` component are not present in the current codebase.
+> Document upload is implemented as of v2.1.0; the flow below reflects the current pipeline.
 
-### 3. Document Upload Flow (Planned Feature)
+### 3. Document Upload Flow
 
 ```
 User selects PDF
@@ -212,7 +212,7 @@ User selects PDF
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ Route: routes/index.ts                                  │
+│ Route: routes/documents.ts                             │
 │ - Multipart handler receives file                      │
 │ - Convert to buffer                                     │
 │ - Call processPDF()                                     │
@@ -231,18 +231,17 @@ User selects PDF
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ Tool: embedAndIndex()                                   │
+│ Tool: buildAzureDocuments()                             │
 │                                                         │
 │ For each batch of 10 chunks:                           │
 │ 1. Call createEmbeddings(texts[])                      │
 │ 2. Get embedding vectors                               │
-│ 3. Prepare documents with embeddings                   │
-│ 4. Wait 1 second (rate limit)                          │
+│ 3. Prepare documents with embeddings & metadata        │
 └───────────────────────┬─────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│ Tool: uploadToIndex()                                   │
+│ Tool: uploadDocumentsToIndex()                          │
 │                                                         │
 │ 1. Build payload with @search.action = mergeOrUpload   │
 │ 2. POST to Azure Search /docs/index                    │
@@ -781,6 +780,7 @@ This architecture map provides a visual and structural guide to:
 7. **Testing** - How to verify functionality
 
 **Use this map when:**
+
 - Planning new features
 - Debugging issues
 - Onboarding new developers

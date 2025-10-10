@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { ChatInput } from './components/ChatInput';
@@ -6,10 +6,14 @@ import { MessageList } from './components/MessageList';
 import { SourcesPanel } from './components/SourcesPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { PlanPanel } from './components/PlanPanel';
+import { DocumentUpload } from './components/DocumentUpload';
 import { useChat } from './hooks/useChat';
 import { useChatStream } from './hooks/useChatStream';
 import type { AgentMessage } from './types';
 import './App.css';
+
+const SESSION_STORAGE_KEY = 'agent-rag:session-id';
+const API_BASE = (import.meta.env.VITE_API_BASE ?? __API_BASE__) as string;
 
 const queryClient = new QueryClient();
 
@@ -23,24 +27,84 @@ export default function App() {
 }
 
 function ChatApp() {
+  const [sessionId] = useState<string>(() => {
+    const generator =
+      (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? () => crypto.randomUUID()
+        : () => Math.random().toString(36).slice(2)) as () => string;
+
+    if (typeof window === 'undefined') {
+      return generator();
+    }
+
+    const existing = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (existing) {
+      return existing;
+    }
+
+    const next = generator();
+    window.localStorage.setItem(SESSION_STORAGE_KEY, next);
+    return next;
+  });
+
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [mode, setMode] = useState<'sync' | 'stream'>('sync');
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
   const chatMutation = useChat();
   const stream = useChatStream();
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHistory() {
+      try {
+        const response = await fetch(`${API_BASE}/sessions/${sessionId}`);
+        if (!response.ok) {
+          if (response.status === 404) {
+            return;
+          }
+          throw new Error(`Failed to load session history (${response.status})`);
+        }
+
+        const data = await response.json();
+        if (!cancelled && Array.isArray(data.messages)) {
+          setMessages(data.messages);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Failed to load session history', error);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingHistory(false);
+        }
+      }
+    }
+
+    loadHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
   const handleSend = async (content: string) => {
+    if (loadingHistory) {
+      return;
+    }
+
     const updated = [...messages, { role: 'user' as const, content }];
     setMessages(updated);
 
     if (mode === 'stream') {
-      await stream.stream(updated);
-      setMessages((prev) => [...prev, { role: 'assistant' as const, content: stream.answer }]);
+      const answer = await stream.stream(updated, sessionId);
+      setMessages((prev) => [...prev, { role: 'assistant' as const, content: answer }]);
       stream.reset();
       return;
     }
 
-    const response = await chatMutation.mutateAsync(updated);
+    const response = await chatMutation.mutateAsync({ messages: updated, sessionId });
     setMessages((prev) => [...prev, { role: 'assistant' as const, content: response.answer }]);
   };
 
@@ -66,7 +130,7 @@ function ChatApp() {
   );
 
   const isBusy =
-    chatMutation.isPending || stream.isStreaming || sidebar.status === 'starting';
+    chatMutation.isPending || stream.isStreaming || sidebar.status === 'starting' || loadingHistory;
 
   const planDetails = mode === 'stream' ? stream.plan : chatMutation.data?.metadata?.plan;
   const contextSnapshot = mode === 'stream' ? stream.contextSnapshot : undefined;
@@ -97,26 +161,29 @@ function ChatApp() {
   return (
     <div className="layout">
       <header className="app-header">
-        <div>
+        <div className="header-info">
           <h1>{import.meta.env.VITE_APP_TITLE ?? 'Agentic Azure Chat'}</h1>
           <p>Grounded answers with transparent citations powered by Azure AI Search.</p>
         </div>
-        <div className="mode-toggle">
-          <span>Mode:</span>
-          <button
-            className={mode === 'sync' ? 'active' : ''}
-            onClick={() => setMode('sync')}
-            disabled={isBusy}
-          >
-            Standard
-          </button>
-          <button
-            className={mode === 'stream' ? 'active' : ''}
-            onClick={() => setMode('stream')}
-            disabled={isBusy}
-          >
-            Streaming
-          </button>
+        <div className="header-actions">
+          <DocumentUpload onUploaded={(message) => setMessages((prev) => [...prev, message])} />
+          <div className="mode-toggle">
+            <span>Mode:</span>
+            <button
+              className={mode === 'sync' ? 'active' : ''}
+              onClick={() => setMode('sync')}
+              disabled={isBusy}
+            >
+              Standard
+            </button>
+            <button
+              className={mode === 'stream' ? 'active' : ''}
+              onClick={() => setMode('stream')}
+              disabled={isBusy}
+            >
+              Streaming
+            </button>
+          </div>
         </div>
       </header>
 

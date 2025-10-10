@@ -1,4 +1,5 @@
 # Enhancement Implementation Plan
+
 ## Based on Liner Comparison Analysis
 
 **Date:** October 3, 2025
@@ -16,6 +17,7 @@ This document outlines the implementation plan for priority enhancements identif
 ## Current Architecture Analysis
 
 ### Backend Structure
+
 ```
 backend/src/
 ├── routes/index.ts              # Current: /chat, /chat/stream, /admin/telemetry
@@ -34,6 +36,7 @@ backend/src/
 ```
 
 ### Service Layer Evolution
+
 The system has evolved from simple services to a unified orchestrator pattern:
 
 1. **Unified Flow** (`enhancedChatService.ts` + `chatStreamService.ts`):
@@ -45,6 +48,7 @@ The system has evolved from simple services to a unified orchestrator pattern:
 **Key Pattern**: New features should extend the orchestrator, not create parallel service implementations.
 
 ### Frontend Structure
+
 ```
 frontend/src/
 ├── components/
@@ -60,23 +64,27 @@ frontend/src/
 ```
 
 ### API Client Architecture
+
 **Current**: Basic axios client with JSON-only support
+
 ```typescript
 // frontend/src/api/client.ts
 export const apiClient = axios.create({
   baseURL,
   timeout: 30000,
-  headers: { 'Content-Type': 'application/json' }
+  headers: { 'Content-Type': 'application/json' },
 });
 ```
 
 **Needs for Enhancements**:
+
 - Multipart/form-data support (document upload)
 - Authentication interceptors (JWT tokens)
 - Specialized clients for different content types
 - Request/response interceptors for error handling
 
 ### Key Data Structures
+
 ```typescript
 // References already support academic citations
 interface Reference {
@@ -112,13 +120,15 @@ function deriveSessionId(messages: AgentMessage[]): string {
 ```
 
 ### Telemetry Integration Pattern
+
 All services use `createSessionRecorder` to track execution:
+
 ```typescript
 const recorder = createSessionRecorder({
   sessionId,
   mode: 'sync' | 'stream',
   question: latestUserQuestion(messages),
-  forward: (event, data) => sendEvent(event, data) // optional for streaming
+  forward: (event, data) => sendEvent(event, data), // optional for streaming
 });
 
 try {
@@ -136,6 +146,7 @@ try {
 ## Priority 1: Document Upload & Processing
 
 ### Current Capabilities
+
 ✅ Index creation with vector embeddings (`backend/src/azure/indexSetup.ts`)
 ✅ Batch document ingestion to Azure Search
 ✅ Text chunking and embedding generation
@@ -143,8 +154,12 @@ try {
 
 ### Required Additions
 
+> [!CAUTION]
+> The core upload endpoint and processor now exist (`backend/src/routes/documents.ts`, `backend/src/tools/documentProcessor.ts`). The snippets below are retained as an extension blueprint (e.g., when layering authentication or alternate storage) and do not mirror the production code verbatim.
+
 #### 1.1 PDF Upload Endpoint
-**Location:** `backend/src/routes/documents.ts` (new file)
+
+**Location:** `backend/src/routes/documents.ts`
 
 ```typescript
 import type { FastifyInstance } from 'fastify';
@@ -157,57 +172,52 @@ export async function registerDocumentRoutes(app: FastifyInstance) {
   await app.register(multipart, {
     limits: {
       fileSize: 10 * 1024 * 1024, // 10MB limit
-      files: 5
+      files: 5,
+    },
+  });
+
+  app.post('/documents/upload', { preHandler: authenticateUser }, async (request, reply) => {
+    const data = await request.file();
+    if (!data) {
+      return reply.code(400).send({ error: 'No file uploaded' });
+    }
+
+    const userId = (request.user as any).id;
+    const sessionId = `upload-${Date.now()}-${userId}`;
+
+    // Integrate with telemetry
+    const recorder = createSessionRecorder({
+      sessionId,
+      mode: 'sync',
+      question: `Upload document: ${data.filename}`,
+    });
+
+    try {
+      const result = await processDocument(data, userId);
+      recorder.complete({ documentId: result.id, chunks: result.chunks.length });
+
+      return {
+        documentId: result.id,
+        chunks: result.chunks.length,
+        filename: data.filename,
+      };
+    } catch (error) {
+      recorder.fail(error as Error);
+      throw error;
     }
   });
 
-  app.post('/documents/upload',
-    { preHandler: authenticateUser },
-    async (request, reply) => {
-      const data = await request.file();
-      if (!data) {
-        return reply.code(400).send({ error: 'No file uploaded' });
-      }
-
-      const userId = (request.user as any).id;
-      const sessionId = `upload-${Date.now()}-${userId}`;
-
-      // Integrate with telemetry
-      const recorder = createSessionRecorder({
-        sessionId,
-        mode: 'sync',
-        question: `Upload document: ${data.filename}`
-      });
-
-      try {
-        const result = await processDocument(data, userId);
-        recorder.complete({ documentId: result.id, chunks: result.chunks.length });
-
-        return {
-          documentId: result.id,
-          chunks: result.chunks.length,
-          filename: data.filename
-        };
-      } catch (error) {
-        recorder.fail(error as Error);
-        throw error;
-      }
-    }
-  );
-
   // Get user's uploaded documents
-  app.get('/documents',
-    { preHandler: authenticateUser },
-    async (request) => {
-      const userId = (request.user as any).id;
-      return getUserDocuments(userId);
-    }
-  );
+  app.get('/documents', { preHandler: authenticateUser }, async (request) => {
+    const userId = (request.user as any).id;
+    return getUserDocuments(userId);
+  });
 }
 ```
 
 #### 1.2 Document Processing Service
-**Location:** `backend/src/services/documentService.ts` (new file)
+
+**Location:** `backend/src/tools/documentProcessor.ts`
 
 ```typescript
 import pdf from 'pdf-parse';
@@ -232,7 +242,7 @@ export async function processDocument(file: any): Promise<{
   const chunks = chunkByPage(pdfData);
 
   // Generate embeddings in batches
-  const texts = chunks.map(c => c.text);
+  const texts = chunks.map((c) => c.text);
   const embeddings = await createEmbeddings(texts);
 
   // Format for Azure Search
@@ -240,7 +250,7 @@ export async function processDocument(file: any): Promise<{
     id: `${file.filename}_chunk_${idx}`,
     page_chunk: chunk.text,
     page_number: chunk.pageNumber,
-    page_embedding_text_3_large: embeddings.data[idx].embedding
+    page_embedding_text_3_large: embeddings.data[idx].embedding,
   }));
 
   // Upload to Azure Search using existing patterns
@@ -248,12 +258,13 @@ export async function processDocument(file: any): Promise<{
 
   return {
     id: file.filename,
-    chunks: documentChunks
+    chunks: documentChunks,
   };
 }
 ```
 
 #### 1.3 Frontend Upload Component & API Client
+
 **Location:** `frontend/src/api/documents.ts` (new file)
 
 ```typescript
@@ -265,8 +276,8 @@ const uploadClient = axios.create({
   baseURL: apiClient.defaults.baseURL,
   timeout: 60000, // 60s for larger files
   headers: {
-    'Content-Type': 'multipart/form-data'
-  }
+    'Content-Type': 'multipart/form-data',
+  },
 });
 
 // Add auth interceptor
@@ -285,13 +296,11 @@ export async function uploadDocument(file: File) {
   const response = await uploadClient.post('/documents/upload', formData, {
     onUploadProgress: (progressEvent) => {
       const percentCompleted = Math.round(
-        (progressEvent.loaded * 100) / (progressEvent.total ?? 1)
+        (progressEvent.loaded * 100) / (progressEvent.total ?? 1),
       );
       // Emit progress event for UI
-      window.dispatchEvent(
-        new CustomEvent('upload-progress', { detail: percentCompleted })
-      );
-    }
+      window.dispatchEvent(new CustomEvent('upload-progress', { detail: percentCompleted }));
+    },
   });
 
   return response.data;
@@ -363,6 +372,7 @@ export function DocumentUpload() {
 ```
 
 #### 1.4 Dependencies to Add
+
 ```bash
 cd backend
 pnpm add @fastify/multipart pdf-parse
@@ -376,6 +386,7 @@ pnpm add -D @types/pdf-parse
 ## Priority 2: Citation Export
 
 ### Current Capabilities
+
 ✅ Reference interface with all needed fields (title, page_number, url, content)
 ✅ Frontend displays citations in SourcesPanel
 ✅ Citation tracking through full pipeline
@@ -383,6 +394,7 @@ pnpm add -D @types/pdf-parse
 ### Required Additions
 
 #### 2.1 Citation Formatter Service
+
 **Location:** `backend/src/services/citationFormatter.ts` (new file)
 
 ```typescript
@@ -393,7 +405,10 @@ interface FormattedCitation {
   citation: string;
 }
 
-export function formatCitation(ref: Reference, format: 'apa' | 'mla' | 'chicago' | 'bibtex'): string {
+export function formatCitation(
+  ref: Reference,
+  format: 'apa' | 'mla' | 'chicago' | 'bibtex',
+): string {
   switch (format) {
     case 'apa':
       return formatAPA(ref);
@@ -457,16 +472,19 @@ function formatBibTeX(ref: Reference): string {
 
 export function exportBibliography(
   citations: Reference[],
-  format: 'apa' | 'mla' | 'chicago' | 'bibtex'
+  format: 'apa' | 'mla' | 'chicago' | 'bibtex',
 ): string {
-  return citations.map((ref, idx) => {
-    const formatted = formatCitation(ref, format);
-    return format === 'bibtex' ? formatted : `[${idx + 1}] ${formatted}`;
-  }).join('\n\n');
+  return citations
+    .map((ref, idx) => {
+      const formatted = formatCitation(ref, format);
+      return format === 'bibtex' ? formatted : `[${idx + 1}] ${formatted}`;
+    })
+    .join('\n\n');
 }
 ```
 
 #### 2.2 Export Endpoint
+
 **Location:** Add to `backend/src/routes/index.ts`
 
 ```typescript
@@ -481,17 +499,18 @@ app.post<{ Body: { citations: Reference[]; format: string } }>(
 
     const bibliography = exportBibliography(
       citations,
-      format as 'apa' | 'mla' | 'chicago' | 'bibtex'
+      format as 'apa' | 'mla' | 'chicago' | 'bibtex',
     );
 
     reply.header('Content-Type', 'text/plain');
     reply.header('Content-Disposition', `attachment; filename="citations.${format}.txt"`);
     return bibliography;
-  }
+  },
 );
 ```
 
 #### 2.3 Frontend Export UI
+
 **Location:** Add to `frontend/src/components/SourcesPanel.tsx`
 
 ```typescript
@@ -525,7 +544,11 @@ const handleExport = async (format: 'apa' | 'mla' | 'chicago' | 'bibtex') => {
 
 ## Priority 3: User Sessions & Persistent History
 
+> [!INFO]
+> Session transcripts and salience snapshots now persist via `backend/src/services/sessionStore.ts` and `backend/src/orchestrator/memoryStore.ts`. The guidance below covers additional enhancements such as multi-user auth and richer history queries.
+
 ### Current State
+
 ❌ In-memory Map storage (`sessionMemory.ts`)
 ❌ No user authentication
 ❌ No query history persistence
@@ -534,6 +557,7 @@ const handleExport = async (format: 'apa' | 'mla' | 'chicago' | 'bibtex') => {
 ### Required Additions
 
 #### 3.1 Database Schema
+
 **Technology Choice:** SQLite (easy setup) or PostgreSQL (production)
 
 ```sql
@@ -596,6 +620,7 @@ CREATE TABLE query_history (
 ```
 
 #### 3.2 Database Service
+
 **Location:** `backend/src/services/databaseService.ts` (new file)
 
 ```typescript
@@ -604,13 +629,10 @@ import type { AgentMessage, Reference } from '../../../shared/types.js';
 import type { SummaryBullet, SalienceNote } from '../orchestrator/compact.js';
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
 });
 
-export async function saveConversation(
-  sessionId: string,
-  messages: AgentMessage[]
-) {
+export async function saveConversation(sessionId: string, messages: AgentMessage[]) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -620,7 +642,7 @@ export async function saveConversation(
         `INSERT INTO conversations (session_id, turn_number, role, content)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT DO NOTHING`,
-        [sessionId, idx, msg.role, msg.content]
+        [sessionId, idx, msg.role, msg.content],
       );
     }
 
@@ -633,18 +655,14 @@ export async function saveConversation(
   }
 }
 
-export async function saveSummaries(
-  sessionId: string,
-  summaries: SummaryBullet[],
-  turn: number
-) {
+export async function saveSummaries(sessionId: string, summaries: SummaryBullet[], turn: number) {
   const client = await pool.connect();
   try {
     for (const summary of summaries) {
       await client.query(
         `INSERT INTO memory_summaries (session_id, summary_text, embedding, turn_number)
          VALUES ($1, $2, $3, $4)`,
-        [sessionId, summary.text, summary.embedding, turn]
+        [sessionId, summary.text, summary.embedding, turn],
       );
     }
   } finally {
@@ -657,12 +675,12 @@ export async function loadSessionHistory(sessionId: string): Promise<AgentMessag
     `SELECT role, content FROM conversations
      WHERE session_id = $1
      ORDER BY turn_number ASC`,
-    [sessionId]
+    [sessionId],
   );
 
-  return result.rows.map(row => ({
+  return result.rows.map((row) => ({
     role: row.role as 'user' | 'assistant',
-    content: row.content
+    content: row.content,
   }));
 }
 
@@ -673,7 +691,7 @@ export async function getUserQueryHistory(userId: string, limit = 50) {
      WHERE user_id = $1
      ORDER BY created_at DESC
      LIMIT $2`,
-    [userId, limit]
+    [userId, limit],
   );
 
   return result.rows;
@@ -681,10 +699,16 @@ export async function getUserQueryHistory(userId: string, limit = 50) {
 ```
 
 #### 3.3 Update Memory Store to Use Database
+
 **Location:** Modify `backend/src/orchestrator/memoryStore.ts`
 
 ```typescript
-import { saveSummaries, loadSessionHistory, loadSummariesFromDB, loadSalienceFromDB } from '../services/databaseService.js';
+import {
+  saveSummaries,
+  loadSessionHistory,
+  loadSummariesFromDB,
+  loadSalienceFromDB,
+} from '../services/databaseService.js';
 import type { CompactedContext } from './compact.js';
 
 // Keep existing in-memory Map for backward compatibility
@@ -694,7 +718,7 @@ export async function upsertMemory(
   sessionId: string,
   turn: number,
   compacted: CompactedContext,
-  summaries?: SummaryBullet[]
+  summaries?: SummaryBullet[],
 ) {
   // Save to database instead of in-memory Map
   if (summaries?.length) {
@@ -712,13 +736,14 @@ export async function upsertMemory(
     turn,
     summaryBullets: summaries || [],
     salience: compacted.salience,
-    createdAt: Date.now()
+    createdAt: Date.now(),
   });
 
   // Evict oldest entries if cache too large
   if (sessionMemory.size > 1000) {
-    const oldest = [...sessionMemory.entries()]
-      .sort(([, a], [, b]) => a.createdAt - b.createdAt)[0][0];
+    const oldest = [...sessionMemory.entries()].sort(
+      ([, a], [, b]) => a.createdAt - b.createdAt,
+    )[0][0];
     sessionMemory.delete(oldest);
   }
 }
@@ -729,9 +754,9 @@ export async function loadMemory(sessionId: string, maxAgeInTurns = 50) {
   if (cached) {
     return {
       summaryBullets: cached.summaryBullets.slice(-20),
-      salience: cached.salience.filter(note =>
-        (cached.turn - (note.lastSeenTurn ?? cached.turn)) <= maxAgeInTurns
-      )
+      salience: cached.salience.filter(
+        (note) => cached.turn - (note.lastSeenTurn ?? cached.turn) <= maxAgeInTurns,
+      ),
     };
   }
 
@@ -743,14 +768,14 @@ export async function loadMemory(sessionId: string, maxAgeInTurns = 50) {
   sessionMemory.set(sessionId, {
     sessionId,
     turn: summaries[0]?.turn_number ?? 0,
-    summaryBullets: summaries.map(s => ({ text: s.text, embedding: s.embedding })),
+    summaryBullets: summaries.map((s) => ({ text: s.text, embedding: s.embedding })),
     salience: salience,
-    createdAt: Date.now()
+    createdAt: Date.now(),
   });
 
   return {
-    summaryBullets: summaries.slice(-20).map(s => ({ text: s.text, embedding: s.embedding })),
-    salience
+    summaryBullets: summaries.slice(-20).map((s) => ({ text: s.text, embedding: s.embedding })),
+    salience,
   };
 }
 
@@ -761,6 +786,7 @@ export async function persistSession(sessionId: string, messages: AgentMessage[]
 ```
 
 **Integration with Service Layer** - Update `enhancedChatService.ts`:
+
 ```typescript
 import { persistSession } from '../orchestrator/memoryStore.js';
 
@@ -769,7 +795,7 @@ export async function handleEnhancedChat(messages: AgentMessage[]): Promise<Chat
   const recorder = createSessionRecorder({
     sessionId,
     mode: 'sync',
-    question: latestUserQuestion(messages)
+    question: latestUserQuestion(messages),
   });
 
   try {
@@ -777,7 +803,7 @@ export async function handleEnhancedChat(messages: AgentMessage[]): Promise<Chat
       messages,
       mode: 'sync',
       sessionId,
-      emit: recorder.emit
+      emit: recorder.emit,
     });
 
     recorder.complete(response);
@@ -794,15 +820,13 @@ export async function handleEnhancedChat(messages: AgentMessage[]): Promise<Chat
 ```
 
 #### 3.4 Authentication Middleware & Frontend Integration
+
 **Location:** `backend/src/middleware/auth.ts` (new file)
 
 ```typescript
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
-export async function authenticateUser(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function authenticateUser(request: FastifyRequest, reply: FastifyReply) {
   try {
     await request.jwtVerify();
   } catch (error) {
@@ -811,10 +835,7 @@ export async function authenticateUser(
 }
 
 // Optional: API key fallback for development
-export async function authenticateUserOrApiKey(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function authenticateUserOrApiKey(request: FastifyRequest, reply: FastifyReply) {
   const apiKey = request.headers['x-api-key'];
 
   if (apiKey && apiKey === process.env.API_KEY) {
@@ -886,11 +907,12 @@ apiClient.interceptors.response.use(
       window.location.href = '/login';
     }
     return Promise.reject(error);
-  }
+  },
 );
 ```
 
 #### 3.5 Dependencies to Add
+
 ```bash
 cd backend
 pnpm add pg @fastify/jwt
@@ -910,6 +932,7 @@ pnpm add -D @types/better-sqlite3
 ### Required Additions
 
 #### 4.1 Collections Schema
+
 ```sql
 CREATE TABLE collections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -935,22 +958,19 @@ CREATE INDEX idx_collection_items_tags ON collection_items USING GIN(tags);
 ```
 
 #### 4.2 Collections Service
+
 **Location:** `backend/src/services/collectionsService.ts` (new file)
 
 ```typescript
 import type { Reference } from '../../../shared/types.js';
 import { pool } from './databaseService.js';
 
-export async function createCollection(
-  userId: string,
-  name: string,
-  description?: string
-) {
+export async function createCollection(userId: string, name: string, description?: string) {
   const result = await pool.query(
     `INSERT INTO collections (user_id, name, description)
      VALUES ($1, $2, $3)
      RETURNING id, name, description, created_at`,
-    [userId, name, description]
+    [userId, name, description],
   );
 
   return result.rows[0];
@@ -960,13 +980,13 @@ export async function addToCollection(
   collectionId: string,
   reference: Reference,
   tags?: string[],
-  notes?: string
+  notes?: string,
 ) {
   const result = await pool.query(
     `INSERT INTO collection_items (collection_id, reference_id, reference_data, tags, notes)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [collectionId, reference.id, JSON.stringify(reference), tags, notes]
+    [collectionId, reference.id, JSON.stringify(reference), tags, notes],
   );
 
   return result.rows[0];
@@ -980,7 +1000,7 @@ export async function getCollections(userId: string) {
      WHERE c.user_id = $1
      GROUP BY c.id
      ORDER BY c.updated_at DESC`,
-    [userId]
+    [userId],
   );
 
   return result.rows;
@@ -992,23 +1012,19 @@ export async function getCollectionItems(collectionId: string) {
      FROM collection_items
      WHERE collection_id = $1
      ORDER BY added_at DESC`,
-    [collectionId]
+    [collectionId],
   );
 
-  return result.rows.map(row => ({
+  return result.rows.map((row) => ({
     id: row.id,
     reference: JSON.parse(row.reference_data) as Reference,
     tags: row.tags,
     notes: row.notes,
-    addedAt: row.added_at
+    addedAt: row.added_at,
   }));
 }
 
-export async function searchCollectionItems(
-  userId: string,
-  query: string,
-  tags?: string[]
-) {
+export async function searchCollectionItems(userId: string, query: string, tags?: string[]) {
   let sql = `
     SELECT ci.id, ci.reference_data, ci.tags, ci.notes, c.name as collection_name
     FROM collection_items ci
@@ -1037,6 +1053,7 @@ export async function searchCollectionItems(
 ```
 
 #### 4.3 Collections Routes
+
 **Location:** `backend/src/routes/collections.ts` (new file)
 
 ```typescript
@@ -1081,6 +1098,7 @@ export async function registerCollectionRoutes(app: FastifyInstance) {
 ```
 
 #### 4.4 Frontend Collections UI
+
 **Location:** `frontend/src/components/CollectionsPanel.tsx` (new file)
 
 ```typescript
@@ -1153,24 +1171,28 @@ export function CollectionsPanel({ citations }: { citations: Reference[] }) {
 ## Implementation Roadmap
 
 ### Phase 1: Foundation (Week 1-2)
+
 - [ ] Set up database (PostgreSQL or SQLite)
 - [ ] Implement user authentication (JWT)
 - [ ] Add session persistence
 - [ ] Create database migration scripts
 
 ### Phase 2: Document Management (Week 3-4)
+
 - [ ] PDF upload endpoint with multipart support
 - [ ] Document processing service (chunking, embeddings)
 - [ ] Integration with Azure Search indexing
 - [ ] Frontend upload component
 
 ### Phase 3: Citation & Export (Week 5)
+
 - [ ] Citation formatting service (APA, MLA, Chicago, BibTeX)
 - [ ] Export endpoints
 - [ ] Frontend export UI in SourcesPanel
 - [ ] Download functionality
 
 ### Phase 4: Collections (Week 6-7)
+
 - [ ] Collections database schema
 - [ ] Collections service layer
 - [ ] Collections API routes
@@ -1178,6 +1200,7 @@ export function CollectionsPanel({ citations }: { citations: Reference[] }) {
 - [ ] Search and tagging functionality
 
 ### Phase 5: Query History (Week 8)
+
 - [ ] Query history storage
 - [ ] History retrieval endpoints
 - [ ] Frontend history panel
@@ -1188,6 +1211,7 @@ export function CollectionsPanel({ citations }: { citations: Reference[] }) {
 ## Configuration Updates
 
 ### New Environment Variables
+
 ```bash
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/agentrag
@@ -1208,6 +1232,7 @@ MAX_ITEMS_PER_COLLECTION=1000
 ```
 
 ### Dependencies Summary
+
 ```json
 {
   "dependencies": {
@@ -1230,18 +1255,21 @@ MAX_ITEMS_PER_COLLECTION=1000
 ## Testing Strategy
 
 ### Unit Tests
+
 - Citation formatter (all formats)
 - Document chunking logic
 - Database queries (with test database)
 - Authentication middleware
 
 ### Integration Tests
+
 - PDF upload → chunking → embedding → indexing pipeline
 - Citation export end-to-end
 - Collections CRUD operations
 - Session persistence and restoration
 
 ### Manual Testing Checklist
+
 - [ ] Upload various PDF sizes and formats
 - [ ] Export citations in all formats
 - [ ] Create and manage collections
@@ -1254,6 +1282,7 @@ MAX_ITEMS_PER_COLLECTION=1000
 ## Migration Guide
 
 ### Database Setup
+
 ```bash
 # Create database
 createdb agentrag
@@ -1264,32 +1293,37 @@ psql agentrag < migrations/002_collections.sql
 ```
 
 ### Gradual Rollout
+
 1. Deploy database schema
 2. Add authentication (optional, can be enabled per user)
-3. Enable document upload (feature flag)
+3. Enable document upload (feature flag) — ✅ Completed in current build
 4. Enable collections (feature flag)
-5. Migrate existing in-memory sessions to database
+5. Migrate existing in-memory sessions to database — ✅ Implemented via SQLite session store
 
 ---
 
 ## Success Metrics
 
 ### Document Upload
+
 - Upload success rate > 95%
 - Average processing time < 10s per PDF
 - Embedding generation < 5s per page
 
 ### Citation Export
+
 - Format accuracy (manual verification)
 - Export completion time < 2s
 - Support for 100+ citations per export
 
 ### Collections
+
 - Collection creation < 500ms
 - Item addition < 200ms
 - Search response time < 1s
 
 ### Session Persistence
+
 - Zero session loss on server restart
 - Query history retrieval < 500ms
 - Memory overhead < 100MB for 1000 sessions
@@ -1299,12 +1333,14 @@ psql agentrag < migrations/002_collections.sql
 ## Future Enhancements (Post-MVP)
 
 ### Medium Priority
+
 - [ ] Browser extension for web page highlighting
 - [ ] Multi-modal input (images, videos)
 - [ ] Academic source filtering (scholar mode)
 - [ ] Collaborative features (shared collections)
 
 ### Long-term
+
 - [ ] Mobile applications (iOS/Android)
 - [ ] Research workflow templates
 - [ ] Citation recommendation engine
@@ -1314,19 +1350,20 @@ psql agentrag < migrations/002_collections.sql
 
 ## Risk Assessment
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| PDF parsing failures | High | Multiple parser fallbacks, error logging |
-| Database performance | Medium | Connection pooling, query optimization, caching |
-| Authentication complexity | Medium | Use established libraries (@fastify/jwt) |
-| Storage costs (embeddings) | Low | Compress embeddings, implement cleanup policies |
-| Migration complexity | Medium | Gradual rollout, feature flags, rollback plan |
+| Risk                       | Impact | Mitigation                                      |
+| -------------------------- | ------ | ----------------------------------------------- |
+| PDF parsing failures       | High   | Multiple parser fallbacks, error logging        |
+| Database performance       | Medium | Connection pooling, query optimization, caching |
+| Authentication complexity  | Medium | Use established libraries (@fastify/jwt)        |
+| Storage costs (embeddings) | Low    | Compress embeddings, implement cleanup policies |
+| Migration complexity       | Medium | Gradual rollout, feature flags, rollback plan   |
 
 ---
 
 ## Appendix: Code Patterns
 
 ### Error Handling Pattern
+
 ```typescript
 try {
   const result = await riskyOperation();
@@ -1335,12 +1372,13 @@ try {
   request.log.error({ error, context: 'operation_name' });
   reply.code(500).send({
     error: 'Operation failed',
-    message: error instanceof Error ? error.message : 'Unknown error'
+    message: error instanceof Error ? error.message : 'Unknown error',
   });
 }
 ```
 
 ### Database Transaction Pattern
+
 ```typescript
 const client = await pool.connect();
 try {
@@ -1356,14 +1394,16 @@ try {
 ```
 
 ### Citation Formatting Pattern
+
 ```typescript
 export const citationFormatters = {
   apa: (ref: Reference) => formatAPA(ref),
   mla: (ref: Reference) => formatMLA(ref),
   chicago: (ref: Reference) => formatChicago(ref),
-  bibtex: (ref: Reference) => formatBibTeX(ref)
+  bibtex: (ref: Reference) => formatBibTeX(ref),
 };
 
 const formatter = citationFormatters[format];
 if (!formatter) throw new Error('Invalid format');
 return formatter(reference);
+```

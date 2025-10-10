@@ -88,12 +88,10 @@
 
 #### Optional Missing Item
 
-2. **API client upload stub** ❌ (Expected - future feature)
-   - Location: Would be in `frontend/src/api/client.ts`
-   - Status: Intentionally not implemented yet
-   - Reason: Backend /documents/upload endpoint doesn't exist
-   - Priority: Low - waits for backend implementation
-   - Reference: See quickstart-pdf-upload.md for implementation guide
+2. **API client upload stub** ✅
+   - Location: Implemented via `frontend/src/components/DocumentUpload.tsx` and React hooks
+   - Status: Live and wired to `/documents/upload`
+   - Notes: See `docs/quickstart-pdf-upload.md` for end-to-end pipeline details
 
 ---
 

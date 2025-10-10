@@ -14,14 +14,14 @@
 
 ### Key Positioning Differences
 
-| Aspect | Liner | Agent-RAG |
-|--------|-------|-----------|
-| **Primary Use Case** | Academic research workflow | Enterprise knowledge retrieval |
-| **User Base** | Students, researchers, academics | Developers, enterprises, data analysts |
-| **Content Sources** | 200M+ academic papers, web, YouTube | Custom Azure AI Search indexes |
-| **Core Value** | Research lifecycle management | Transparent, quality-assured answers |
-| **Platform** | Multi-platform (web, mobile, extensions) | Web application with API |
-| **Business Model** | Freemium (Free + Pro tiers) | Self-hosted/enterprise deployment |
+| Aspect               | Liner                                    | Agent-RAG                              |
+| -------------------- | ---------------------------------------- | -------------------------------------- |
+| **Primary Use Case** | Academic research workflow               | Enterprise knowledge retrieval         |
+| **User Base**        | Students, researchers, academics         | Developers, enterprises, data analysts |
+| **Content Sources**  | 200M+ academic papers, web, YouTube      | Custom Azure AI Search indexes         |
+| **Core Value**       | Research lifecycle management            | Transparent, quality-assured answers   |
+| **Platform**         | Multi-platform (web, mobile, extensions) | Web application with API               |
+| **Business Model**   | Freemium (Free + Pro tiers)              | Self-hosted/enterprise deployment      |
 
 ---
 
@@ -32,6 +32,7 @@
 #### Liner Features (NOT in Agent-RAG)
 
 ##### Browser Extensions
+
 - **Chrome, Firefox, Safari extensions**: Full-featured highlighting and annotation
 - **In-page highlighting**: Select and highlight text on any webpage
 - **Persistent highlights**: Highlights sync across devices
@@ -40,6 +41,7 @@
 - **PDF annotation**: Direct PDF marking and note-taking in browser
 
 ##### Document Management
+
 - **File upload**: Direct PDF and document upload
 - **Document library**: Centralized storage for research materials
 - **Multi-document workspace**: Work with multiple PDFs simultaneously
@@ -47,6 +49,7 @@
 - **Annotation export**: Export highlights and notes
 
 ##### Collection & Organization
+
 - **Collections workspace**: Organize materials into thematic collections
 - **Tagging system**: Tag and categorize saved content
 - **Folders & sub-folders**: Hierarchical organization
@@ -56,6 +59,7 @@
 #### Agent-RAG Features (NOT in Liner)
 
 ##### Custom Knowledge Base
+
 - **Azure AI Search integration**: Connect to proprietary enterprise indexes
 - **Custom embeddings**: Use domain-specific embedding models
 - **Index management**: Scripts for setup, cleanup, and maintenance
@@ -63,6 +67,7 @@
 - **Real-time indexing**: Immediate availability of updated documents
 
 ##### Input Sanitization
+
 - **Middleware-based sanitization**: HTML/script injection prevention
 - **Rate limiting**: Request throttling per IP/session
 - **CORS management**: Fine-grained origin control
@@ -75,6 +80,7 @@
 #### Liner Specialized Research Tools (NOT in Agent-RAG)
 
 ##### Academic Research Suite
+
 1. **Hypothesis Generator**: Converts ideas into research-ready hypotheses
 2. **Hypothesis Evaluator**: Assesses clarity, originality, and timeliness
 3. **Survey Simulator**: AI respondent simulation for survey validation
@@ -85,6 +91,7 @@
 8. **One-click Citations**: Auto-generate citations in multiple formats (APA, MLA, Chicago, etc.)
 
 ##### Content Summarization
+
 - **Article summarization**: Instant article summaries
 - **YouTube video summarization**: Video content with timestamps
 - **Multi-language support**: Summaries in various languages
@@ -92,6 +99,7 @@
 - **Key insight extraction**: Automated key point identification
 
 ##### Scholar Mode
+
 - **Academic-only filtering**: Limit results to peer-reviewed sources
 - **200M+ paper database**: Access to massive academic corpus
 - **Citation tracking**: Follow citation chains
@@ -101,6 +109,7 @@
 #### Agent-RAG Advanced Orchestration (NOT in Liner)
 
 ##### Multi-Agent Architecture
+
 - **Planner Module** (`backend/src/orchestrator/plan.ts`):
   - Analyzes query intent and complexity
   - Generates retrieval strategy (vector, web, hybrid)
@@ -114,6 +123,7 @@
   - Automatic retry with improvement guidance
 
 ##### Context Engineering Pipeline
+
 - **Rolling Summarization** (`backend/src/orchestrator/compact.ts`):
   - Automatic conversation compaction
   - Token-aware history management
@@ -143,6 +153,7 @@
   - Configurable selection count
 
 ##### Query Decomposition
+
 - **Complexity Assessment** (`backend/src/orchestrator/queryDecomposition.ts`):
   - LLM-evaluated complexity scoring to detect multi-step queries
   - Structured outputs validated against JSON schema contracts
@@ -153,6 +164,7 @@
   - Gracefully reverts to single-shot retrieval on failure
 
 ##### Adaptive Retrieval
+
 - **Confidence-based Escalation**:
   - Dual retrieval when planner confidence < threshold (default: 0.45)
   - Parallel vector + web search execution
@@ -170,6 +182,7 @@
   - Automatic threshold relaxation when retrieved documents underflow
 
 ##### Quality Assurance
+
 - **Critic Retry Loop**:
   - Max iterations: configurable (default: 1)
   - Acceptance threshold: 0.8 coverage
@@ -188,6 +201,7 @@
 #### Liner Interface Features (NOT in Agent-RAG)
 
 ##### Multi-Platform Presence
+
 - **Web application**: Full-featured webapp at getliner.com
 - **iOS app**: Native iPhone/iPad application
 - **Android app**: Native Android application
@@ -195,6 +209,7 @@
 - **Browser extensions**: Chrome, Firefox, Safari, Edge
 
 ##### User Onboarding
+
 - **Guest mode**: Use without account creation
 - **Social authentication**: Google sign-in
 - **Tiered pricing**: Free tier with Pro upgrades
@@ -202,6 +217,7 @@
 - **Educational pricing**: Student/academic discounts
 
 ##### Workspace Features
+
 - **Dashboard**: Centralized research hub
 - **Recent activity**: Timeline of all actions
 - **Saved items**: Quick access to bookmarks
@@ -211,12 +227,14 @@
 #### Agent-RAG Developer Experience (NOT in Liner)
 
 ##### Dual Execution Modes
+
 - **Synchronous mode**: Traditional request-response
 - **Streaming mode**: Server-Sent Events with real-time updates
 - **Mode toggle**: UI switch between modes
 - **Event-driven architecture**: Fine-grained event emissions
 
 ##### Transparency & Observability
+
 - **Plan Panel** (`frontend/src/components/PlanPanel.tsx`):
   - Displays planner reasoning and confidence
   - Shows selected retrieval strategy
@@ -241,6 +259,7 @@
   - Performance metrics
 
 ##### Developer Tools
+
 - **OpenTelemetry Integration**:
   - Distributed tracing
   - Span attributes for all operations
@@ -264,6 +283,7 @@
 #### Liner Search Features (NOT in Agent-RAG)
 
 ##### Academic Search
+
 - **Scholar Mode**: Academic paper-only search
 - **200M+ paper corpus**: Extensive academic database
 - **Citation search**: Find papers by citation
@@ -272,12 +292,14 @@
 - **Date range filters**: Time-based search constraints
 
 ##### Simple Search
+
 - **General web search**: Broad internet search
 - **Mixed results**: Academic + web sources
 - **Image search**: Visual content search
 - **Video search**: YouTube integration
 
 ##### Deep Research
+
 - **Multi-hop reasoning**: Follow research chains
 - **Comprehensive reports**: Long-form research synthesis
 - **Source verification**: Cross-reference checking
@@ -286,6 +308,7 @@
 #### Agent-RAG Retrieval Architecture (NOT in Liner)
 
 ##### Hybrid Retrieval System
+
 - **Agentic Retrieval** (`backend/src/azure/agenticRetrieval.ts`):
   - Azure Knowledge Agent API integration
   - Message-based conversation context
@@ -303,6 +326,7 @@
   - Emits telemetry for input/output counts to aid observability
 
 ##### Web Context Augmentation
+
 - **Google Custom Search Integration** (`backend/src/tools/webSearch.ts`):
   - Configurable result count (default: 6)
   - Fresh content (week freshness filter)
@@ -316,6 +340,7 @@
   - Structured result metadata
 
 ##### Retrieval Diagnostics
+
 - **Detailed Metrics** (in `ChatResponse.metadata`):
   ```typescript
   {
@@ -339,18 +364,21 @@
 #### Liner Answer Features (NOT in Agent-RAG)
 
 ##### Pre-built Templates
+
 - Research question templates
 - Essay outline generators
 - Literature review structures
 - Citation format templates
 
 ##### Customization
+
 - Summary length control
 - Focus area selection
 - Language preference
 - Output format options
 
 ##### Rich Output
+
 - Markdown formatting
 - Citation integration
 - Linked references
@@ -359,18 +387,21 @@
 #### Agent-RAG Synthesis Pipeline (NOT in Liner)
 
 ##### Context-Aware Generation
+
 - **Strict Grounding**: "Use ONLY provided context" system prompt
 - **Inline Citations**: Numeric reference markers [1], [2], etc.
 - **Fallback Handling**: Explicit "I do not know" when evidence insufficient
 - **Revision Support**: Incorporates critic feedback in re-generation
 
 ##### Streaming Generation
+
 - **Token-by-token streaming**: Progressive answer building
 - **Event emission**: Real-time status updates
 - **Cancellation support**: User-initiated abort
 - **Buffer management**: Efficient chunk processing
 
 ##### Quality Metrics
+
 - **Coverage Score**: Percentage of query addressed (0-1)
 - **Groundedness**: Binary verification against evidence
 - **Citation Density**: References per answer segment
@@ -383,6 +414,7 @@
 #### Liner Collaboration (NOT in Agent-RAG)
 
 ##### Team Features
+
 - **Liner for Teams**: Enterprise team plans
 - **Shared workspaces**: Team-wide collections
 - **Collaborative highlighting**: Multi-user annotations
@@ -391,6 +423,7 @@
 - **Activity feeds**: Team activity tracking
 
 ##### Sharing
+
 - **Public collections**: Share research publicly
 - **Private sharing**: Share with specific users
 - **Embed codes**: Embed highlights elsewhere
@@ -399,12 +432,14 @@
 #### Agent-RAG Multi-User Capabilities
 
 ##### Current State
+
 - **Single-user focus**: No built-in multi-tenancy
 - **Session isolation**: Session ID-based separation
 - **No authentication**: Stateless API design
 - **Limited persistence**: Session transcripts remain in-memory, while the semantic memory store persists cross-session embeddings when enabled
 
 ##### Potential Extensions
+
 - Could add user authentication layer
 - Could implement shared session stores
 - Could enable query history per user
@@ -417,6 +452,7 @@
 #### Liner Export Features (NOT in Agent-RAG)
 
 ##### Export Formats
+
 - PDF export with highlights
 - Word document export
 - Markdown export
@@ -425,6 +461,7 @@
 - RIS format for reference managers
 
 ##### Integration
+
 - Zotero integration
 - Mendeley support
 - Reference manager compatibility
@@ -433,17 +470,20 @@
 #### Agent-RAG Data Handling (NOT in Liner)
 
 ##### Telemetry & Logging
+
 - **Session Traces**: Full execution logs with timestamps
 - **Token Budgets**: Per-component token tracking
 - **Performance Metrics**: Latency measurements per stage
 - **Error Tracking**: Structured error capture
 
 ##### Semantic Memory Persistence
+
 - **SQLite-backed store**: Persists episodic, semantic, procedural, and preference memories
 - **Similarity recall**: Embedding search with configurable top-K and similarity thresholds
 - **Operational controls**: Feature flag toggles, pruning utilities, and telemetry events
 
 ##### Configuration Export
+
 - Environment variable templates
 - JSON schema for API responses
 - OpenAPI-compatible types (via TypeScript)
@@ -455,12 +495,14 @@
 #### Liner Advanced Capabilities (NOT in Agent-RAG)
 
 ##### AI Models
+
 - Access to multiple AI models (GPT-4, etc.)
 - Model selection in Pro tier
 - Fine-tuned academic models
 - Specialized research agents
 
 ##### Content Types
+
 - **Web pages**: Any website
 - **PDFs**: Academic papers, reports
 - **YouTube videos**: Transcripts with timestamps
@@ -468,6 +510,7 @@
 - **Articles**: News, blogs, etc.
 
 ##### Learning & Discovery
+
 - Trending research topics
 - Recommended papers
 - Related research suggestions
@@ -477,18 +520,21 @@
 #### Agent-RAG Advanced Architecture (NOT in Liner)
 
 ##### Resilience Patterns (`backend/src/utils/resilience.ts`)
+
 - **Exponential backoff retry**: Configurable max attempts
 - **Timeout management**: Per-request timeouts
 - **Circuit breaker pattern**: (Not yet implemented but prepared)
 - **Graceful degradation**: Fallback chains
 
 ##### Extensibility
+
 - **Tool injection**: Mock tools for testing
 - **Custom planners**: Swap planner implementations
 - **Custom critics**: Pluggable evaluation logic
 - **Event sinks**: Custom telemetry destinations
 
 ##### Performance Optimization
+
 - **Token estimation**: Fast estimation without full tokenization
 - **Context budgeting**: Multi-section budget allocation
 - **Lazy evaluation**: On-demand summary generation
@@ -560,24 +606,24 @@ Shared Types (TypeScript)
 
 ## Technology Stack Comparison
 
-| Component | Liner | Agent-RAG |
-|-----------|-------|-----------|
-| **Frontend** | React/Next.js (inferred) | Vite + React + TypeScript |
-| **State Management** | Unknown | React Query |
-| **Backend** | Unknown (Node.js likely) | Fastify + TypeScript |
-| **AI/LLM** | OpenAI GPT-4, custom models | Azure OpenAI (GPT-5 deployment) |
-| **Search** | Custom academic index | Azure AI Search |
-| **Embeddings** | Unknown | Azure OpenAI (text-embedding-3-large) |
-| **Web Search** | Unknown | Google Custom Search API |
-| **Authentication** | Google OAuth, email | None (stateless) |
-| **Database** | PostgreSQL/MongoDB (inferred) | SQLite semantic memory store (feature-flagged) + in-memory session cache |
-| **Caching** | Redis (likely) | None |
-| **Mobile** | Native iOS/Android | None |
-| **Browser Extension** | Chrome/Firefox extensions | None |
-| **Observability** | Unknown | OpenTelemetry |
-| **Testing** | Unknown | Vitest |
-| **Build Tools** | Webpack/Vite (inferred) | Vite, TSC |
-| **Deployment** | Cloud (AWS/GCP likely) | Self-hosted / Azure |
+| Component             | Liner                         | Agent-RAG                                                                                               |
+| --------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Frontend**          | React/Next.js (inferred)      | Vite + React + TypeScript                                                                               |
+| **State Management**  | Unknown                       | React Query                                                                                             |
+| **Backend**           | Unknown (Node.js likely)      | Fastify + TypeScript                                                                                    |
+| **AI/LLM**            | OpenAI GPT-4, custom models   | Azure OpenAI (GPT-5 deployment)                                                                         |
+| **Search**            | Custom academic index         | Azure AI Search                                                                                         |
+| **Embeddings**        | Unknown                       | Azure OpenAI (text-embedding-3-large)                                                                   |
+| **Web Search**        | Unknown                       | Google Custom Search API                                                                                |
+| **Authentication**    | Google OAuth, email           | None (stateless)                                                                                        |
+| **Database**          | PostgreSQL/MongoDB (inferred) | SQLite semantic memory store + SQLite session store (fallback to memory if native bindings unavailable) |
+| **Caching**           | Redis (likely)                | None                                                                                                    |
+| **Mobile**            | Native iOS/Android            | None                                                                                                    |
+| **Browser Extension** | Chrome/Firefox extensions     | None                                                                                                    |
+| **Observability**     | Unknown                       | OpenTelemetry                                                                                           |
+| **Testing**           | Unknown                       | Vitest                                                                                                  |
+| **Build Tools**       | Webpack/Vite (inferred)       | Vite, TSC                                                                                               |
+| **Deployment**        | Cloud (AWS/GCP likely)        | Self-hosted / Azure                                                                                     |
 
 ---
 
@@ -639,12 +685,14 @@ Shared Types (TypeScript)
 ## Integration & Extensibility
 
 ### Liner Extension Points
+
 - API (likely available for Pro/Team tiers)
 - Browser extension SDK
 - Webhook integrations (unknown)
 - OAuth for third-party apps
 
 ### Agent-RAG Extension Points
+
 - **Tool Injection**: Custom retrieval/search tools
 - **Agent Swapping**: Replace planner/critic implementations
 - **Event Listeners**: Custom telemetry sinks
@@ -658,6 +706,7 @@ Shared Types (TypeScript)
 ## Pricing & Deployment
 
 ### Liner
+
 - **Free Tier**: Basic features, limited highlights
 - **Pro Tier**: ~$10-20/month (estimated)
   - Advanced AI models
@@ -668,6 +717,7 @@ Shared Types (TypeScript)
 - **Educational Pricing**: Discounted for students
 
 ### Agent-RAG
+
 - **Open Source**: Code available in repository
 - **Self-Hosted**: Deploy on your infrastructure
 - **Azure Costs**: Pay for Azure resources consumed
@@ -684,10 +734,11 @@ Shared Types (TypeScript)
 ### Features Agent-RAG Could Adopt from Liner
 
 #### High Priority
-1. **Document Upload & Processing**
-   - Add PDF upload endpoint
-   - Extract and chunk documents
-   - Store in Azure Search index
+
+1. **Document Upload & Processing** ✅ (shipped)
+   - PDF upload endpoint (`POST /documents/upload`) with chunking + embeddings
+   - Stores processed chunks in Azure Search
+   - Extension opportunities: per-user quotas, non-PDF formats, background processing
 
 2. **Citation Export**
    - Generate formatted citations (APA, MLA, Chicago)
@@ -695,9 +746,8 @@ Shared Types (TypeScript)
    - Integration with reference managers
 
 3. **User Sessions & History**
-   - Persistent user accounts
-   - Query history per user
-   - Saved searches and bookmarks
+   - ✅ Server-side transcript & memory persistence (SQLite session store)
+   - ⏳ Outstanding: authenticated user accounts, per-user history dashboards, saved searches/bookmarks
 
 4. **Collection Management**
    - Save and organize retrieved documents
@@ -705,6 +755,7 @@ Shared Types (TypeScript)
    - Create thematic collections
 
 #### Medium Priority
+
 5. **Browser Extension**
    - Highlight web pages
    - Save to collections
@@ -726,6 +777,7 @@ Shared Types (TypeScript)
    - Comment threads on sources
 
 #### Low Priority
+
 9. **Mobile Applications**
    - iOS/Android apps
    - Mobile-optimized UI
@@ -739,6 +791,7 @@ Shared Types (TypeScript)
 ### Features Liner Could Adopt from Agent-RAG
 
 #### High Priority
+
 1. **Transparency & Explainability**
    - Show planner reasoning
    - Display confidence scores
@@ -760,6 +813,7 @@ Shared Types (TypeScript)
    - Salience tracking
 
 #### Medium Priority
+
 5. **Advanced Telemetry**
    - Detailed execution traces
    - Performance metrics
@@ -785,6 +839,7 @@ Shared Types (TypeScript)
 ## Recommendations for Agent-RAG Development
 
 ### Quick Wins (1-2 sprints)
+
 1. **Add PDF upload capability**
    - Implement multipart form handling
    - Add chunking logic
@@ -801,6 +856,7 @@ Shared Types (TypeScript)
    - Generate bibliography from chat
 
 ### Strategic Enhancements (3-6 months)
+
 4. **Build browser extension**
    - Chrome/Firefox extension for quick search
    - Highlight and save text
@@ -817,6 +873,7 @@ Shared Types (TypeScript)
    - Team workspaces
 
 ### Long-term Vision (6-12 months)
+
 7. **Mobile applications**
    - React Native apps
    - Mobile-optimized UI
@@ -843,6 +900,7 @@ Shared Types (TypeScript)
 - **Agent-RAG** excels as a transparent, quality-assured, enterprise-grade retrieval system with sophisticated orchestration, adaptive strategies, and developer-focused observability.
 
 The main differentiators are:
+
 - **Liner**: Multi-platform presence, content curation, citation management, academic tools
 - **Agent-RAG**: Transparent AI reasoning, quality assurance, Azure integration, extensible architecture
 

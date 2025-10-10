@@ -18,6 +18,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 - **🎯 Multi-Pass Critic**: Quality evaluation with automatic revision loops
 - **💡 Lazy Retrieval**: Summary-first retrieval with on-demand full document hydration
 - **🧠 Semantic Memory**: Persistent semantic memory with SQLite and vector similarity
+- **📄 Document Uploads**: Upload PDFs at runtime for automatic chunking and indexing
 - **📊 Rich Observability**: OpenTelemetry tracing, telemetry events, and evaluation metrics
 
 ### Advanced Features
@@ -27,7 +28,7 @@ A production-grade **Retrieval-Augmented Generation (RAG)** chat application wit
 - **Confidence-Based Escalation**: Automatic fallback to dual retrieval on low confidence
 - **Structured Outputs**: JSON schema validation for planner and critic responses
 - **Multi-Level Fallback**: Graceful degradation from hybrid → pure vector → web search
-- **Session Persistence**: In-memory session state with conversation history
+- **Session Persistence**: SQLite-backed transcripts and memory for durable session history
 
 ## 🏗️ Architecture
 

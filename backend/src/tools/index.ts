@@ -1,5 +1,6 @@
 import { withRetry } from '../utils/resilience.js';
 import { hybridSemanticSearch, vectorSearch } from '../azure/directSearch.js';
+import { federatedSearch } from '../azure/multiIndexSearch.js';
 import { lazyHybridSearch } from '../azure/lazyRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
@@ -76,6 +77,34 @@ export async function retrieveTool(args: {
 
   try {
     return await withRetry('direct-search', async () => {
+      if (config.ENABLE_MULTI_INDEX_FEDERATION) {
+        try {
+          const federated = await federatedSearch(query, {
+            top: top || config.RAG_TOP_K,
+            filter
+          });
+
+          if (federated.references.length) {
+            const description = Object.entries(federated.indexBreakdown)
+              .map(([name, count]) => `${name}:${count}`)
+              .join(', ');
+
+            return {
+              response: '',
+              references: federated.references,
+              activity: [
+                {
+                  type: 'federated_search',
+                  description: `Federated search returned ${federated.references.length} results (${description})`
+                }
+              ]
+            };
+          }
+        } catch (federationError) {
+          console.warn('Federated search failed, falling back to single-index retrieval:', federationError);
+        }
+      }
+
       try {
         // Primary: Hybrid semantic search with high threshold
         const result = await hybridSemanticSearch(query, {

@@ -14,6 +14,8 @@ export interface Reference {
   page_number?: number;
   pageNumber?: number;
   score?: number;
+  sourceIndex?: string;
+  sourceType?: string;
   metadata?: Record<string, unknown>;
   highlights?: Record<string, string[]>;
   captions?: Array<{ text: string; highlights?: string }>;

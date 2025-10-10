@@ -420,14 +420,14 @@ Add multipart upload capability for future document upload.
 /**
  * Upload document for indexing
  *
- * @future Planned feature - backend endpoint not yet implemented
- * @see docs/quickstart-pdf-upload.md for backend implementation guide
+ * @status Implemented in backend/src/routes/documents.ts (Fastify multipart endpoint)
+ * @see docs/quickstart-pdf-upload.md for pipeline walkthrough
  * @see docs/architecture-map.md:198-206 for planned flow
  * @see docs/enhancement-implementation-plan.md:136-370 for full spec
  *
  * @param file PDF or document file to upload
  * @returns Upload result with document ID, title, chunk count
- * @throws Error if upload fails or backend endpoint not available
+ * @throws Error if upload fails or backend endpoint is unreachable
  */
 export async function uploadDocument(file: File): Promise<{
   success: boolean;
@@ -451,8 +451,6 @@ export async function uploadDocument(file: File): Promise<{
   const formData = new FormData();
   formData.append('file', file);
 
-  // Note: /documents/upload endpoint does not exist yet
-  // Will return 404 until backend implementation complete
   const response = await fetch(`${API_BASE}/documents/upload`, {
     method: 'POST',
     body: formData,
@@ -495,9 +493,9 @@ export async function deleteDocument(documentId: string): Promise<void> {
 }
 ```
 
-#### When to Implement Backend
+#### Backend Reference
 
-See comprehensive implementation guide:
+The server implementation lives in `backend/src/routes/documents.ts`. For a detailed walkthrough or customization tips, see:
 
 - **Step-by-step**: [`docs/quickstart-pdf-upload.md`](quickstart-pdf-upload.md)
 - **Architecture flow**: [`docs/architecture-map.md:198-206`](architecture-map.md:198-206)

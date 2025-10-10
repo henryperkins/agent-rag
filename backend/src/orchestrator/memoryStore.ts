@@ -1,4 +1,5 @@
 import type { CompactedContext, SalienceNote } from './compact.js';
+import { sessionStore } from '../services/sessionStore.js';
 
 export interface SummaryBullet {
   text: string;
@@ -87,10 +88,33 @@ export function upsertMemory(
   };
 
   sessionMemory.set(sessionId, next);
+  try {
+    sessionStore.saveMemory(sessionId, turn, summaryBullets, next.salience);
+  } catch (error) {
+    console.warn(`Failed to persist session memory for ${sessionId}:`, error);
+  }
 }
 
 export function loadMemory(sessionId: string, maxAgeInTurns = 50) {
-  const entry = sessionMemory.get(sessionId);
+  let entry = sessionMemory.get(sessionId);
+
+  if (!entry) {
+    const stored = sessionStore.loadMemory(sessionId);
+    if (stored) {
+      entry = {
+        sessionId,
+        turn: stored.turn,
+        summaryBullets: stored.summaryBullets.map((item) => ({
+          text: item.text,
+          embedding: item.embedding ? [...item.embedding] : undefined
+        })),
+        salience: stored.salience,
+        createdAt: Date.now()
+      };
+      sessionMemory.set(sessionId, entry);
+    }
+  }
+
   if (!entry) {
     return { summaryBullets: [] as SummaryBullet[], salience: [] as SalienceNote[] };
   }
@@ -109,7 +133,9 @@ export function loadMemory(sessionId: string, maxAgeInTurns = 50) {
 export function clearMemory(sessionId?: string) {
   if (sessionId) {
     sessionMemory.delete(sessionId);
+    sessionStore.removeSession(sessionId);
   } else {
     sessionMemory.clear();
+    sessionStore.clearAll();
   }
 }

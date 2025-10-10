@@ -149,57 +149,8 @@ emit?.('summary_selection_stats', summaryStats);
 
 #### 4. API Client Upload Function Stub
 
-**Status**: `[ ]` Not started  
-**Priority**: Low  
-**Effort**: 15 minutes  
-**Source**: [architecture-map.md:198-206](architecture-map.md:198-206), [quickstart-pdf-upload.md](quickstart-pdf-upload.md)
-
-**Scope**: Prepare frontend for document upload feature (not yet built)
-
-**File to Modify**:
-
-- `frontend/src/api/client.ts`
-
-**Implementation**:
-
-```typescript
-/**
- * Upload document for indexing (PLANNED FEATURE - endpoint not yet implemented)
- *
- * @future This function is a stub for the planned document upload feature.
- * Backend endpoint `/documents/upload` needs to be created first.
- * See docs/quickstart-pdf-upload.md for implementation guide.
- */
-export async function uploadDocument(file: File): Promise<{
-  documentId: string;
-  title: string;
-  chunks: number;
-  uploadedAt: string;
-}> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch(`${API_BASE}/documents/upload`, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || 'Upload failed');
-  }
-
-  return response.json();
-}
-```
-
-**Dependencies**:
-
-- Backend `POST /documents/upload` endpoint (not yet implemented)
-- Backend document processing service (not yet implemented)
-- See [enhancement-implementation-plan.md:136-370](enhancement-implementation-plan.md:136-370) for full implementation
-
----
+**Status**: `[x]` Completed  
+**Notes**: Runtime PDF upload implemented across backend and frontend.
 
 ## Medium Priority (Next Month)
 

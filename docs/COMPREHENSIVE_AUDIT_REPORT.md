@@ -458,9 +458,9 @@ store: config.ENABLE_RESPONSE_STORAGE ?? false,
 
 **High-Impact, High-Effort:**
 
-1. PDF upload (2-3 weeks) → User-requested feature
-2. User sessions (3-4 weeks) → Persistent history
-3. Multi-index federation (2 weeks) → Specialized search
+1. PDF upload ✅ (delivered) → User-requested feature now live
+2. User sessions (3-4 weeks) → Persistent history (session persistence shipped; user accounts outstanding)
+3. Multi-index federation ✅ (delivered) → Specialized search
 4. Browser extension (6-8 weeks) → New platform
 
 ---

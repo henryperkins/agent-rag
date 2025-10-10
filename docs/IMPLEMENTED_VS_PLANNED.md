@@ -21,6 +21,11 @@ This document consolidates the feature audit across the backend/frontend codebas
   - History compaction, semantic summary selection, salience tracking (`backend/src/orchestrator/compact.ts`, `backend/src/orchestrator/summarySelector.ts`).
   - Persistent semantic memory store driven by SQLite + embedding similarity (`backend/src/orchestrator/semanticMemoryStore.ts`).
 
+- **Session Persistence & Uploads**
+  - SQLite-backed session transcripts and memory snapshots (`backend/src/services/sessionStore.ts`, `backend/src/orchestrator/memoryStore.ts`).
+  - Runtime PDF upload pipeline with embeddings + Azure Search ingestion (`backend/src/routes/documents.ts`, `backend/src/tools/documentProcessor.ts`, `frontend/src/components/DocumentUpload.tsx`).
+  - Federated multi-index retrieval with weighted merging and intent metadata (`backend/src/azure/multiIndexSearch.ts`, `backend/src/tools/index.ts`).
+
 - **Quality Control**
   - Multi-pass critic loop with revision guidance and streaming retry support (`backend/src/orchestrator/index.ts`).
   - SSE timeout guard and input sanitization updates (per `backend/src/server.ts`, `backend/src/middleware/sanitize.ts`).
@@ -43,7 +48,6 @@ This document consolidates the feature audit across the backend/frontend codebas
 - **Adaptive Retrieval Upgrades**
   - Quality-scored query reformulation (`retrieveWithAdaptiveRefinement`).
   - Citation usage tracker feeding semantic memory analytics.
-  - Multi-index federated search and associated config flags.
 
 - **Web Search Enhancements**
   - Multi-source academic search (Semantic Scholar/arXiv).

@@ -1,17 +1,20 @@
 # Enhancement Implementation Guide
+
 **Based on Liner Comparison Analysis**
 
 This document provides detailed implementation guidance for adding Liner-inspired features to the Agent-RAG system, leveraging the existing architecture.
 
 > [!IMPORTANT]
 > **Current vs. Planned Scope**
-> * Sections labeled “Current Architecture” describe capabilities that exist in the repository today (for example the unified orchestrator powering `/chat` and `/chat/stream`).
-> * All implementation guides in “Quick Wins” and “Strategic Enhancements” outline **planned future work**. The referenced routes (`/documents/upload`), services (`database.ts`, `collections.ts`), and tools do **not** exist yet and will need to be created during implementation.
-> * Use this guide as a blueprint when you are ready to build the features; do not expect any of the step-by-step instructions to work against the current codebase without first writing the described modules.
+>
+> - Sections labeled “Current Architecture” describe capabilities that exist in the repository today (for example the unified orchestrator powering `/chat` and `/chat/stream`).
+> - Several guides (for example PDF upload and session persistence) have since been implemented. Where that is the case, inline callouts highlight the production location of the feature so you can audit or extend it.
+> - Remaining items still represent future work. Treat those sections as blueprints and expect to create the described modules before the steps will function.
 
 ---
 
 ## Table of Contents
+
 1. [Architecture Overview](#architecture-overview)
 2. [Current Architecture Snapshot](#current-architecture-snapshot)
 3. [Planned Quick Wins (1-2 Sprints)](#planned-quick-wins-1-2-sprints)
@@ -75,6 +78,7 @@ Azure Services (backend/src/azure/)
 #### Backend Implementation _(to be implemented)_
 
 **Step 1: Add Dependencies**
+
 ```bash
 cd backend
 pnpm add @azure/storage-blob pdf-parse
@@ -119,7 +123,10 @@ export interface ChunkedDocument {
 const CHUNK_SIZE = 1000; // characters
 const CHUNK_OVERLAP = 200;
 
-function chunkText(text: string, pageNumber: number): Array<{ content: string; page: number; chunkIndex: number }> {
+function chunkText(
+  text: string,
+  pageNumber: number,
+): Array<{ content: string; page: number; chunkIndex: number }> {
   const chunks: Array<{ content: string; page: number; chunkIndex: number }> = [];
   let start = 0;
   let chunkIndex = 0;
@@ -159,7 +166,7 @@ export async function processPDF(buffer: Buffer, filename: string): Promise<Proc
     filename,
     title,
     chunks,
-    uploadedAt: new Date().toISOString()
+    uploadedAt: new Date().toISOString(),
   };
 }
 
@@ -169,10 +176,10 @@ export async function embedAndIndex(doc: ProcessedDocument): Promise<ChunkedDocu
 
   for (let i = 0; i < doc.chunks.length; i += batchSize) {
     const batch = doc.chunks.slice(i, i + batchSize);
-    const texts = batch.map(chunk => chunk.content);
+    const texts = batch.map((chunk) => chunk.content);
 
     const embeddingResponse = await createEmbeddings(texts);
-    const embeddings = embeddingResponse.data.map(item => item.embedding);
+    const embeddings = embeddingResponse.data.map((item) => item.embedding);
 
     const processedBatch = batch.map((chunk, idx) => ({
       id: `${doc.id}_chunk_${chunk.page}_${chunk.chunkIndex}`,
@@ -180,20 +187,20 @@ export async function embedAndIndex(doc: ProcessedDocument): Promise<ChunkedDocu
       embedding: embeddings[idx],
       page_number: chunk.page,
       chunk_index: chunk.chunkIndex,
-      document_title: doc.title
+      document_title: doc.title,
     }));
 
     embeddedChunks.push(...processedBatch);
 
     // Rate limiting
     if (i + batchSize < doc.chunks.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
   return {
     documentId: doc.id,
-    chunks: embeddedChunks
+    chunks: embeddedChunks,
   };
 }
 
@@ -201,7 +208,7 @@ export async function uploadToAzureSearch(chunkedDoc: ChunkedDocument): Promise<
   const uploadUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/docs/index?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   if (config.AZURE_SEARCH_API_KEY) {
@@ -209,21 +216,21 @@ export async function uploadToAzureSearch(chunkedDoc: ChunkedDocument): Promise<
   }
 
   const payload = {
-    value: chunkedDoc.chunks.map(chunk => ({
+    value: chunkedDoc.chunks.map((chunk) => ({
       '@search.action': 'mergeOrUpload',
       id: chunk.id,
       page_chunk: chunk.content,
       page_embedding_text_3_large: chunk.embedding,
       page_number: chunk.page_number,
       document_title: chunk.document_title,
-      document_id: chunkedDoc.documentId
-    }))
+      document_id: chunkedDoc.documentId,
+    })),
   };
 
   const response = await fetch(uploadUrl, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -244,8 +251,8 @@ export async function registerRoutes(app: FastifyInstance) {
   // Register multipart
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024 // 10MB
-    }
+      fileSize: 10 * 1024 * 1024, // 10MB
+    },
   });
 
   // ... existing routes ...
@@ -272,7 +279,7 @@ export async function registerRoutes(app: FastifyInstance) {
         documentId: processedDoc.id,
         title: processedDoc.title,
         chunks: processedDoc.chunks.length,
-        uploadedAt: processedDoc.uploadedAt
+        uploadedAt: processedDoc.uploadedAt,
       };
     } catch (error: any) {
       request.log.error(error);
@@ -364,7 +371,7 @@ export async function uploadDocument(file: File) {
 
   const response = await fetch(`${API_BASE}/documents/upload`, {
     method: 'POST',
-    body: formData
+    body: formData,
   });
 
   if (!response.ok) {
@@ -473,14 +480,7 @@ class DatabaseService {
       INSERT INTO query_history (id, session_id, query, answer, citations, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(
-      id,
-      sessionId,
-      query,
-      answer,
-      JSON.stringify(citations),
-      new Date().toISOString()
-    );
+    stmt.run(id, sessionId, query, answer, JSON.stringify(citations), new Date().toISOString());
 
     this.updateSessionActivity(sessionId);
     return id;
@@ -534,7 +534,7 @@ export async function handleEnhancedChat(messages: AgentMessage[]): Promise<Chat
   const recorder = createSessionRecorder({
     sessionId,
     mode: 'sync',
-    question: latestUserQuestion(messages)
+    question: latestUserQuestion(messages),
   });
 
   try {
@@ -542,7 +542,7 @@ export async function handleEnhancedChat(messages: AgentMessage[]): Promise<Chat
       messages,
       mode: 'sync',
       sessionId,
-      emit: recorder.emit
+      emit: recorder.emit,
     });
 
     recorder.complete(response);
@@ -576,21 +576,18 @@ export async function registerRoutes(app: FastifyInstance) {
       const { sessionId } = request.params;
       const history = db.getSessionHistory(sessionId);
       return { sessionId, history };
-    }
+    },
   );
 
   // Get user sessions
-  app.get<{ Querystring: { userId: string } }>(
-    '/sessions',
-    async (request, reply) => {
-      const { userId } = request.query;
-      if (!userId) {
-        return reply.code(400).send({ error: 'userId required' });
-      }
-      const sessions = db.getUserSessions(userId);
-      return { userId, sessions };
+  app.get<{ Querystring: { userId: string } }>('/sessions', async (request, reply) => {
+    const { userId } = request.query;
+    if (!userId) {
+      return reply.code(400).send({ error: 'userId required' });
     }
-  );
+    const sessions = db.getUserSessions(userId);
+    return { userId, sessions };
+  });
 }
 ```
 
@@ -712,10 +709,7 @@ function formatBibTeX(ref: Reference, index: number): string {
 }`;
 }
 
-export function formatCitations(
-  citations: Reference[],
-  style: CitationStyle
-): FormattedCitation[] {
+export function formatCitations(citations: Reference[], style: CitationStyle): FormattedCitation[] {
   return citations.map((ref, index) => {
     let text: string;
 
@@ -740,17 +734,14 @@ export function formatCitations(
   });
 }
 
-export function generateBibliography(
-  citations: Reference[],
-  style: CitationStyle = 'apa'
-): string {
+export function generateBibliography(citations: Reference[], style: CitationStyle = 'apa'): string {
   const formatted = formatCitations(citations, style);
 
   if (style === 'bibtex') {
-    return formatted.map(f => f.text).join('\n\n');
+    return formatted.map((f) => f.text).join('\n\n');
   }
 
-  return formatted.map(f => f.text).join('\n');
+  return formatted.map((f) => f.text).join('\n');
 }
 ```
 
@@ -778,9 +769,9 @@ app.post<{ Body: { citations: Reference[]; style: string } }>(
     return {
       style: citationStyle,
       bibliography,
-      count: citations.length
+      count: citations.length,
     };
-  }
+  },
 );
 ```
 
@@ -963,6 +954,7 @@ Extension Structure:
 #### Image Analysis _(requires new Azure Vision integration)_
 
 **Dependencies**:
+
 ```bash
 pnpm add sharp @azure/cognitiveservices-computervision
 ```
@@ -980,13 +972,13 @@ export async function analyzeImage(imageUrl: string) {
   const client = new ComputerVisionClient(credentials, config.AZURE_VISION_ENDPOINT);
 
   const analysis = await client.analyzeImage(imageUrl, {
-    visualFeatures: ['Description', 'Tags', 'Objects', 'Categories']
+    visualFeatures: ['Description', 'Tags', 'Objects', 'Categories'],
   });
 
   return {
     description: analysis.description?.captions?.[0]?.text,
-    tags: analysis.tags?.map(t => t.name),
-    objects: analysis.objects?.map(o => o.object)
+    tags: analysis.tags?.map((t) => t.name),
+    objects: analysis.objects?.map((o) => o.object),
   };
 }
 ```
@@ -1000,14 +992,14 @@ import { google } from 'googleapis';
 
 const youtube = google.youtube({
   version: 'v3',
-  auth: config.YOUTUBE_API_KEY
+  auth: config.YOUTUBE_API_KEY,
 });
 
 export async function getVideoTranscript(videoId: string) {
   // Get captions
   const captionsResponse = await youtube.captions.list({
     part: ['snippet'],
-    videoId
+    videoId,
   });
 
   // Download and parse captions
@@ -1018,7 +1010,7 @@ export async function getVideoTranscript(videoId: string) {
     videoId,
     title: '', // from video metadata
     transcript: '', // full text
-    segments: [] // timestamped chunks
+    segments: [], // timestamped chunks
   };
 }
 ```
@@ -1075,7 +1067,7 @@ export async function runSession(options: RunSessionOptions) {
   const tools: OrchestratorTools = {
     ...defaultTools,
     newTool: (args) => newToolFunction(args),
-    ...(options.tools ?? {})
+    ...(options.tools ?? {}),
   };
 
   // Emit new events
@@ -1151,7 +1143,7 @@ const envSchema = z.object({
 
   ENABLE_DOCUMENT_UPLOAD: z.coerce.boolean().default(false),
   ENABLE_COLLECTIONS: z.coerce.boolean().default(false),
-  ENABLE_IMAGE_ANALYSIS: z.coerce.boolean().default(false)
+  ENABLE_IMAGE_ANALYSIS: z.coerce.boolean().default(false),
 });
 ```
 
@@ -1199,7 +1191,7 @@ describe('Document Upload', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/documents/upload',
-      payload: createFormData()
+      payload: createFormData(),
     });
 
     expect(response.statusCode).toBe(200);
@@ -1213,28 +1205,33 @@ describe('Document Upload', () => {
 ## Migration Path _(proposed phasing once work begins)_
 
 ### Phase 1: Foundation (Sprint 1)
+
 1. Set up database with SQLite
 2. Implement session tracking
 3. Add basic query history
 
 ### Phase 2: Documents (Sprint 2)
+
 1. Add PDF upload endpoint
 2. Implement chunking and embedding
 3. Update index schema
 4. Create upload UI
 
 ### Phase 3: Citations (Sprint 3)
+
 1. Build citation formatters
 2. Add export endpoint
 3. Create export UI
 
 ### Phase 4: Collections (Sprints 4-6)
+
 1. Database schema for collections
 2. Collection CRUD operations
 3. UI for collection management
 4. Tag system
 
 ### Phase 5: Extensions (Sprints 7-12)
+
 1. Browser extension scaffold
 2. Multi-modal support
 3. Advanced search features
@@ -1245,16 +1242,19 @@ describe('Document Upload', () => {
 ## Performance Considerations _(keep in mind during future work)_
 
 ### Document Processing
+
 - **Chunking**: Process in batches of 10
 - **Embedding**: Rate limit at 1 second between batches
 - **Upload**: Stream large files, don't buffer in memory
 
 ### Database
+
 - **Indexes**: Add on frequently queried columns
 - **Pagination**: Limit history queries to 50 items
 - **Cleanup**: Archive old sessions periodically
 
 ### Caching
+
 - **Document metadata**: Cache in Redis
 - **Embeddings**: Cache frequently accessed embeddings
 - **Search results**: Short-term cache for repeated queries
@@ -1264,18 +1264,21 @@ describe('Document Upload', () => {
 ## Security Considerations _(account for these during implementation)_
 
 ### File Upload
+
 - Validate file types (PDF only initially)
 - Scan for malware
 - Limit file size (10MB default)
 - Sanitize filenames
 
 ### Authentication
+
 - Implement JWT tokens
 - Rate limit per user
 - Validate session ownership
 - Encrypt sensitive data
 
 ### Data Privacy
+
 - User data isolation
 - GDPR compliance (deletion)
 - Audit logs
@@ -1286,6 +1289,7 @@ describe('Document Upload', () => {
 ## Monitoring & Observability _(capture once features are built)_
 
 ### Metrics to Track
+
 - Upload success/failure rate
 - Processing time per document
 - Search query latency
@@ -1293,16 +1297,18 @@ describe('Document Upload', () => {
 - API error rates
 
 ### Logging
+
 ```typescript
 app.log.info({
   operation: 'document_upload',
   documentId: doc.id,
   chunks: doc.chunks.length,
-  processingTimeMs: elapsed
+  processingTimeMs: elapsed,
 });
 ```
 
 ### Alerts
+
 - Failed uploads
 - Storage quota exceeded
 - API rate limits
@@ -1315,6 +1321,7 @@ app.log.info({
 This implementation guide provides a structured approach to adding Liner-inspired features to Agent-RAG while maintaining the system's core strengths in transparency, quality assurance, and Azure integration.
 
 **Key Principles:**
+
 1. Leverage existing architecture patterns
 2. Maintain type safety throughout
 3. Test incrementally
@@ -1322,6 +1329,7 @@ This implementation guide provides a structured approach to adding Liner-inspire
 5. Monitor performance impacts
 
 **Next Steps:**
+
 1. Review and prioritize features
 2. Set up development environment
 3. Implement Quick Wins (Sprints 1-3)
