@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { AgentMessage } from '../../../shared/types.js';
+import type { ChatRequestPayload } from '../../../shared/types.js';
 import { handleEnhancedChat } from '../services/enhancedChatService.js';
 import { setupStreamRoute } from './chatStream.js';
 import { setupResponsesRoutes } from './responses.js';
@@ -31,8 +31,8 @@ export async function registerRoutes(app: FastifyInstance) {
     timestamp: new Date().toISOString()
   }));
 
-  app.post<{ Body: { messages: AgentMessage[]; sessionId?: string } }>('/chat', async (request, reply) => {
-    const { messages, sessionId } = request.body;
+  app.post<{ Body: ChatRequestPayload }>('/chat', async (request, reply) => {
+    const { messages, sessionId, feature_overrides } = request.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return reply.code(400).send({ error: 'Messages array required.' });
@@ -41,7 +41,8 @@ export async function registerRoutes(app: FastifyInstance) {
     try {
       const response = await handleEnhancedChat(messages, {
         sessionId,
-        clientFingerprint: [request.ip, request.headers['user-agent']].filter(Boolean).join('|')
+        clientFingerprint: [request.ip, request.headers['user-agent']].filter(Boolean).join('|'),
+        featureOverrides: feature_overrides
       });
       return response;
     } catch (error: any) {

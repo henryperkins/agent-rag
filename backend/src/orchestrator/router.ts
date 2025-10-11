@@ -62,17 +62,23 @@ const INTENT_CLASSIFICATION_SCHEMA = {
         type: 'string'
       }
     },
-    required: ['intent', 'confidence'],
+    required: ['intent', 'confidence', 'reasoning'],
     description: 'Structured JSON describing the classified user intent and rationale.'
   }
 };
 
-export async function classifyIntent(question: string, history?: AgentMessage[]): Promise<{
+export async function classifyIntent(
+  question: string,
+  history?: AgentMessage[],
+  options: { enabled?: boolean } = {}
+): Promise<{
   intent: string;
   confidence: number;
   reasoning: string;
 }> {
-  if (!config.ENABLE_INTENT_ROUTING) {
+  const isEnabled = options.enabled ?? config.ENABLE_INTENT_ROUTING;
+
+  if (!isEnabled) {
     return {
       intent: 'research',
       confidence: 1,

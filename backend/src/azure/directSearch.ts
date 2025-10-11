@@ -422,11 +422,11 @@ export async function hybridSemanticSearch(
   // Convert to references
   const references: Reference[] = results.map((result, idx) => ({
     id: result.id || result.chunk_id || `result_${idx}`,
-    title: result.title || result.name || `Page ${result.page_number || idx + 1}`,
+    title: `Page ${result.page_number || idx + 1}`,
     content: result.content || result.page_chunk || result.chunk || '',
     chunk: result.chunk || result.page_chunk,
     page_number: result.page_number,
-    url: result.url,
+    url: undefined,
     score: result['@search.rerankerScore'] || result['@search.score'],
     metadata: result.metadata,
     highlights: result['@search.highlights'],

@@ -20,5 +20,10 @@ export type {
   OrchestratorTools,
   RouteMetadata,
   LazyReference,
-  LazyRetrievalResponse
+  LazyRetrievalResponse,
+  FeatureFlag,
+  FeatureOverrideMap,
+  FeatureSelectionMetadata,
+  FeatureSource,
+  ChatRequestPayload
 } from '../../shared/types.js';

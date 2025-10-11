@@ -5,7 +5,8 @@ import type {
   ActivityStep,
   WebResult,
   WebSearchResponse,
-  LazyReference
+  LazyReference,
+  FeatureOverrideMap
 } from '../../../shared/types.js';
 import { retrieveTool, webSearchTool, lazyRetrieveTool } from '../tools/index.js';
 import type { SalienceNote } from './compact.js';
@@ -14,6 +15,7 @@ import { estimateTokens } from './contextBudget.js';
 import { reciprocalRankFusion, applySemanticBoost } from './reranker.js';
 import { generateEmbedding } from '../azure/directSearch.js';
 import { filterWebResults } from '../tools/webQualityFilter.js';
+import type { FeatureGates } from '../config/features.js';
 
 export interface DispatchResult {
   contextText: string;
@@ -35,8 +37,16 @@ interface DispatchOptions {
   messages: AgentMessage[];
   salience: SalienceNote[];
   emit?: (event: string, data: unknown) => void;
+  features: FeatureGates;
+  featureStates: FeatureOverrideMap;
   tools?: {
-    retrieve?: (args: { query: string; filter?: string; top?: number; messages?: AgentMessage[] }) => Promise<{
+    retrieve?: (args: {
+      query: string;
+      filter?: string;
+      top?: number;
+      messages?: AgentMessage[];
+      features?: FeatureOverrideMap;
+    }) => Promise<{
       response: string;
       references: Reference[];
       activity: ActivityStep[];
@@ -114,7 +124,16 @@ function latestUserQuery(messages: AgentMessage[]): string {
   return last?.content ?? '';
 }
 
-export async function dispatchTools({ plan, messages, salience, emit, tools, preferLazy }: DispatchOptions): Promise<DispatchResult> {
+export async function dispatchTools({
+  plan,
+  messages,
+  salience,
+  emit,
+  tools,
+  preferLazy,
+  features,
+  featureStates
+}: DispatchOptions): Promise<DispatchResult> {
   const references: Reference[] = [];
   const lazyReferences: LazyReference[] = [];
   const activity: ActivityStep[] = [];
@@ -146,12 +165,12 @@ export async function dispatchTools({ plan, messages, salience, emit, tools, pre
     // Extract query from plan step or use latest user query
     const retrievalStep = plan.steps.find((s) => s.action === 'vector_search' || s.action === 'both');
     const query = retrievalStep?.query?.trim() || queryFallback;
-    const wantsLazy = (preferLazy ?? config.ENABLE_LAZY_RETRIEVAL) === true;
+    const wantsLazy = (preferLazy ?? features.lazyRetrieval) === true;
     const supportsLazy = typeof lazyRetrieve === 'function';
     const useLazy = wantsLazy && supportsLazy;
     const retrieval = useLazy
       ? await lazyRetrieve({ query, top: retrievalStep?.k })
-      : await retrieve({ query, messages });
+      : await retrieve({ query, messages, features: featureStates });
 
     references.push(...(retrieval.references ?? []));
     if ('lazyReferences' in retrieval && Array.isArray(retrieval.lazyReferences) && retrieval.lazyReferences.length) {
@@ -265,11 +284,7 @@ export async function dispatchTools({ plan, messages, salience, emit, tools, pre
     }
   }
 
-  if (
-    config.ENABLE_WEB_RERANKING &&
-    references.length > 0 &&
-    webResults.length > 0
-  ) {
+  if (features.webReranking && references.length > 0 && webResults.length > 0) {
     const originalAzureCount = references.length;
     const originalWebCount = webResults.length;
     const originalAzureMap = new Map(
@@ -282,7 +297,7 @@ export async function dispatchTools({ plan, messages, salience, emit, tools, pre
     emit?.('status', { stage: 'reranking' });
     let reranked = reciprocalRankFusion(references, webResults, config.RRF_K_CONSTANT);
 
-    if (config.ENABLE_SEMANTIC_BOOST) {
+    if (features.semanticBoost) {
       try {
         const queryEmbedding = await generateEmbedding(queryFallback);
         const documentEmbeddings = new Map<string, number[]>();

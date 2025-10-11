@@ -287,6 +287,102 @@ html,
   font-size: 16px;
 }
 
+.feature-panel {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feature-panel__header h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.feature-panel__header p {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.feature-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feature-panel__item {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+  padding: 12px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.feature-panel__item--disabled {
+  opacity: 0.6;
+}
+
+.feature-panel__label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.feature-panel__label input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+}
+
+.feature-panel__label-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feature-panel__description {
+  margin: 8px 0 0;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.feature-panel__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.feature-source {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.feature-source-config {
+  background: rgba(107, 114, 128, 0.16);
+  color: #374151;
+}
+
+.feature-source-persisted {
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+
+.feature-source-override {
+  background: rgba(37, 99, 235, 0.18);
+  color: #1d4ed8;
+}
+
 .badge {
   background: #2563eb;
   color: white;
@@ -442,6 +538,28 @@ html,
   overflow: auto;
   display: grid;
   gap: 12px;
+}
+
+.feature-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.feature-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 195, 253, 0.24);
+  background: rgba(148, 195, 253, 0.12);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
 }
 
 .plan-panel h4 {

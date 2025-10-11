@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { ChatInput } from './components/ChatInput';
@@ -7,15 +7,61 @@ import { SourcesPanel } from './components/SourcesPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { PlanPanel } from './components/PlanPanel';
 import { DocumentUpload } from './components/DocumentUpload';
+import { FeatureTogglePanel } from './components/FeatureTogglePanel';
 import { useChat } from './hooks/useChat';
 import { useChatStream } from './hooks/useChatStream';
-import type { AgentMessage } from './types';
+import type {
+  AgentMessage,
+  FeatureFlag,
+  FeatureOverrideMap,
+  FeatureSelectionMetadata,
+  FeatureSource
+} from './types';
 import './App.css';
 
 const SESSION_STORAGE_KEY = 'agent-rag:session-id';
+const FEATURE_STORAGE_PREFIX = 'agent-rag:feature-overrides:';
 const API_BASE = (import.meta.env.VITE_API_BASE ?? __API_BASE__) as string;
 
 const queryClient = new QueryClient();
+
+const FEATURE_FLAGS: FeatureFlag[] = [
+  'ENABLE_MULTI_INDEX_FEDERATION',
+  'ENABLE_LAZY_RETRIEVAL',
+  'ENABLE_SEMANTIC_SUMMARY',
+  'ENABLE_INTENT_ROUTING',
+  'ENABLE_SEMANTIC_MEMORY',
+  'ENABLE_QUERY_DECOMPOSITION',
+  'ENABLE_WEB_RERANKING',
+  'ENABLE_SEMANTIC_BOOST',
+  'ENABLE_RESPONSE_STORAGE'
+];
+
+function sanitizeFeatureMap(map?: FeatureOverrideMap | null): FeatureOverrideMap {
+  const sanitized: FeatureOverrideMap = {};
+  for (const flag of FEATURE_FLAGS) {
+    sanitized[flag] = map?.[flag] === true;
+  }
+  return sanitized;
+}
+
+function loadStoredFeatureSelections(sessionId: string): FeatureOverrideMap {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(`${FEATURE_STORAGE_PREFIX}${sessionId}`);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as FeatureOverrideMap;
+    return sanitizeFeatureMap(parsed);
+  } catch (error) {
+    console.warn('Failed to load stored feature toggles', error);
+    return {};
+  }
+}
 
 export default function App() {
   return (
@@ -50,9 +96,62 @@ function ChatApp() {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [mode, setMode] = useState<'sync' | 'stream'>('sync');
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [featureSelections, setFeatureSelections] = useState<FeatureOverrideMap>(() =>
+    loadStoredFeatureSelections(sessionId)
+  );
+  const [featureSources, setFeatureSources] = useState<Partial<Record<FeatureFlag, FeatureSource>>>({});
 
   const chatMutation = useChat();
   const stream = useChatStream();
+
+  const persistFeatureSelections = useCallback(
+    (next: FeatureOverrideMap) => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      try {
+        window.localStorage.setItem(`${FEATURE_STORAGE_PREFIX}${sessionId}`, JSON.stringify(next));
+      } catch (error) {
+        console.warn('Failed to persist feature toggles', error);
+      }
+    },
+    [sessionId]
+  );
+
+  const applyFeatureMetadata = useCallback(
+    (metadata?: FeatureSelectionMetadata) => {
+      if (!metadata?.resolved) {
+        return;
+      }
+      const sanitized = sanitizeFeatureMap(metadata.resolved);
+      setFeatureSelections(sanitized);
+      setFeatureSources(metadata.sources ?? {});
+      persistFeatureSelections(sanitized);
+    },
+    [persistFeatureSelections]
+  );
+
+  const handleFeatureToggle = useCallback(
+    (flag: FeatureFlag, value: boolean) => {
+      setFeatureSelections((prev) => {
+        const next = { ...prev, [flag]: value };
+        if (flag === 'ENABLE_WEB_RERANKING' && value === false) {
+          next.ENABLE_SEMANTIC_BOOST = false;
+        }
+        const sanitized = sanitizeFeatureMap(next);
+        persistFeatureSelections(sanitized);
+        return sanitized;
+      });
+      setFeatureSources((prev) => {
+        const next: Partial<Record<FeatureFlag, FeatureSource>> = { ...prev, [flag]: 'override' };
+        if (flag === 'ENABLE_WEB_RERANKING' && value === false) {
+          next.ENABLE_SEMANTIC_BOOST = 'override';
+        }
+        return next;
+      });
+    },
+    [persistFeatureSelections]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +188,12 @@ function ChatApp() {
     };
   }, [sessionId]);
 
+  useEffect(() => {
+    if (stream.features) {
+      applyFeatureMetadata(stream.features);
+    }
+  }, [stream.features, applyFeatureMetadata]);
+
   const handleSend = async (content: string) => {
     if (loadingHistory) {
       return;
@@ -98,14 +203,19 @@ function ChatApp() {
     setMessages(updated);
 
     if (mode === 'stream') {
-      const answer = await stream.stream(updated, sessionId);
+      const answer = await stream.stream(updated, sessionId, featureSelections);
       setMessages((prev) => [...prev, { role: 'assistant' as const, content: answer }]);
       stream.reset();
       return;
     }
 
-    const response = await chatMutation.mutateAsync({ messages: updated, sessionId });
+    const response = await chatMutation.mutateAsync({
+      messages: updated,
+      sessionId,
+      feature_overrides: featureSelections
+    });
     setMessages((prev) => [...prev, { role: 'assistant' as const, content: response.answer }]);
+    applyFeatureMetadata(response.metadata?.features);
   };
 
   const sidebar = useMemo(
@@ -157,6 +267,7 @@ function ChatApp() {
   const retrievalDetails = mode === 'stream' ? stream.retrieval : chatMutation.data?.metadata?.retrieval;
   const responsesDetails = mode === 'stream' ? stream.responses : chatMutation.data?.metadata?.responses;
   const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
+  const featureMetadata = mode === 'stream' ? stream.features : chatMutation.data?.metadata?.features;
 
   return (
     <div className="layout">
@@ -198,6 +309,12 @@ function ChatApp() {
         </section>
 
         <section className="sidebar-panel">
+          <FeatureTogglePanel
+            selections={featureSelections}
+            sources={featureSources}
+            disabled={isBusy}
+            onToggle={handleFeatureToggle}
+          />
           <SourcesPanel
             citations={sidebar.citations}
             isStreaming={mode === 'stream' ? stream.isStreaming : chatMutation.isPending}
@@ -220,6 +337,7 @@ function ChatApp() {
             retrieval={retrievalDetails}
             responses={responsesDetails}
             evaluation={evaluationDetails}
+            features={featureMetadata}
           />
         </section>
       </main>

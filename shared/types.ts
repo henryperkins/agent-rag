@@ -5,6 +5,34 @@ export interface AgentMessage {
   content: string;
 }
 
+export type FeatureFlag =
+  | 'ENABLE_MULTI_INDEX_FEDERATION'
+  | 'ENABLE_LAZY_RETRIEVAL'
+  | 'ENABLE_SEMANTIC_SUMMARY'
+  | 'ENABLE_INTENT_ROUTING'
+  | 'ENABLE_SEMANTIC_MEMORY'
+  | 'ENABLE_QUERY_DECOMPOSITION'
+  | 'ENABLE_WEB_RERANKING'
+  | 'ENABLE_SEMANTIC_BOOST'
+  | 'ENABLE_RESPONSE_STORAGE';
+
+export type FeatureOverrideMap = Partial<Record<FeatureFlag, boolean>>;
+
+export type FeatureSource = 'config' | 'persisted' | 'override';
+
+export interface FeatureSelectionMetadata {
+  resolved: Record<FeatureFlag, boolean>;
+  overrides?: FeatureOverrideMap;
+  persisted?: FeatureOverrideMap;
+  sources?: Record<FeatureFlag, FeatureSource>;
+}
+
+export interface ChatRequestPayload {
+  messages: AgentMessage[];
+  sessionId?: string;
+  feature_overrides?: FeatureOverrideMap;
+}
+
 export interface Reference {
   id?: string;
   title?: string;
@@ -175,6 +203,7 @@ export interface ChatResponse {
   citations: Reference[];
   activity: ActivityStep[];
   metadata?: {
+    features?: FeatureSelectionMetadata;
     retrieval_time_ms?: number;
     critic_iterations?: number;
     plan?: PlanSummary;
@@ -313,7 +342,13 @@ export interface SessionTrace {
 }
 
 export interface OrchestratorTools {
-  retrieve: (args: { query: string; filter?: string; top?: number; messages?: AgentMessage[] }) => Promise<AgenticRetrievalResponse>;
+  retrieve: (args: {
+    query: string;
+    filter?: string;
+    top?: number;
+    messages?: AgentMessage[];
+    features?: FeatureOverrideMap;
+  }) => Promise<AgenticRetrievalResponse>;
   lazyRetrieve?: (args: { query: string; filter?: string; top?: number }) => Promise<AgenticRetrievalResponse>;
   webSearch: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
   answer: (args: {
@@ -326,6 +361,7 @@ export interface OrchestratorTools {
     systemPrompt?: string;
     temperature?: number;
     previousResponseId?: string;
+    features?: FeatureOverrideMap;
   }) => Promise<{ answer: string; citations?: Reference[]; responseId?: string }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
 }

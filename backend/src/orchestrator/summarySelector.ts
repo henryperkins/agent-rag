@@ -82,9 +82,11 @@ function buildStats(options: {
 export async function selectSummaryBullets(
   query: string,
   candidates: SummaryBullet[],
-  maxItems: number
+  maxItems: number,
+  options: { semanticEnabled?: boolean } = {}
 ): Promise<SummarySelection> {
   const normalizedCandidates = dedupeCandidates(candidates);
+  const useSemantic = options.semanticEnabled ?? config.ENABLE_SEMANTIC_SUMMARY;
 
   if (!normalizedCandidates.length || maxItems <= 0) {
     return {
@@ -99,7 +101,7 @@ export async function selectSummaryBullets(
     };
   }
 
-  if (!config.ENABLE_SEMANTIC_SUMMARY || !query?.trim()) {
+  if (!useSemantic || !query?.trim()) {
     const fallback = fallbackRecency(normalizedCandidates, maxItems);
     return {
       selected: fallback,

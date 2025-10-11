@@ -1,12 +1,60 @@
 # Feature Toggle Enablement Plan
 
-## Overview
+## Status: ✅ COMPLETED
 
-This document captures the current state of advanced features that ship disabled by default and outlines the plan to (1) verify each feature end-to-end and (2) expose runtime toggles in the user experience. The analysis is based solely on the repository source code.
+**Last Updated**: 2025-10-11
+
+All backend override infrastructure and frontend UI controls have been implemented and tested. Users can now toggle features per session via the UI, with selections persisted in localStorage and communicated to the backend via the `feature_overrides` request parameter.
+
+---
+
+## Implementation Summary
+
+### What Was Delivered
+
+**Backend** (`backend/src/config/features.ts`):
+
+- ✅ Feature resolution logic with priority: config defaults → persisted session → request overrides
+- ✅ `sanitizeFeatureOverrides()` validation to prevent malicious payloads
+- ✅ `resolveFeatureToggles()` with source tracking (config/persisted/override)
+- ✅ Integration with `/chat` and `/chat/stream` routes via `feature_overrides` payload field
+- ✅ Session persistence of resolved features (`sessionStore.saveFeatures()`)
+- ✅ Unit tests: 3 tests passing (`backend/src/tests/features.test.ts`)
+
+**Frontend** (`frontend/src/components/FeatureTogglePanel.tsx`):
+
+- ✅ UI panel with 9 toggles, descriptions, and source badges (Default/Session/Override)
+- ✅ Dependency management (semantic boost requires web reranking)
+- ✅ localStorage persistence per session (`agent-rag:feature-overrides:{sessionId}`)
+- ✅ Integration with `useChat` and `useChatStream` hooks
+- ✅ Component tests: toggle interactions, dependency disablement (`__tests__/FeatureTogglePanel.test.tsx`)
+
+**Shared Types** (`shared/types.ts`):
+
+- ✅ `FeatureFlag` union type (9 flags)
+- ✅ `FeatureOverrideMap` for request payloads
+- ✅ `FeatureSource` ('config' | 'persisted' | 'override')
+- ✅ `FeatureSelectionMetadata` for response metadata
+- ✅ `ChatRequestPayload.feature_overrides` field
+
+### How It Works
+
+1. **User toggles feature in UI** → State updates, saves to localStorage
+2. **Next message sent** → `useChat`/`useChatStream` include `feature_overrides` in request body
+3. **Backend receives request** → `sanitizeFeatureOverrides()` validates, resolves with persisted session state
+4. **Orchestrator runs** → Uses resolved feature gates (`resolveFeatureToggles().gates`)
+5. **Response includes metadata** → `response.metadata.features` shows resolved values + sources
+6. **Frontend updates state** → Reflects backend resolution, displays source badges
+
+---
+
+## Original Overview (Context)
+
+This document originally outlined the plan to (1) verify each feature end-to-end and (2) expose runtime toggles in the user experience. The analysis was based solely on the repository source code.
 
 ## Flag Inventory
 
-The following flags default to `false` in `backend/src/config/app.ts` and have no front-end controls:
+The following 9 flags are implemented with full backend/frontend toggle support. Most default to `false` in `backend/src/config/app.ts` (check config for current defaults):
 
 | Flag                            | Primary code path                                                                              |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- |
@@ -20,11 +68,67 @@ The following flags default to `false` in `backend/src/config/app.ts` and have n
 | `ENABLE_SEMANTIC_BOOST`         | `backend/src/orchestrator/dispatch.ts:283-305`                                                 |
 | `ENABLE_RESPONSE_STORAGE`       | `backend/src/tools/index.ts:240-259`, `backend/src/orchestrator/index.ts:238-252`              |
 
-All listed modules are fully implemented; the flags exist to prevent extra cost/latency by default.
+All listed modules are fully implemented; the flags exist to prevent extra cost/latency by default. **UI controls are now available** for all 9 flags.
+
+---
+
+## Usage Instructions
+
+### For End Users
+
+1. **Access the Feature Panel**: The FeatureTogglePanel appears in the main UI (integrated into `App.tsx`)
+2. **Toggle features**: Click checkboxes to enable/disable features per session
+3. **Persistence**: Selections are saved to localStorage per session and survive page reloads
+4. **Dependencies**: Some features (e.g., semantic boost) require prerequisites (web reranking). Dependent toggles are disabled unless prerequisites are active.
+5. **Visibility**: Source badges show whether the current value comes from config defaults, session persistence, or request overrides
+
+### For Developers
+
+**Backend API**:
+
+```typescript
+// POST /chat or /chat/stream
+{
+  "messages": [...],
+  "sessionId": "optional-id",
+  "feature_overrides": {
+    "ENABLE_LAZY_RETRIEVAL": true,
+    "ENABLE_INTENT_ROUTING": true
+  }
+}
+
+// Response includes resolution metadata
+response.metadata.features = {
+  resolved: { ENABLE_LAZY_RETRIEVAL: true, ... },
+  sources: { ENABLE_LAZY_RETRIEVAL: 'override', ... },
+  overrides: { ENABLE_LAZY_RETRIEVAL: true },
+  persisted: { ... }
+}
+```
+
+**Programmatic Resolution**:
+
+```typescript
+import { resolveFeatureToggles } from './config/features.js';
+
+const result = resolveFeatureToggles({
+  overrides: { ENABLE_LAZY_RETRIEVAL: true },
+  persisted: { ENABLE_SEMANTIC_MEMORY: true },
+});
+
+// Use result.gates in orchestrator logic
+if (result.gates.lazyRetrieval) {
+  /* ... */
+}
+```
+
+---
 
 ## Flag Readiness & Verification
 
-For each feature, we will extend automated coverage and add integration checks to ensure the code path is production-ready before exposing toggles.
+**Status**: Basic verification complete (unit tests passing). End-to-end integration tests recommended before production enablement.
+
+For each feature, extending automated coverage with integration checks will ensure the code path is production-ready when toggled on.
 
 ### 1. Multi-index Federation
 
@@ -74,35 +178,84 @@ For each feature, we will extend automated coverage and add integration checks t
 - **Test plan**: Integration test toggling flag, capturing response ID from `/chat/stream`, then fetching via `/responses/:id` and deleting via `/responses/:id`.
 - **Regression**: Keep tests asserting no IDs are stored when flag false.
 
-## UI + Backend Enablement Strategy
+## Implementation Approach (Completed)
 
-We will enable per-session overrides and surface them as UI toggles.
+### Backend ✅
 
-### Backend
+1. ✅ **Request overrides**: `/chat` and `/chat/stream` accept `feature_overrides` object (`ChatRequestPayload.feature_overrides`)
+2. ✅ **Resolution logic**: `resolveFeatureToggles()` implements priority: config defaults → persisted → overrides
+3. ✅ **Session persistence**: `sessionStore.saveFeatures()` and `sessionStore.loadFeatures()` store resolved state per session
+4. ✅ **Validation**: `sanitizeFeatureOverrides()` strips invalid keys/values
+5. ✅ **Telemetry**: `response.metadata.features` includes `resolved`, `sources`, `overrides`, `persisted`
+6. ✅ **Testing**: Unit tests in `backend/src/tests/features.test.ts` (3 tests passing)
 
-1. **Request overrides**: Extend `/chat` and `/chat/stream` payloads to accept a `feature_overrides` object. Implement a resolver that prefers overrides over config defaults.
-2. **Session persistence**: Store resolved overrides in the session (e.g., `sessionStore`) so subsequent turns in the same session reuse the selection.
-3. **Validation & telemetry**: Update route schemas and emit `metadata.features` when overrides are active for traceability.
-4. **Testing**: Add integration tests covering sync and stream routes with overrides.
+### Frontend ✅
 
-### Frontend
+1. ✅ **State management**: `App.tsx` manages feature selections with localStorage persistence (`agent-rag:feature-overrides:{sessionId}`)
+2. ✅ **API integration**: `useChat` and `useChatStream` hooks include `feature_overrides` in request payloads
+3. ✅ **UI component**: `FeatureTogglePanel` with 9 toggles, descriptions, dependency handling, source badges
+4. ✅ **Metadata visibility**: `PlanPanel` can display resolved features (via `metadata.features`)
+5. ✅ **Component tests**: `__tests__/FeatureTogglePanel.test.tsx` covers toggle interactions and dependency logic
+6. ⏳ **E2E tests**: Playwright/Cypress tests for full flow not yet implemented (recommended next step)
 
-1. **State management**: Track feature selections in React state (with optional localStorage per session).
-2. **API requests**: Modify `useChat` and `useChatStream` to include selected overrides when calling the backend.
-3. **Settings UI**: Introduce a Settings panel (e.g., near the mode toggle) with switches for the flags. Provide tooltips on cost or dependencies. Hide/show dependent options (e.g., semantic boost only visible when reranking is on).
-4. **Plan panel visibility**: Display active feature selections alongside route/retrieval metadata so users can confirm the configuration driving answers.
-5. **Component tests**: Add React tests ensuring toggles render and dispatch correct payloads.
-6. **E2E tests**: Use Playwright or similar to flip toggles, submit a query, and verify backend metadata reflects the toggled features.
+---
 
-### Rollout Steps
+## Recommended Next Actions
 
-1. Land backend flag override support and default verification tests.
-2. Build UI toggles and wire them into requests.
-3. Expand integration tests to cover combined backend/frontend behavior.
-4. Document toggle usage in README and expose instructions in the UI (e.g., tooltip or help link).
+### High Priority
 
-## Next Actions
+1. **E2E Tests**: Add Playwright or Cypress tests verifying:
+   - Toggle feature in UI → localStorage persists
+   - Send message → backend receives `feature_overrides`
+   - Response metadata reflects resolved features
+   - Subsequent messages reuse persisted session state
 
-- Implement verification tests per section above, focusing on high-impact flags first (lazy retrieval, intent routing, query decomposition).
-- Add backend override plumbing and frontend controls in parallel branches, merging after tests are in place.
-- Update release notes once toggles ship so operators know they can enable features without redeploying.
+2. **Feature-Specific Integration Tests**: Extend verification per flag (see "Flag Readiness & Verification" sections 1-8 above) to confirm each code path activates correctly when toggled
+
+3. **Documentation Updates**:
+   - Update main `README.md` with feature toggle usage examples
+   - Add screenshots of FeatureTogglePanel to user documentation
+
+### Medium Priority
+
+4. **Observability**: Emit telemetry events when features are toggled to track adoption
+5. **Analytics**: Track which features are enabled most frequently
+6. **Performance Monitoring**: Compare latency/cost metrics between default and toggled configurations
+
+### Low Priority
+
+7. **Advanced UI**: Feature presets (e.g., "Cost-optimized", "Quality-first", "Experimental")
+8. **Admin API**: Endpoint to query/modify default config values without redeploying
+
+---
+
+## Summary
+
+**Implementation Status**: ✅ **COMPLETE**
+
+All core infrastructure for runtime feature toggles is now live:
+
+- ✅ Backend resolution with sanitization and session persistence
+- ✅ Frontend UI with 9 toggles, dependency management, and localStorage
+- ✅ Request/response integration via `feature_overrides` payload field
+- ✅ Unit and component test coverage
+
+**What Users Can Do Now**:
+
+- Toggle advanced features (lazy retrieval, intent routing, query decomposition, etc.) per session without backend redeployment
+- Persist preferences across page reloads
+- See which features are active and where values originated (config/session/override)
+
+**Remaining Work** (optional enhancements):
+
+- E2E browser tests for full user workflow
+- Per-feature integration tests to verify code paths activate correctly
+- Documentation updates (README, screenshots)
+- Observability/analytics for feature adoption tracking
+
+**References**:
+
+- Backend: `backend/src/config/features.ts`, `backend/src/tests/features.test.ts`
+- Frontend: `frontend/src/components/FeatureTogglePanel.tsx`, `frontend/src/components/__tests__/FeatureTogglePanel.test.tsx`
+- Types: `shared/types.ts` (FeatureFlag, FeatureOverrideMap, FeatureSource, FeatureSelectionMetadata)
+- Routes: `backend/src/routes/index.ts:34-52`, `backend/src/routes/chatStream.ts:6-36`

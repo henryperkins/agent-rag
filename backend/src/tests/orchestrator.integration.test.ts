@@ -13,6 +13,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 import { clearSessionTelemetry, getSessionTelemetry } from '../orchestrator/sessionTelemetryStore.js';
+import { sessionStore } from '../services/sessionStore.js';
 
 const toolMocks = {
   retrieve: vi.fn(),
@@ -67,6 +68,7 @@ beforeEach(() => {
   (openaiClient.createResponseStream as unknown as Mock).mockReset();
   (openaiClient.createEmbeddings as unknown as Mock).mockReset();
   clearSessionTelemetry();
+  sessionStore.clearAll();
 });
 
 describe('orchestrator integration via /chat route', () => {
@@ -364,6 +366,7 @@ describe('orchestrator integration via /chat route', () => {
         return { event, data };
       });
 
+    expect(events.some((entry) => entry.event === 'features')).toBe(true);
     const statusStages = events.filter((entry) => entry.event === 'status').map((entry) => entry.data.stage);
     expect(statusStages[0]).toBe('intent_classification');
     expect(statusStages).toContain('context');
@@ -379,5 +382,75 @@ describe('orchestrator integration via /chat route', () => {
     const completeEvent = events.find((entry) => entry.event === 'complete');
     expect(completeEvent?.data.answer).toBe('Final answer [1]');
     expect(events.some((entry) => entry.event === 'done')).toBe(true);
+  });
+
+  it('applies feature overrides and persists resolved selections per session', async () => {
+    plannerMock.mockResolvedValueOnce({
+      confidence: 0.82,
+      steps: [{ action: 'vector_search' }]
+    });
+
+    toolMocks.retrieve.mockResolvedValueOnce({
+      response: 'Federated search snippet',
+      references: [
+        {
+          id: 'doc-federated',
+          title: 'Federated result',
+          content: 'Federated body'
+        }
+      ],
+      activity: []
+    });
+
+    toolMocks.answer.mockResolvedValueOnce({
+      answer: 'Federated answer. [1]'
+    });
+
+    toolMocks.critic.mockResolvedValueOnce({
+      grounded: true,
+      coverage: 0.9,
+      action: 'accept',
+      issues: []
+    });
+
+    const app = Fastify({ logger: false });
+    await registerRoutes(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/chat',
+      payload: {
+        sessionId: 'feature-session',
+        messages: [{ role: 'user', content: 'Demonstrate feature toggles.' }],
+        feature_overrides: {
+          ENABLE_MULTI_INDEX_FEDERATION: true,
+          ENABLE_LAZY_RETRIEVAL: true,
+          ENABLE_RESPONSE_STORAGE: true,
+          ENABLE_INTENT_ROUTING: true
+        }
+      }
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+
+    expect(toolMocks.answer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        features: expect.objectContaining({
+          ENABLE_RESPONSE_STORAGE: true
+        })
+      })
+    );
+
+    const body = response.json();
+    expect(body.metadata?.features?.resolved.ENABLE_MULTI_INDEX_FEDERATION).toBe(true);
+    expect(body.metadata?.features?.overrides?.ENABLE_LAZY_RETRIEVAL).toBe(true);
+    expect(body.metadata?.features?.sources?.ENABLE_LAZY_RETRIEVAL).toBe('override');
+    expect(body.metadata?.features?.sources?.ENABLE_MULTI_INDEX_FEDERATION).toBe('override');
+
+    const stored = sessionStore.loadFeatures('feature-session');
+    expect(stored?.features.ENABLE_MULTI_INDEX_FEDERATION).toBe(true);
+    expect(stored?.features.ENABLE_LAZY_RETRIEVAL).toBe(true);
+    expect(stored?.features.ENABLE_RESPONSE_STORAGE).toBe(true);
   });
 });

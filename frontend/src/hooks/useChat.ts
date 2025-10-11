@@ -1,17 +1,23 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { apiClient } from '../api/client';
-import type { AgentMessage, ChatResponse } from '../types';
+import type { AgentMessage, ChatResponse, FeatureOverrideMap } from '../types';
 
 export function useChat() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationKey: ['chat'],
-    mutationFn: async (payload: { messages: AgentMessage[]; sessionId: string }) => {
+    mutationFn: async (payload: {
+      messages: AgentMessage[];
+      sessionId: string;
+      feature_overrides?: FeatureOverrideMap;
+    }) => {
+      const { messages, sessionId, feature_overrides } = payload;
       const { data } = await apiClient.post<ChatResponse>('/chat', {
-        messages: payload.messages,
-        sessionId: payload.sessionId
+        messages,
+        sessionId,
+        feature_overrides
       });
       return data;
     },

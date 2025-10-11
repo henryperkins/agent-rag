@@ -61,7 +61,7 @@ const envSchema = z.object({
   ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
   ENABLE_INTENT_ROUTING: z.coerce.boolean().default(false),
   INTENT_CLASSIFIER_MODEL: z.string().default('gpt-4o-mini'),
-  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(10),
+  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(100),
   MODEL_FAQ: z.string().default('gpt-4o-mini'),
   MODEL_RESEARCH: z.string().default('gpt-4o'),
   MODEL_FACTUAL: z.string().default('gpt-4o-mini'),

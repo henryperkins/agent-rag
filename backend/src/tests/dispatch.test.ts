@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { dispatchTools } from '../orchestrator/dispatch.js';
+import { resolveFeatureToggles } from '../config/features.js';
 import type { AgentMessage, PlanSummary } from '../../../shared/types.js';
 
 describe('dispatchTools confidence escalation', () => {
@@ -42,6 +43,7 @@ describe('dispatchTools confidence escalation', () => {
     });
 
     const events: Array<{ event: string; data: unknown }> = [];
+    const { gates, resolved } = resolveFeatureToggles();
     const result = await dispatchTools({
       plan,
       messages,
@@ -49,7 +51,9 @@ describe('dispatchTools confidence escalation', () => {
       emit: (event, data) => {
         events.push({ event, data });
       },
-      tools: { retrieve, lazyRetrieve, webSearch }
+      tools: { retrieve, lazyRetrieve, webSearch },
+      features: gates,
+      featureStates: resolved
     });
 
     // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
@@ -93,6 +97,7 @@ describe('dispatchTools confidence escalation', () => {
 
     const webSearch = vi.fn();
     const events: Array<{ event: string; data: unknown }> = [];
+    const { gates, resolved } = resolveFeatureToggles();
 
     const result = await dispatchTools({
       plan,
@@ -101,7 +106,9 @@ describe('dispatchTools confidence escalation', () => {
       emit: (event, data) => {
         events.push({ event, data });
       },
-      tools: { retrieve, lazyRetrieve, webSearch }
+      tools: { retrieve, lazyRetrieve, webSearch },
+      features: gates,
+      featureStates: resolved
     });
 
     // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config

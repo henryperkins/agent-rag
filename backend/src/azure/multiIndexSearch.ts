@@ -30,7 +30,7 @@ function parseRawIndexConfig(raw: string): IndexConfig[] {
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
       return parsed
-        .map((entry) => {
+        .map((entry): IndexConfig | null => {
           if (!entry || typeof entry !== 'object') {
             return null;
           }
@@ -41,9 +41,16 @@ function parseRawIndexConfig(raw: string): IndexConfig[] {
           const weight = typeof entry.weight === 'number' && entry.weight > 0 ? entry.weight : 1;
           const type = typeof entry.type === 'string' ? entry.type : undefined;
           const description = typeof entry.description === 'string' ? entry.description : undefined;
-          return { name, weight, type, description };
+          const config: IndexConfig = { name, weight };
+          if (type) {
+            config.type = type;
+          }
+          if (description) {
+            config.description = description;
+          }
+          return config;
         })
-        .filter((entry): entry is IndexConfig => Boolean(entry));
+        .filter((entry): entry is IndexConfig => entry !== null);
     }
   } catch {
     // fall through to legacy parsing
@@ -54,19 +61,22 @@ function parseRawIndexConfig(raw: string): IndexConfig[] {
     .split(';')
     .map((segment) => segment.trim())
     .filter(Boolean)
-    .map((segment) => {
+    .map((segment): IndexConfig | null => {
       const [name, weightRaw, type] = segment.split(':').map((part) => part.trim());
       if (!name) {
         return null;
       }
       const weight = weightRaw ? Number(weightRaw) : 1;
-      return {
+      const config: IndexConfig = {
         name,
-        weight: Number.isFinite(weight) && weight > 0 ? weight : 1,
-        type: type || undefined
-      } satisfies IndexConfig;
+        weight: Number.isFinite(weight) && weight > 0 ? weight : 1
+      };
+      if (type) {
+        config.type = type;
+      }
+      return config;
     })
-    .filter((entry): entry is IndexConfig => Boolean(entry));
+    .filter((entry): entry is IndexConfig => entry !== null);
 }
 
 function resolveFederatedIndexes(): IndexConfig[] {

@@ -10,7 +10,9 @@ import type {
   RouteMetadata,
   SessionEvaluation,
   SessionTrace,
-  WebResult
+  WebResult,
+  FeatureOverrideMap,
+  FeatureSelectionMetadata
 } from '../../../shared/types.js';
 import { compactHistory } from './compact.js';
 import type { SalienceNote } from './compact.js';
@@ -33,6 +35,7 @@ import { classifyIntent, getRouteConfig } from './router.js';
 import type { RouteConfig } from './router.js';
 import { loadFullContent, identifyLoadCandidates } from '../azure/lazyRetrieval.js';
 import { trackCitationUsage } from './citationTracker.js';
+import { resolveFeatureToggles, type FeatureGates } from '../config/features.js';
 
 type ExecMode = 'sync' | 'stream';
 
@@ -42,6 +45,8 @@ export interface RunSessionOptions {
   sessionId: string;
   emit?: (event: string, data: unknown) => void;
   tools?: Partial<OrchestratorTools>;
+  featureOverrides?: FeatureOverrideMap | null;
+  persistedFeatures?: FeatureOverrideMap | null;
 }
 
 const defaultTools: OrchestratorTools = {
@@ -124,6 +129,7 @@ async function generateAnswer(
   tools: OrchestratorTools,
   routeConfig: RouteConfig,
   modelDeployment: string,
+  featureStates: FeatureOverrideMap,
   emit?: (event: string, data: unknown) => void,
   revisionNotes?: string[],
   lazyRefs: LazyReference[] = [],
@@ -417,7 +423,8 @@ async function generateAnswer(
     maxTokens: routeConfig.maxTokens,
     systemPrompt: basePrompt,
     temperature: 0.4,
-    previousResponseId
+    previousResponseId,
+    features: featureStates
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
@@ -428,7 +435,8 @@ async function buildContextSections(
   compacted: Awaited<ReturnType<typeof compactHistory>>,
   memorySummary: SummaryBullet[],
   memorySalience: SalienceNote[],
-  question: string
+  question: string,
+  features: FeatureGates
 ) {
   const historyText = compacted.latest.map((m) => `${m.role}: ${m.content}`).join('\n');
 
@@ -451,11 +459,9 @@ async function buildContextSections(
   }
 
   const summaryCandidates = Array.from(candidateMap.values());
-  const selection = await selectSummaryBullets(
-    question,
-    summaryCandidates,
-    config.CONTEXT_MAX_SUMMARY_ITEMS
-  );
+  const selection = await selectSummaryBullets(question, summaryCandidates, config.CONTEXT_MAX_SUMMARY_ITEMS, {
+    semanticEnabled: features.semanticSummary
+  });
 
   const combinedSummary = selection.selected.map((item) => `- ${item.text}`).join('\n');
   const combinedSalience = mergeSalienceForContext(memorySalience, compacted.salience)
@@ -474,10 +480,32 @@ async function buildContextSections(
 
 export async function runSession(options: RunSessionOptions): Promise<ChatResponse> {
   const { messages, mode, emit } = options;
+  const featureResolution = resolveFeatureToggles({
+    overrides: options.featureOverrides,
+    persisted: options.persistedFeatures
+  });
+  const features = featureResolution.gates;
+  const featureMetadata: FeatureSelectionMetadata = {
+    resolved: featureResolution.resolved
+  };
+  if (featureResolution.overrides) {
+    featureMetadata.overrides = featureResolution.overrides;
+  }
+  if (featureResolution.persisted) {
+    featureMetadata.persisted = featureResolution.persisted;
+  }
+  featureMetadata.sources = featureResolution.sources;
+
   const tools: OrchestratorTools = {
     ...defaultTools,
     ...(options.tools ?? {})
   };
+  emit?.('features', {
+    resolved: featureResolution.resolved,
+    sources: featureResolution.sources,
+    overrides: featureResolution.overrides,
+    persisted: featureResolution.persisted
+  });
 
   const startedAt = Date.now();
 
@@ -495,10 +523,14 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     try {
       const question = latestQuestion(messages);
       emit?.('status', { stage: 'intent_classification' });
-      const { intent, confidence: intentConfidence, reasoning: intentReasoning } = await traced(
-        'agent.intent_resolution',
-        () => classifyIntent(question, messages.slice(-6))
-      );
+      const intentResult = features.intentRouting
+        ? await traced('agent.intent_resolution', () => classifyIntent(question, messages.slice(-6), { enabled: true }))
+        : {
+            intent: 'research',
+            confidence: 1,
+            reasoning: 'Intent routing disabled'
+          };
+      const { intent, confidence: intentConfidence, reasoning: intentReasoning } = intentResult;
       const routeConfig = getRouteConfig(intent);
       const routeMetadata: RouteMetadata = {
         intent,
@@ -518,8 +550,13 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
 
       const compacted = await traced('agent.state.compaction', () => compactHistory(messages));
       const memorySnapshot = loadMemory(options.sessionId);
-      const { historyText, summaryText, salienceText, summaryCandidates, summaryStats } =
-        await buildContextSections(compacted, memorySnapshot.summaryBullets, memorySnapshot.salience, question);
+      const { historyText, summaryText, salienceText, summaryCandidates, summaryStats } = await buildContextSections(
+        compacted,
+        memorySnapshot.summaryBullets,
+        memorySnapshot.salience,
+        question,
+        features
+      );
       upsertMemory(options.sessionId, messages.length, compacted, summaryCandidates);
 
       const summarySection = summaryText;
@@ -528,7 +565,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       let memoryContextAugmented = '';
       let recalledMemories: Awaited<ReturnType<typeof semanticMemoryStore.recallMemories>> = [];
 
-      if (config.ENABLE_SEMANTIC_MEMORY && question.trim()) {
+      if (features.semanticMemory && question.trim()) {
         recalledMemories = await semanticMemoryStore.recallMemories(question, {
           k: config.SEMANTIC_MEMORY_RECALL_K,
           sessionId: options.sessionId,
@@ -603,7 +640,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       });
       emit?.('plan', plan);
 
-      if (config.ENABLE_QUERY_DECOMPOSITION && question.trim()) {
+      if (features.queryDecomposition && question.trim()) {
         emit?.('status', { stage: 'complexity_assessment' });
         complexityAssessment = await assessComplexity(question);
         emit?.('complexity', {
@@ -678,32 +715,34 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
             contextText: decompositionContextText,
             references: decompositionReferences,
             lazyReferences: [],
-        activity: decompositionActivity,
-        webResults: decompositionWebResults,
-        webContextText: '',
-        webContextTokens: 0,
-        webContextTrimmed: false,
-        summaryTokens: undefined,
-        source: 'direct' as const,
-        retrievalMode: 'direct' as const,
-        escalated: false
-      };
-    }
+            activity: decompositionActivity,
+            webResults: decompositionWebResults,
+            webContextText: '',
+            webContextTokens: 0,
+            webContextTrimmed: false,
+            summaryTokens: undefined,
+            source: 'direct' as const,
+            retrievalMode: 'direct' as const,
+            escalated: false
+          };
+        }
 
-    const result = await dispatchTools({
-      plan,
-      messages,
-      salience: compacted.salience,
-      emit,
-      preferLazy: config.ENABLE_LAZY_RETRIEVAL && routeConfig.retrieverStrategy !== 'web',
-      tools
-    });
-    const span = trace.getActiveSpan();
-    span?.setAttribute('retrieval.references', result.references.length);
-    span?.setAttribute('retrieval.web_results', result.webResults.length);
-    span?.setAttribute('retrieval.escalated', result.escalated);
-    return result;
-  });
+        const result = await dispatchTools({
+          plan,
+          messages,
+          salience: compacted.salience,
+          emit,
+          preferLazy: features.lazyRetrieval && routeConfig.retrieverStrategy !== 'web',
+          tools,
+          features,
+          featureStates: featureMetadata.resolved
+        });
+        const span = trace.getActiveSpan();
+        span?.setAttribute('retrieval.references', result.references.length);
+        span?.setAttribute('retrieval.web_results', result.webResults.length);
+        span?.setAttribute('retrieval.escalated', result.escalated);
+        return result;
+      });
   emit?.('tool', {
     references: dispatch.references.length,
     webResults: dispatch.webResults.length
@@ -795,6 +834,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
           tools,
           routeConfig,
           modelDeployment,
+          featureMetadata.resolved,
           emit,
           revisionNotes,
           lazyReferenceState,
@@ -848,7 +888,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       if (
         lazyRetrievalEnabled &&
         !answerResult.usedFullContent &&
-        config.ENABLE_LAZY_RETRIEVAL &&
+        features.lazyRetrieval &&
         lazyLoadAttempts < MAX_LAZY_LOAD_ATTEMPTS &&
         (criticResult.coverage < config.LAZY_LOAD_THRESHOLD || (criticResult.issues?.length ?? 0) > 0)
       ) {
@@ -892,6 +932,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         tools,
         routeConfig,
         modelDeployment,
+        featureMetadata.resolved,
         emit,
         undefined,
         lazyReferenceState,
@@ -1000,6 +1041,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     citations: dispatch.references,
     activity: dispatch.activity,
     metadata: {
+      features: featureMetadata,
       retrieval_time_ms: undefined,
       critic_iterations: attempt + 1,
       plan: telemetrySnapshot.plan,
@@ -1067,7 +1109,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   emit?.('trace', { session: sessionTrace });
   emit?.('done', { status: 'complete' });
 
-      if (config.ENABLE_CITATION_TRACKING && config.ENABLE_SEMANTIC_MEMORY && !answer.startsWith('I do not know')) {
+  if (config.ENABLE_CITATION_TRACKING && features.semanticMemory && !answer.startsWith('I do not know')) {
     try {
       await trackCitationUsage(answer, dispatch.references, question, options.sessionId);
     } catch (error) {
@@ -1075,8 +1117,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     }
   }
 
-      if (
-    config.ENABLE_SEMANTIC_MEMORY &&
+  if (
+    features.semanticMemory &&
     question.trim() &&
     answer.trim() &&
     !answer.trim().startsWith('I do not know')

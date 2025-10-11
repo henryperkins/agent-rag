@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { AgentMessage } from '../../../shared/types.js';
+import type { AgentMessage, FeatureOverrideMap } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import type { SalienceNote } from '../orchestrator/compact.js';
+import { sanitizeFeatureOverrides } from '../config/features.js';
 
 export interface StoredSummaryBullet {
   text: string;
@@ -24,6 +25,12 @@ export interface SessionMemorySnapshot {
   updatedAt: string;
 }
 
+export interface SessionFeatureSnapshot {
+  sessionId: string;
+  features: FeatureOverrideMap;
+  updatedAt: string;
+}
+
 function ensureDirectory(path: string) {
   const dir = dirname(path);
   if (!existsSync(dir)) {
@@ -34,6 +41,7 @@ function ensureDirectory(path: string) {
 interface MemoryFallbackState {
   transcripts: Map<string, SessionSnapshot>;
   memories: Map<string, SessionMemorySnapshot>;
+  features: Map<string, SessionFeatureSnapshot>;
 }
 
 export class SessionStore {
@@ -52,7 +60,8 @@ export class SessionStore {
       console.warn('SessionStore: falling back to in-memory storage (better-sqlite3 unavailable)', error);
       this.fallback = {
         transcripts: new Map(),
-        memories: new Map()
+        memories: new Map(),
+        features: new Map()
       };
     }
   }
@@ -74,6 +83,12 @@ export class SessionStore {
         summary TEXT NOT NULL,
         salience TEXT NOT NULL,
         turn INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS session_features (
+        session_id TEXT PRIMARY KEY,
+        features TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     `);
@@ -124,9 +139,7 @@ export class SessionStore {
     }
 
     const row = this.db
-      .prepare<[{ session_id: string; messages: string; updated_at: string }]>(
-        `SELECT session_id, messages, updated_at FROM session_transcripts WHERE session_id = ?`
-      )
+      .prepare(`SELECT session_id, messages, updated_at FROM session_transcripts WHERE session_id = ?`)
       .get(sessionId) as { session_id: string; messages: string; updated_at: string } | undefined;
 
     if (!row) {
@@ -203,9 +216,7 @@ export class SessionStore {
     }
 
     const row = this.db
-      .prepare<[{ session_id: string; summary: string; salience: string; turn: number; updated_at: string }]>(
-        `SELECT session_id, summary, salience, turn, updated_at FROM session_memory WHERE session_id = ?`
-      )
+      .prepare(`SELECT session_id, summary, salience, turn, updated_at FROM session_memory WHERE session_id = ?`)
       .get(sessionId) as
       | { session_id: string; summary: string; salience: string; turn: number; updated_at: string }
       | undefined;
@@ -230,6 +241,72 @@ export class SessionStore {
     }
   }
 
+  saveFeatures(sessionId: string, features: FeatureOverrideMap): void {
+    if (!sessionId?.trim()) {
+      return;
+    }
+
+    const sanitized = sanitizeFeatureOverrides(features) ?? {};
+    const payload = JSON.stringify(sanitized);
+    const updatedAt = new Date().toISOString();
+
+    if (this.fallback) {
+      this.fallback.features.set(sessionId, { sessionId, features: sanitized, updatedAt });
+      return;
+    }
+
+    if (!this.db) {
+      return;
+    }
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO session_features (session_id, features, updated_at)
+          VALUES (@sessionId, @features, @updatedAt)
+          ON CONFLICT(session_id) DO UPDATE SET
+            features = excluded.features,
+            updated_at = excluded.updated_at
+        `
+      )
+      .run({ sessionId, features: payload, updatedAt });
+  }
+
+  loadFeatures(sessionId: string): SessionFeatureSnapshot | null {
+    if (!sessionId?.trim()) {
+      return null;
+    }
+
+    if (this.fallback) {
+      return this.fallback.features.get(sessionId) ?? null;
+    }
+
+    if (!this.db) {
+      return null;
+    }
+
+    const row = this.db
+      .prepare(`SELECT session_id, features, updated_at FROM session_features WHERE session_id = ?`)
+      .get(sessionId) as { session_id: string; features: string; updated_at: string } | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(row.features) as FeatureOverrideMap;
+      const sanitized = sanitizeFeatureOverrides(parsed) ?? {};
+      return {
+        sessionId: row.session_id,
+        features: sanitized,
+        updatedAt: row.updated_at
+      };
+    } catch (error) {
+      console.warn(`Failed to parse feature overrides for session ${sessionId}:`, error);
+      return null;
+    }
+  }
+
   removeSession(sessionId: string): void {
     if (!sessionId?.trim()) {
       return;
@@ -238,6 +315,7 @@ export class SessionStore {
     if (this.fallback) {
       this.fallback.transcripts.delete(sessionId);
       this.fallback.memories.delete(sessionId);
+      this.fallback.features.delete(sessionId);
       return;
     }
 
@@ -249,12 +327,15 @@ export class SessionStore {
     stmt.run(sessionId);
     const memStmt = this.db.prepare(`DELETE FROM session_memory WHERE session_id = ?`);
     memStmt.run(sessionId);
+    const featuresStmt = this.db.prepare(`DELETE FROM session_features WHERE session_id = ?`);
+    featuresStmt.run(sessionId);
   }
 
   clearAll(): void {
     if (this.fallback) {
       this.fallback.transcripts.clear();
       this.fallback.memories.clear();
+      this.fallback.features.clear();
       return;
     }
 
@@ -262,7 +343,7 @@ export class SessionStore {
       return;
     }
 
-    this.db.exec(`DELETE FROM session_transcripts; DELETE FROM session_memory;`);
+    this.db.exec(`DELETE FROM session_transcripts; DELETE FROM session_memory; DELETE FROM session_features;`);
   }
 }
 

@@ -3,6 +3,8 @@ import type {
   ActivityStep,
   AgentMessage,
   Citation,
+  FeatureOverrideMap,
+  FeatureSelectionMetadata,
   RetrievalDiagnostics,
   RouteMetadata,
   SessionEvaluation,
@@ -46,6 +48,7 @@ interface StreamState {
   responses?: Array<{ attempt: number; responseId?: string }>;
   evaluation?: SessionEvaluation;
   error?: string;
+  features?: FeatureSelectionMetadata;
 }
 
 function normalizeTelemetryEvent(data: Record<string, unknown> | undefined) {
@@ -126,7 +129,7 @@ export function useChatStream() {
     });
   }, []);
 
-  const stream = useCallback(async (messages: AgentMessage[], sessionId: string) => {
+  const stream = useCallback(async (messages: AgentMessage[], sessionId: string, featureOverrides?: FeatureOverrideMap) => {
     reset();
 
     const controller = new AbortController();
@@ -140,7 +143,7 @@ export function useChatStream() {
       const response = await fetch(`${(import.meta.env.VITE_API_BASE ?? __API_BASE__) as string}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, sessionId }),
+        body: JSON.stringify({ messages, sessionId, feature_overrides: featureOverrides }),
         signal: controller.signal
       });
 
@@ -249,6 +252,12 @@ export function useChatStream() {
                     trimmed: data.trimmed,
                     results: data.results
                   }
+                }));
+                break;
+              case 'features':
+                setState((prev) => ({
+                  ...prev,
+                  features: data as FeatureSelectionMetadata
                 }));
                 break;
               case 'trace':

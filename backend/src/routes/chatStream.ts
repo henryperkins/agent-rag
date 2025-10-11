@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import type { AgentMessage } from '../../../shared/types.js';
+import type { ChatRequestPayload } from '../../../shared/types.js';
 import { handleChatStream } from '../services/chatStreamService.js';
 
 export async function setupStreamRoute(app: FastifyInstance) {
-  app.post<{ Body: { messages: AgentMessage[]; sessionId?: string } }>('/chat/stream', async (request, reply) => {
-    const { messages, sessionId } = request.body;
+  app.post<{ Body: ChatRequestPayload }>('/chat/stream', async (request, reply) => {
+    const { messages, sessionId, feature_overrides } = request.body;
 
     if (!Array.isArray(messages) || messages.length === 0) {
       return reply.code(400).send({ error: 'Messages array required.' });
@@ -25,7 +25,8 @@ export async function setupStreamRoute(app: FastifyInstance) {
     try {
       await handleChatStream(messages, sendEvent, {
         sessionId,
-        clientFingerprint: [request.ip, request.headers['user-agent']].filter(Boolean).join('|')
+        clientFingerprint: [request.ip, request.headers['user-agent']].filter(Boolean).join('|'),
+        featureOverrides: feature_overrides
       });
     } catch (error: any) {
       sendEvent('error', { message: error.message });

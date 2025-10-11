@@ -77,7 +77,7 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
       top: Math.max(prefetchCount, top),
       filter,
       rerankerThreshold,
-      selectFields: ['id', 'page_chunk', 'page_number', 'title', 'url'],
+      selectFields: ['id', 'page_chunk', 'page_number'],
       searchFields: ['page_chunk']
     })
   );

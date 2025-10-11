@@ -1,4 +1,12 @@
-import type { EvaluationDimension, RetrievalDiagnostics, RouteMetadata, SessionEvaluation, SummarySelectionStats } from '../types';
+import type {
+  EvaluationDimension,
+  FeatureFlag,
+  FeatureSelectionMetadata,
+  RetrievalDiagnostics,
+  RouteMetadata,
+  SessionEvaluation,
+  SummarySelectionStats
+} from '../types';
 
 interface CritiqueAttempt {
   attempt: number;
@@ -71,7 +79,20 @@ interface PlanPanelProps {
   retrieval?: RetrievalDiagnostics;
   responses?: Array<{ attempt: number; responseId?: string }>;
   evaluation?: SessionEvaluation;
+  features?: FeatureSelectionMetadata;
 }
+
+const FEATURE_LABELS: Record<FeatureFlag, string> = {
+  ENABLE_MULTI_INDEX_FEDERATION: 'Multi-index federation',
+  ENABLE_LAZY_RETRIEVAL: 'Lazy retrieval',
+  ENABLE_SEMANTIC_SUMMARY: 'Semantic summary selection',
+  ENABLE_INTENT_ROUTING: 'Intent routing',
+  ENABLE_SEMANTIC_MEMORY: 'Semantic memory',
+  ENABLE_QUERY_DECOMPOSITION: 'Query decomposition',
+  ENABLE_WEB_RERANKING: 'Web reranking',
+  ENABLE_SEMANTIC_BOOST: 'Semantic boost',
+  ENABLE_RESPONSE_STORAGE: 'Response storage'
+};
 
 export function PlanPanel({
   plan,
@@ -85,7 +106,8 @@ export function PlanPanel({
   lazySummaryTokens,
   retrieval,
   responses,
-  evaluation: evaluationProp
+  evaluation: evaluationProp,
+  features
 }: PlanPanelProps) {
   const hasCritique = Boolean(critiqueHistory && critiqueHistory.length);
   const hasWeb = Boolean(webContext?.text || webContext?.results?.length);
@@ -113,8 +135,14 @@ export function PlanPanel({
     : isSessionEvaluation(telemetryEvaluation)
       ? telemetryEvaluation
       : undefined;
+  const activeFeatures = features?.resolved
+    ? Object.entries(features.resolved)
+        .filter(([flag, enabled]) => enabled && FEATURE_LABELS[flag as FeatureFlag])
+        .map(([flag]) => flag as FeatureFlag)
+    : [];
+  const hasFeatures = activeFeatures.length > 0;
 
-  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb && !hasRouting && !hasRetrieval && !hasResponses && !evaluation) {
+  if (!plan && !context && !hasTelemetry && !summarySelection && !trace && !hasCritique && !hasWeb && !hasRouting && !hasRetrieval && !hasResponses && !evaluation && !hasFeatures) {
     return null;
   }
 
@@ -182,6 +210,28 @@ export function PlanPanel({
               <pre>{context.salience}</pre>
             </details>
           )}
+        </div>
+      )}
+
+      {hasFeatures && (
+        <div className="plan-section">
+          <h4>Active Features</h4>
+          <ul className="feature-list">
+            {activeFeatures.map((flag) => (
+              <li key={flag}>
+                <span>{FEATURE_LABELS[flag]}</span>
+                {features?.sources?.[flag] && (
+                  <span className={`feature-source feature-source-${features.sources[flag]}`}>
+                    {features.sources[flag] === 'override'
+                      ? 'Override'
+                      : features.sources[flag] === 'persisted'
+                        ? 'Session'
+                        : 'Default'}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

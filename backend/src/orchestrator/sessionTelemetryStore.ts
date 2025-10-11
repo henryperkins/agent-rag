@@ -10,6 +10,7 @@ import type {
   SessionEvaluation,
   SessionTrace,
   SummarySelectionStats,
+  FeatureSelectionMetadata,
   WebResult
 } from '../../../shared/types.js';
 
@@ -50,6 +51,7 @@ export interface SessionTelemetryRecord {
   critic?: CriticReport;
   answer?: string;
   metadata?: ChatResponse['metadata'];
+  features?: FeatureSelectionMetadata;
   traceId?: string;
   finalStatus?: string;
   error?: string;
@@ -539,9 +541,12 @@ export function createSessionRecorder(options: {
         const activity = sanitizeActivitySteps(response.activity);
         state.activity = activity ? clone(activity) : [];
         state.metadata = clone(response.metadata);
-        if (response.metadata?.summary_selection) {
-          state.summarySelection = clone(response.metadata.summary_selection);
-        }
+      if (response.metadata?.summary_selection) {
+        state.summarySelection = clone(response.metadata.summary_selection);
+      }
+      if (response.metadata?.features) {
+        state.features = clone(response.metadata.features);
+      }
         if (response.metadata?.context_budget) {
           state.contextBudget = clone(response.metadata.context_budget);
         }

@@ -5,7 +5,7 @@ import { lazyHybridSearch } from '../azure/lazyRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
-import type { AgentMessage, Reference, LazyReference } from '../../../shared/types.js';
+import type { AgentMessage, Reference, LazyReference, FeatureOverrideMap } from '../../../shared/types.js';
 import { extractOutputText } from '../utils/openai.js';
 
 export const toolSchemas = {
@@ -72,12 +72,14 @@ export async function retrieveTool(args: {
   filter?: string;
   top?: number;
   messages?: AgentMessage[];
+  features?: FeatureOverrideMap;
 }) {
-  const { query, filter, top } = args;
+  const { query, filter, top, features } = args;
+  const enableFederation = (features?.ENABLE_MULTI_INDEX_FEDERATION ?? config.ENABLE_MULTI_INDEX_FEDERATION) === true;
 
   try {
     return await withRetry('direct-search', async () => {
-      if (config.ENABLE_MULTI_INDEX_FEDERATION) {
+      if (enableFederation) {
         try {
           const federated = await federatedSearch(query, {
             top: top || config.RAG_TOP_K,
@@ -227,14 +229,18 @@ export async function answerTool(args: {
   systemPrompt?: string;
   temperature?: number;
   previousResponseId?: string;
+  features?: FeatureOverrideMap;
 }) {
+  const { features, previousResponseId, ...rest } = args;
+  const enableResponseStorage = (features?.ENABLE_RESPONSE_STORAGE ?? config.ENABLE_RESPONSE_STORAGE) === true;
+
   let userPrompt = `Question: ${args.question}\n\nContext:\n${args.context}`;
   if (args.revisionNotes && args.revisionNotes.length > 0) {
     userPrompt += `\n\nRevision guidance (address these issues):\n${args.revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
   }
 
   const systemPrompt =
-    args.systemPrompt ??
+    rest.systemPrompt ??
     'You are a helpful assistant. Respond using only the provided context. Cite sources inline as [1], [2], etc. Say "I do not know" when the answer is not grounded.';
 
   const response = await createResponse({
@@ -248,15 +254,15 @@ export async function answerTool(args: {
         content: userPrompt
       }
     ],
-    temperature: args.temperature ?? 0.3,
-    max_output_tokens: args.maxTokens ?? 600,
-    model: args.model,
+    temperature: rest.temperature ?? 0.3,
+    max_output_tokens: rest.maxTokens ?? 600,
+    model: rest.model,
     textFormat: { type: 'text' },
     parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
     truncation: 'auto',
-    store: config.ENABLE_RESPONSE_STORAGE,
+    store: enableResponseStorage,
     // Only send previous_response_id when storage is enabled
-    ...(config.ENABLE_RESPONSE_STORAGE && args.previousResponseId ? { previous_response_id: args.previousResponseId } : {})
+    ...(enableResponseStorage && previousResponseId ? { previous_response_id: previousResponseId } : {})
   });
 
   let answer = extractOutputText(response);

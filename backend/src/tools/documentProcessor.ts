@@ -1,4 +1,4 @@
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage } from '../../../shared/types.js';
 import { createEmbeddings } from '../azure/openaiClient.js';
@@ -65,11 +65,27 @@ function chunkText(text: string, pageNumber: number): DocumentChunk[] {
 }
 
 export async function processPDF(buffer: Buffer, filename: string): Promise<ProcessedDocument> {
-  const parsed = await pdfParse(buffer);
-  const pages = parsed.text.split('\f');
+  const parser = new PDFParse({ data: buffer });
+  let pageTexts: string[] = [];
+
+  try {
+    const textResult = await parser.getText();
+    if (Array.isArray(textResult.pages) && textResult.pages.length) {
+      pageTexts = textResult.pages.map((page: { text?: string }) => page.text ?? '');
+    } else if (typeof textResult.text === 'string') {
+      pageTexts = textResult.text.split('\f');
+    }
+  } finally {
+    await parser.destroy();
+  }
+
+  if (!pageTexts.length) {
+    pageTexts = [''];
+  }
+
   const chunks: DocumentChunk[] = [];
 
-  pages.forEach((pageText, idx) => {
+  pageTexts.forEach((pageText: string, idx: number) => {
     const pageNumber = idx + 1;
     const pageChunks = chunkText(pageText, pageNumber);
     chunks.push(
