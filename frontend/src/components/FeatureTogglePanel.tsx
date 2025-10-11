@@ -26,6 +26,11 @@ const FEATURE_TOGGLES: ToggleDescriptor[] = [
     description: 'Fetch concise summaries first and hydrate full content only when the critic needs it.'
   },
   {
+    flag: 'ENABLE_ADAPTIVE_RETRIEVAL',
+    label: 'Adaptive retrieval',
+    description: 'Automatically assess retrieval quality and reformulate queries when results are insufficient.'
+  },
+  {
     flag: 'ENABLE_SEMANTIC_SUMMARY',
     label: 'Semantic summary selection',
     description: 'Select running conversation summaries using embedding similarity instead of recency.'

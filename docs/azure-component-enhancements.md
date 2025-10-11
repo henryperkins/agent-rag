@@ -640,6 +640,14 @@ export async function retrieveWithAdaptiveRefinement(
 }
 ```
 
+##### Telemetry
+
+To support observability:
+
+- Emit SSE event `telemetry` with `{ adaptive_retrieval: AdaptiveRetrievalStats }` during retrieval.
+- Include `metadata.adaptive_retrieval` in the final response for offline analysis.
+- Stats capture attempts, trigger reason (coverage|diversity|both), thresholds, initial/final quality, reformulation samples (redacted), per‑attempt quality and latency.
+
 **Integration Point:** Replace `retrieveTool()` in `backend/src/tools/index.ts:69-147`
 
 ```typescript

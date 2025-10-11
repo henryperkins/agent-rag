@@ -16,6 +16,7 @@ import { reciprocalRankFusion, applySemanticBoost } from './reranker.js';
 import { generateEmbedding } from '../azure/directSearch.js';
 import { filterWebResults } from '../tools/webQualityFilter.js';
 import type { FeatureGates } from '../config/features.js';
+import type { AdaptiveRetrievalStats } from '../../../shared/types.js';
 
 export interface DispatchResult {
   contextText: string;
@@ -30,6 +31,7 @@ export interface DispatchResult {
   source: 'direct' | 'fallback_vector';
   retrievalMode: 'direct' | 'lazy';
   escalated: boolean;
+  adaptiveStats?: AdaptiveRetrievalStats;
 }
 
 interface DispatchOptions {
@@ -139,6 +141,7 @@ export async function dispatchTools({
   const activity: ActivityStep[] = [];
   const webResults: WebResult[] = [];
   const retrievalSnippets: string[] = [];
+  let adaptiveStats: AdaptiveRetrievalStats | undefined;
   let source: 'direct' | 'fallback_vector' = 'direct';
   let retrievalMode: 'direct' | 'lazy' = 'direct';
   let summaryTokens: number | undefined;
@@ -191,6 +194,17 @@ export async function dispatchTools({
     }
     if (retrieval.activity?.some((step) => step.type === 'fallback_search')) {
       source = 'fallback_vector';
+    }
+    if (retrieval as any && (retrieval as any).adaptiveStats) {
+      adaptiveStats = (retrieval as any).adaptiveStats as AdaptiveRetrievalStats;
+    }
+    if (adaptiveStats && emit) {
+      // Emit adaptive retrieval telemetry for real-time monitoring
+      try {
+        emit('telemetry', { adaptive_retrieval: adaptiveStats });
+      } catch {
+        // Ignore telemetry emission errors to prevent disrupting retrieval flow
+      }
     }
   }
 
@@ -428,6 +442,7 @@ export async function dispatchTools({
     summaryTokens,
     source,
     retrievalMode,
-    escalated
+    escalated,
+    adaptiveStats
   };
 }

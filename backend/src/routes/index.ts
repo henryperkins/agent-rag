@@ -8,6 +8,7 @@ import { getSessionTelemetry, clearSessionTelemetry, getSummaryAggregates, clear
 import { clearMemory } from '../orchestrator/memoryStore.js';
 import { setupDocumentRoutes } from './documents.js';
 import { setupSessionRoutes } from './sessions.js';
+import { getServiceStats, getIndexStats, getIndexStatsSummary } from '../azure/searchStats.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   app.get('/', async () => ({
@@ -59,10 +60,25 @@ export async function registerRoutes(app: FastifyInstance) {
   }
 
   if (isDevelopment) {
-    app.get('/admin/telemetry', async () => ({
-      sessions: getSessionTelemetry(),
-      summaryAggregates: getSummaryAggregates()
-    }));
+    app.get('/admin/telemetry', async () => {
+      let searchStats: any = null;
+      try {
+        const [service, index, summary] = await Promise.all([
+          getServiceStats(),
+          getIndexStats(),
+          getIndexStatsSummary()
+        ]);
+        searchStats = { service, index, summary };
+      } catch (err: any) {
+        searchStats = { error: err?.message ?? 'Failed to fetch search stats' };
+      }
+
+      return {
+        sessions: getSessionTelemetry(),
+        summaryAggregates: getSummaryAggregates(),
+        searchStats
+      };
+    });
     app.get('/admin/telemetry/summary-aggregates', async () => getSummaryAggregates());
     app.post('/admin/telemetry/clear', async () => {
       clearSessionTelemetry();

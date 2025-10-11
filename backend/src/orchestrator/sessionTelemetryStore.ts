@@ -69,6 +69,7 @@ export interface SessionTelemetryRecord {
   lazySummaryTokens?: number;
   retrievalMode?: string;
   evaluation?: SessionEvaluation;
+  adaptiveRetrieval?: import('../../../shared/types.js').AdaptiveRetrievalStats;
 }
 
 const MAX_RECORDS = 100;
@@ -207,6 +208,9 @@ function normalizeTelemetryPayload(payload: Record<string, any>): Record<string,
   }
   if (normalized.metadata?.evaluation && !normalized.evaluation) {
     normalized.evaluation = normalized.metadata.evaluation;
+  }
+  if (normalized.adaptive_retrieval && !normalized.adaptiveRetrieval) {
+    normalized.adaptiveRetrieval = normalized.adaptive_retrieval;
   }
 
   return normalized;
@@ -475,6 +479,9 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
       if (payload?.evaluation) {
         state.evaluation = sanitizeEvaluation(payload.evaluation as SessionEvaluation);
       }
+      if (payload?.adaptiveRetrieval) {
+        state.adaptiveRetrieval = clone(payload.adaptiveRetrieval);
+      }
       break;
     }
     case 'trace': {
@@ -573,6 +580,9 @@ export function createSessionRecorder(options: {
         }
         if (response.metadata?.evaluation) {
           state.evaluation = sanitizeEvaluation(response.metadata.evaluation);
+        }
+        if ((response.metadata as any)?.adaptive_retrieval) {
+          state.adaptiveRetrieval = clone((response.metadata as any).adaptive_retrieval);
         }
       }
       pushRecord(clone(state));

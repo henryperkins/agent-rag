@@ -14,7 +14,8 @@ export type FeatureFlag =
   | 'ENABLE_QUERY_DECOMPOSITION'
   | 'ENABLE_WEB_RERANKING'
   | 'ENABLE_SEMANTIC_BOOST'
-  | 'ENABLE_RESPONSE_STORAGE';
+  | 'ENABLE_RESPONSE_STORAGE'
+  | 'ENABLE_ADAPTIVE_RETRIEVAL';
 
 export type FeatureOverrideMap = Partial<Record<FeatureFlag, boolean>>;
 
@@ -249,6 +250,8 @@ export interface ChatResponse {
       }>;
       synthesisPrompt?: string;
     };
+    // Adaptive Query Reformulation telemetry snapshot (snake_case for API consistency)
+    adaptive_retrieval?: AdaptiveRetrievalStats;
     evaluation?: SessionEvaluation;
   };
 }
@@ -364,4 +367,41 @@ export interface OrchestratorTools {
     features?: FeatureOverrideMap;
   }) => Promise<{ answer: string; citations?: Reference[]; responseId?: string }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
+}
+
+// Adaptive Query Reformulation telemetry
+export interface AdaptiveRetrievalAttempt {
+  attempt: number;
+  query: string; // redacted sample OK when emitted externally
+  quality: {
+    coverage: number;
+    diversity: number;
+    authority: number;
+    freshness: number;
+  };
+  latency_ms?: number;
+}
+
+export interface AdaptiveRetrievalStats {
+  enabled: boolean;
+  attempts: number;
+  triggered: boolean;
+  trigger_reason: 'coverage' | 'diversity' | 'both' | null;
+  thresholds: { coverage: number; diversity: number };
+  initial_quality: {
+    coverage: number;
+    diversity: number;
+    authority: number;
+    freshness: number;
+  };
+  final_quality: {
+    coverage: number;
+    diversity: number;
+    authority: number;
+    freshness: number;
+  };
+  reformulations_count: number;
+  reformulations_sample: string[];
+  latency_ms_total?: number;
+  per_attempt: AdaptiveRetrievalAttempt[];
 }

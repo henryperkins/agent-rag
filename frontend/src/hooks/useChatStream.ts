@@ -89,6 +89,9 @@ function normalizeTelemetryEvent(data: Record<string, unknown> | undefined) {
   if (data.responses && Array.isArray(data.responses)) {
     normalized.responses = data.responses;
   }
+  if ((data as any).adaptive_retrieval && !(normalized as any).adaptiveRetrieval) {
+    (normalized as any).adaptiveRetrieval = (data as any).adaptive_retrieval;
+  }
   if (data.metadata && typeof data.metadata === 'object') {
     const metadata = data.metadata as Record<string, unknown>;
     if (metadata.route && !normalized.route) {

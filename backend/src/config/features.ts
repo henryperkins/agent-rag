@@ -10,7 +10,8 @@ export const FEATURE_FLAG_KEYS: FeatureFlag[] = [
   'ENABLE_QUERY_DECOMPOSITION',
   'ENABLE_WEB_RERANKING',
   'ENABLE_SEMANTIC_BOOST',
-  'ENABLE_RESPONSE_STORAGE'
+  'ENABLE_RESPONSE_STORAGE',
+  'ENABLE_ADAPTIVE_RETRIEVAL'
 ];
 
 export interface FeatureGates {
@@ -23,6 +24,7 @@ export interface FeatureGates {
   webReranking: boolean;
   semanticBoost: boolean;
   responseStorage: boolean;
+  adaptiveRetrieval: boolean;
 }
 
 const FEATURE_KEY_MAP: Record<FeatureFlag, keyof FeatureGates> = {
@@ -34,7 +36,8 @@ const FEATURE_KEY_MAP: Record<FeatureFlag, keyof FeatureGates> = {
   ENABLE_QUERY_DECOMPOSITION: 'queryDecomposition',
   ENABLE_WEB_RERANKING: 'webReranking',
   ENABLE_SEMANTIC_BOOST: 'semanticBoost',
-  ENABLE_RESPONSE_STORAGE: 'responseStorage'
+  ENABLE_RESPONSE_STORAGE: 'responseStorage',
+  ENABLE_ADAPTIVE_RETRIEVAL: 'adaptiveRetrieval'
 };
 
 export function sanitizeFeatureOverrides(input?: FeatureOverrideMap | null): FeatureOverrideMap | undefined {
@@ -63,7 +66,8 @@ function defaultFeatureStates(): Record<FeatureFlag, boolean> {
     ENABLE_QUERY_DECOMPOSITION: config.ENABLE_QUERY_DECOMPOSITION,
     ENABLE_WEB_RERANKING: config.ENABLE_WEB_RERANKING,
     ENABLE_SEMANTIC_BOOST: config.ENABLE_SEMANTIC_BOOST,
-    ENABLE_RESPONSE_STORAGE: config.ENABLE_RESPONSE_STORAGE
+    ENABLE_RESPONSE_STORAGE: config.ENABLE_RESPONSE_STORAGE,
+    ENABLE_ADAPTIVE_RETRIEVAL: config.ENABLE_ADAPTIVE_RETRIEVAL
   };
 }
 

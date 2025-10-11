@@ -1,0 +1,279 @@
+
+ ▐▛███▜▌   Claude Code v2.0.13
+▝▜█████▛▘  Sonnet 4.5 · Claude Max
+  ▘▘ ▝▝    /home/azureuser/agent-rag
+═════════════════════ Conversation compacted · ctrl+o for history ═════════════════════
+
+● Based on the verification work completed, I can see that the cost-saving features
+   are already enabled in .env, so the next priority from the TODO.md is Search 
+  Statistics Monitoring. I'll proceed with implementing this feature.
+
+  Let me start by creating a task plan and then implementing the search statistics
+  monitoring system.
+
+● Read(docs/TODO.md)
+  ⎿  Read 823 lines
+
+● Read(docs/azure-component-enhancements.md)
+  ⎿  Read 260 lines
+
+● Perfect! I found the detailed specification for Adaptive Query Reformulation -
+  this is the last feature needed to complete Phase 1 (currently 2/3 complete).
+  This will provide automatic query refinement when initial retrieval quality is
+  poor, with an expected 30-50% reduction in "I do not know" responses.
+
+● Write(backend/src/azure/adaptiveRetrieval.ts)
+  ⎿  Wrote 191 lines to backend/src/azure/adaptiveRetrieval.ts                   
+     // backend/src/azure/adaptiveRetrieval.ts
+     import { hybridSemanticSearch, generateEmbedding } from './directSearch.js';
+     import { createResponse } from './openaiClient.js';
+     import { extractOutputText } from '../utils/openai.js';
+     import { config } from '../config/app.js';
+     import type { Reference } from '../../../shared/types.js';
+     export interface RetrievalQuality {
+       diversity: number; // 0-1, semantic diversity of results
+       coverage: number; // 0-1, % of query aspects covered
+     … +181 lines (ctrl+o to expand)
+
+● Read(backend/src/config/app.ts)
+  ⎿  Read 80 lines
+
+● Update(backend/src/config/app.ts)
+  ⎿  Updated backend/src/config/app.ts with 4 additions                     
+       58      PLANNER_CONFIDENCE_DUAL_RETRIEVAL: 
+            z.coerce.number().default(0.45),
+       59      RETRIEVAL_MIN_DOCS: z.coerce.number().default(3),
+       60      RETRIEVAL_FALLBACK_RERANKER_THRESHOLD: 
+            z.coerce.number().default(1.5),
+       61 +    ENABLE_ADAPTIVE_RETRIEVAL: z.coerce.boolean().default(false),
+       62 +    ADAPTIVE_MIN_COVERAGE: z.coerce.number().default(0.4),
+       63 +    ADAPTIVE_MIN_DIVERSITY: z.coerce.number().default(0.3),
+       64 +    ADAPTIVE_MAX_ATTEMPTS: z.coerce.number().default(3),
+       65      ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
+       66      ENABLE_INTENT_ROUTING: z.coerce.boolean().default(false),
+       67      INTENT_CLASSIFIER_MODEL: z.string().default('gpt-4o-mini'),
+
+● Read(backend/src/tools/index.ts)
+  ⎿  Read 80 lines
+
+● Read(backend/src/tools/index.ts)
+  ⎿  Read 50 lines
+
+● Read(backend/src/tools/index.ts)
+  ⎿  Read 30 lines
+
+● Update(backend/src/tools/index.ts)
+  ⎿  Updated backend/src/tools/index.ts with 1 addition                    
+       2    import { hybridSemanticSearch, vectorSearch } from 
+           '../azure/directSearch.js';
+       3    import { federatedSearch } from '../azure/multiIndexSearch.js';
+       4    import { lazyHybridSearch } from '../azure/lazyRetrieval.js';
+       5 +  import { retrieveWithAdaptiveRefinement } from 
+         + '../azure/adaptiveRetrieval.js';
+       6    import { webSearchTool } from './webSearch.js';
+       7    import { createResponse } from '../azure/openaiClient.js';
+       8    import { config } from '../config/app.js';
+
+● Update(backend/src/tools/index.ts)
+  ⎿  Updated backend/src/tools/index.ts with 32 additions                       
+       108            }
+       109          }
+       110    
+       111 +        // Check if adaptive retrieval is enabled
+       112 +        const enableAdaptive = (features?.ENABLE_ADAPTIVE_RETRIEVAL 
+           + ?? config.ENABLE_ADAPTIVE_RETRIEVAL) === true;
+       113 +  
+       114 +        if (enableAdaptive) {
+       115 +          // Use adaptive retrieval with quality assessment and 
+           + query reformulation
+       116 +          const adaptiveResult = await 
+           + retrieveWithAdaptiveRefinement(query, {
+       117 +            top: top || config.RAG_TOP_K,
+       118 +            filter,
+       119 +            minCoverage: config.ADAPTIVE_MIN_COVERAGE,
+       120 +            minDiversity: config.ADAPTIVE_MIN_DIVERSITY
+       121 +          });
+       122 +  
+       123 +          return {
+       124 +            response: '',
+       125 +            references: adaptiveResult.references,
+       126 +            activity: [
+       127 +              {
+       128 +                type: 'adaptive_search',
+       129 +                description: `Retrieved 
+           + ${adaptiveResult.references.length} results (coverage: 
+           + ${adaptiveResult.quality.coverage.toFixed(2)}, diversity: 
+           + ${adaptiveResult.quality.diversity.toFixed(2)})${adaptiveResult.ref
+           + ormulations.length ? `, ${adaptiveResult.reformulations.length} 
+           + reformulations` : ''}`
+       130 +              },
+       131 +              ...(adaptiveResult.reformulations.length
+       132 +                ? [
+       133 +                    {
+       134 +                      type: 'query_reformulation',
+       135 +                      description: `Reformulated: 
+           + ${adaptiveResult.reformulations.join(' → ')}`
+       136 +                    }
+       137 +                  ]
+       138 +                : [])
+       139 +            ]
+       140 +          };
+       141 +        }
+       142 +  
+       143          try {
+       144            // Primary: Hybrid semantic search with high threshold
+       145            const result = await hybridSemanticSearch(query, {
+
+● Read(backend/src/config/features.ts)
+  ⎿  Read 121 lines
+
+● Read(shared/types.ts)
+  ⎿  Read 80 lines
+
+● Update(shared/types.ts)
+  ⎿  Updated shared/types.ts with 2 additions and 1 removal               
+       14      | 'ENABLE_QUERY_DECOMPOSITION'
+       15      | 'ENABLE_WEB_RERANKING'
+       16      | 'ENABLE_SEMANTIC_BOOST'
+       17 -    | 'ENABLE_RESPONSE_STORAGE';
+       17 +    | 'ENABLE_RESPONSE_STORAGE'
+       18 +    | 'ENABLE_ADAPTIVE_RETRIEVAL';
+       19    
+       20    export type FeatureOverrideMap = Partial<Record<FeatureFlag, 
+            boolean>>;
+       21    
+
+● Update(backend/src/config/features.ts)
+  ⎿  Updated backend/src/config/features.ts with 2 additions and 1 removal
+       10      'ENABLE_QUERY_DECOMPOSITION',
+       11      'ENABLE_WEB_RERANKING',
+       12      'ENABLE_SEMANTIC_BOOST',
+       13 -    'ENABLE_RESPONSE_STORAGE'
+       13 +    'ENABLE_RESPONSE_STORAGE',
+       14 +    'ENABLE_ADAPTIVE_RETRIEVAL'
+       15    ];
+       16    
+       17    export interface FeatureGates {
+
+● Update(backend/src/config/features.ts)
+  ⎿  Updated backend/src/config/features.ts with 1 addition                    
+       24      webReranking: boolean;
+       25      semanticBoost: boolean;
+       26      responseStorage: boolean;
+       27 +    adaptiveRetrieval: boolean;
+       28    }
+       29    
+       30    const FEATURE_KEY_MAP: Record<FeatureFlag, keyof FeatureGates> = {
+
+● Update(backend/src/config/features.ts)
+  ⎿  Updated backend/src/config/features.ts with 2 additions and 1 removal      
+       36      ENABLE_QUERY_DECOMPOSITION: 'queryDecomposition',
+       37      ENABLE_WEB_RERANKING: 'webReranking',
+       38      ENABLE_SEMANTIC_BOOST: 'semanticBoost',
+       39 -    ENABLE_RESPONSE_STORAGE: 'responseStorage'
+       39 +    ENABLE_RESPONSE_STORAGE: 'responseStorage',
+       40 +    ENABLE_ADAPTIVE_RETRIEVAL: 'adaptiveRetrieval'
+       41    };
+       42    
+       43    export function sanitizeFeatureOverrides(input?: FeatureOverrideMap
+             | null): FeatureOverrideMap | undefined {
+
+● Update(backend/src/config/features.ts)
+  ⎿  Updated backend/src/config/features.ts with 2 additions and 1 removal     
+       66        ENABLE_QUERY_DECOMPOSITION: config.ENABLE_QUERY_DECOMPOSITION,
+       67        ENABLE_WEB_RERANKING: config.ENABLE_WEB_RERANKING,
+       68        ENABLE_SEMANTIC_BOOST: config.ENABLE_SEMANTIC_BOOST,
+       69 -      ENABLE_RESPONSE_STORAGE: config.ENABLE_RESPONSE_STORAGE
+       69 +      ENABLE_RESPONSE_STORAGE: config.ENABLE_RESPONSE_STORAGE,
+       70 +      ENABLE_ADAPTIVE_RETRIEVAL: config.ENABLE_ADAPTIVE_RETRIEVAL
+       71      };
+       72    }
+       73    
+
+● Read(backend/.env.example)
+  ⎿  Read 40 lines
+
+● Update(backend/.env.example)
+  ⎿  Updated backend/.env.example with 9 additions                              
+       71    TARGET_INDEX_MAX_DOCUMENTS=100
+       72    RETRIEVAL_MIN_DOCS=3
+       73    
+       74 +  # ADAPTIVE RETRIEVAL (Query Reformulation with Quality Assessment)
+       75 +  # Cost Impact: +$5-15/month (coverage assessment + reformulation 
+          + LLM calls) | Risk: LOW
+       76 +  # Benefit: 30-50% reduction in "I do not know" responses
+       77 +  # Automatically reformulates queries when retrieval quality is 
+          + insufficient
+       78 +  ENABLE_ADAPTIVE_RETRIEVAL=false
+       79 +  ADAPTIVE_MIN_COVERAGE=0.4          # Minimum query coverage 
+          + threshold (0.0-1.0)
+       80 +  ADAPTIVE_MIN_DIVERSITY=0.3         # Minimum result diversity 
+          + threshold (0.0-1.0)
+       81 +  ADAPTIVE_MAX_ATTEMPTS=3            # Maximum reformulation attempts
+       82 +  
+       83    # -----------------------------------------------------------------
+            ------------
+       84    # CRITIC SETTINGS (Quality Assurance)
+       85    # -----------------------------------------------------------------
+            ------------
+
+● Read(frontend/src/components/FeatureTogglePanel.tsx)
+  ⎿  Read 100 lines
+
+● Update(frontend/src/components/FeatureTogglePanel.tsx)
+  ⎿  Updated frontend/src/components/FeatureTogglePanel.tsx with 5 additions  
+       26        description: 'Fetch concise summaries first and hydrate full 
+            content only when the critic needs it.'
+       27      },
+       28      {
+       29 +      flag: 'ENABLE_ADAPTIVE_RETRIEVAL',
+       30 +      label: 'Adaptive retrieval',
+       31 +      description: 'Automatically assess retrieval quality and 
+          + reformulate queries when results are insufficient.'
+       32 +    },
+       33 +    {
+       34        flag: 'ENABLE_SEMANTIC_SUMMARY',
+       35        label: 'Semantic summary selection',
+       36        description: 'Select running conversation summaries using 
+            embedding similarity instead of recency.'
+
+● Read(backend/src/tests/lazyRetrieval.test.ts)
+  ⎿  Read 60 lines
+
+> /context 
+  ⎿ Error: 400 
+    {"type":"error","error":{"type":"invalid_request_error","message":"`temperature` 
+    may only be set to 1 when thinking is enabled. Please consult our documentation at 
+    https://docs.claude.com/en/docs/build-with-claude/extended-thinking#important-consi
+    derations-when-using-extended-thinking"},"request_id":"req_011CU15TEtZij4ThA23MCWVw
+    "}
+
+> /context 
+  ⎿  Context Usage
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁   claude-sonnet-4-5-20250929 · 114k/200k tokens (57%)
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ 
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛁   ⛁ System prompt: 2.2k tokens (1.1%)
+     ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ System tools: 11.9k tokens (5.9%)
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ MCP tools: 1.7k tokens (0.9%)
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ Memory files: 4.8k tokens (2.4%)
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ Messages: 48.4k tokens (24.2%)
+     ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛝ ⛝ ⛝   ⛶ Free space: 86k (43.0%)
+     ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝   ⛝ Autocompact buffer: 45.0k tokens (22.5%)
+     ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ ⛝ 
+
+     MCP tools · /mcp
+     └ mcp__context7__resolve-library-id (context7): 874 tokens
+     └ mcp__context7__get-library-docs (context7): 835 tokens
+
+     Memory files · /memory
+     └ Project (/home/azureuser/agent-rag/CLAUDE.md): 4.8k tokens
+
+     SlashCommand Tool · 0 commands
+     └ Total: 998 tokens
+
+> /export 
+  ⎿ Failed to copy to clipboard. Make sure `xclip` or `wl-copy` is installed on your 
+    system and try again.
+
+
+

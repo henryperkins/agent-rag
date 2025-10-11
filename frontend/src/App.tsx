@@ -6,6 +6,7 @@ import { MessageList } from './components/MessageList';
 import { SourcesPanel } from './components/SourcesPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { PlanPanel } from './components/PlanPanel';
+import { AdminStatsCard } from './components/AdminStatsCard';
 import { DocumentUpload } from './components/DocumentUpload';
 import { FeatureTogglePanel } from './components/FeatureTogglePanel';
 import { useChat } from './hooks/useChat';
@@ -315,6 +316,7 @@ function ChatApp() {
             disabled={isBusy}
             onToggle={handleFeatureToggle}
           />
+          <AdminStatsCard />
           <SourcesPanel
             citations={sidebar.citations}
             isStreaming={mode === 'stream' ? stream.isStreaming : chatMutation.isPending}

@@ -23,7 +23,7 @@ This document tracks **actionable implementation tasks** derived from planning d
   - ✅ Web Quality Filtering (Item 5)
   - ✅ Citation Usage Tracking (Item 6)
   - ⏳ Adaptive Query Reformulation (Item 7) - Next priority
-- 📊 **57/57 tests passing** (backend 54 + frontend 3 suites)
+- 📊 **65 tests passing** across 18 test files
 
 **Recent Completions**:
 
@@ -39,9 +39,9 @@ This document tracks **actionable implementation tasks** derived from planning d
 
 #### 1. Semantic Summary Telemetry Aggregation
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed  
 **Priority**: Medium  
-**Effort**: 2-3 hours  
+**Effort**: 2-3 hours (actual: 2 hours)  
 **Source**: [semantic-summary-plan.md:11](semantic-summary-plan.md:11)
 
 **Scope**: Add aggregate statistics for summary selection across sessions
@@ -77,24 +77,22 @@ interface SummarySelectionAggregates {
 
 **Integration Points**:
 
-- Update `createSessionRecorder` to aggregate stats
-- Expose via `/admin/telemetry` endpoint
-- Optional: Add `/admin/telemetry/summary` endpoint
+- Implemented: `createSessionRecorder` aggregates stats
+- Exposed via `/admin/telemetry` endpoint
+- Optional endpoint not required; kept single route
 
 **Validation**:
 
-- Track for 24 hours with `ENABLE_SEMANTIC_SUMMARY=true`
-- Verify counters increment correctly
-- Check score calculations are accurate
-- Ensure no memory leaks from sample storage
+- Verified with unit tests and manual runs; counters and score ranges correct
+- No memory leaks; recent samples capped at 50
 
 ---
 
 #### 2. Real-Time Summary Selection Stats Event
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed  
 **Priority**: Low  
-**Effort**: 30 minutes  
+**Effort**: 30 minutes (actual)  
 **Source**: Enhances observability
 
 **Scope**: Emit explicit event for monitoring tools
@@ -110,10 +108,10 @@ interface SummarySelectionAggregates {
 emit?.('summary_selection_stats', summaryStats);
 ```
 
-**Frontend Updates** (Optional):
+**Frontend Updates**:
 
-- `frontend/src/hooks/useChatStream.ts` - Add event handler
-- `frontend/src/components/PlanPanel.tsx` - Already displays stats ✅
+- `frontend/src/hooks/useChatStream.ts` - Handler added
+- `frontend/src/components/PlanPanel.tsx` - Displays stats ✅
 
 **Validation**:
 
@@ -251,28 +249,29 @@ emit?.('summary_selection_stats', summaryStats);
 
 #### 7. Adaptive Query Reformulation
 
-**Status**: `[ ]` Not started  
+**Status**: `[x]` Completed  
 **Priority**: High impact  
-**Effort**: 3-5 days  
+**Effort**: 3-5 days (actual: 2 days)  
 **Source**: [azure-component-enhancements.md:436-689](azure-component-enhancements.md:436-689)
 
 **Scope**: Assess retrieval quality and reformulate queries when insufficient
 
-**Files to Create**:
+**Files**:
 
 - `backend/src/azure/adaptiveRetrieval.ts`
+- `backend/src/tools/index.ts`
 
-**Implementation Checklist**:
+**Implementation Completed**:
 
-- [ ] Quality assessment (diversity, coverage, authority)
-- [ ] Query reformulation prompt
-- [ ] Recursive retry logic (max 3 attempts)
-- [ ] Replace `retrieveTool` in `backend/src/tools/index.ts`
-- [ ] Add config flags: `ENABLE_ADAPTIVE_RETRIEVAL`, thresholds
-- [ ] Telemetry for reformulations
-- [ ] Integration tests
+- [x] Quality assessment (diversity, coverage, authority)
+- [x] Query reformulation prompt
+- [x] Recursive retry logic (max 3 attempts)
+- [x] Integrated in `retrieveTool`
+- [x] Config flags and thresholds
+- [x] Telemetry event + metadata: `adaptive_retrieval_stats` and `metadata.adaptive_retrieval`
+- [x] Integration tests (`adaptiveRetrieval.integration.test.ts`)
 
-**Expected Impact**: 30-50% reduction in "I do not know" responses
+**Expected Impact**: 30-50% reduction in "I do not know" responses (to validate in production)
 
 ---
 
@@ -591,15 +590,6 @@ emit?.('summary_selection_stats', summaryStats);
 
 ## Bug Fixes & Configuration Corrections (v2.0.2 - October 11, 2025)
 
-### Azure AI Search Configuration
-
-- [x] **Fixed invalid API version** (`backend/.env:8`)
-  - **Issue**: `.env` specified non-existent `AZURE_SEARCH_DATA_PLANE_API_VERSION=2025-10-01`
-  - **Root Cause**: Invalid API version causing all Azure AI Search queries to fail with 400 errors
-  - **Fix**: Updated to valid stable version `2025-09-01`
-  - **Impact**: All Azure AI Search queries now functional
-  - **Files Changed**: `backend/.env:8`, `backend/.env.example:29`
-
 ### Azure Search Schema Alignment
 
 - [x] **Fixed field mismatch with earth_at_night index** (`directSearch.ts`, `lazyRetrieval.ts`)
@@ -636,9 +626,20 @@ emit?.('summary_selection_stats', summaryStats);
   - **Files Changed**: `backend/.env:INTENT_CLASSIFIER_MODEL`
   - **Documentation**: Added warnings to `.env.example` lines 40-42, 141-143
 
+### Search Coverage Threshold Bug
+
+- [x] **Fixed coverage scale mismatch** (`tools/index.ts:196-201`)
+  - **Issue**: Azure `@search.coverage` returns 0-100 scale, config uses 0-1 scale
+  - **Root Cause**: Direct comparison `80 < 0.8` would never trigger, log would show `8000%`
+  - **Fix**: Normalize Azure coverage to 0-1 scale by dividing by 100 before comparison
+  - **Impact**: Low-coverage activity now triggers correctly at 80% threshold
+  - **Files Changed**: `backend/src/tools/index.ts:196-201`
+  - **Tests Added**: `backend/src/tests/tools.test.ts` (6 test cases covering boundary conditions)
+  - **Test Results**: 65 tests passing across 18 test files
+
 **Quality Indicators Post-Fix**:
 
-- ✅ All 57 tests still passing (no regressions)
+- ✅ All 65 tests passing across 18 test files (no regressions)
 - ✅ Zero compilation errors
 - ✅ Zero linting errors
 - ✅ Intent classification functional

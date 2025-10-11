@@ -109,7 +109,7 @@ let cachedOpenAIToken:
  * Get Azure Search authentication headers.
  * Uses API key if available, otherwise falls back to Managed Identity with token caching.
  */
-async function getSearchAuthHeaders(): Promise<Record<string, string>> {
+export async function getSearchAuthHeaders(): Promise<Record<string, string>> {
   if (config.AZURE_SEARCH_API_KEY) {
     return { 'api-key': config.AZURE_SEARCH_API_KEY };
   }
@@ -280,6 +280,12 @@ export class SearchQueryBuilder {
   }
 
   // Build final query payload
+  withVectorFilterMode(mode: 'preFilter' | 'postFilter'): this {
+    this.options.vectorFilterMode = mode;
+    return this;
+  }
+
+  // Build final query payload
   build(): any {
     const payload: any = {
       search: this.options.query,
@@ -330,6 +336,15 @@ export class SearchQueryBuilder {
   getOptions(): SearchOptions {
     return { ...this.options };
   }
+}
+
+// Heuristic: treat simple equality filters without OR as restrictive
+export function isRestrictiveFilter(filter: string): boolean {
+  if (!filter) return false;
+  const f = filter.toLowerCase();
+  const hasEq = f.includes(' eq ');
+  const hasOr = f.includes(' or ');
+  return hasEq && !hasOr;
 }
 
 // ============================================================================
@@ -400,6 +415,9 @@ export async function hybridSemanticSearch(
 
   if (options.filter) {
     builder.withFilter(options.filter);
+    if (isRestrictiveFilter(options.filter)) {
+      builder.withVectorFilterMode('preFilter');
+    }
   }
 
   if (options.rerankerThreshold !== undefined) {

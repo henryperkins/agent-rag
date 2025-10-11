@@ -91,7 +91,8 @@ const FEATURE_LABELS: Record<FeatureFlag, string> = {
   ENABLE_QUERY_DECOMPOSITION: 'Query decomposition',
   ENABLE_WEB_RERANKING: 'Web reranking',
   ENABLE_SEMANTIC_BOOST: 'Semantic boost',
-  ENABLE_RESPONSE_STORAGE: 'Response storage'
+  ENABLE_RESPONSE_STORAGE: 'Response storage',
+  ENABLE_ADAPTIVE_RETRIEVAL: 'Adaptive retrieval'
 };
 
 export function PlanPanel({

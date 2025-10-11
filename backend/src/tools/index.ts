@@ -1,7 +1,8 @@
 import { withRetry } from '../utils/resilience.js';
-import { hybridSemanticSearch, vectorSearch } from '../azure/directSearch.js';
+import { hybridSemanticSearch, vectorSearch, isRestrictiveFilter } from '../azure/directSearch.js';
 import { federatedSearch } from '../azure/multiIndexSearch.js';
 import { lazyHybridSearch } from '../azure/lazyRetrieval.js';
+import { retrieveWithAdaptiveRefinement } from '../azure/adaptiveRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
@@ -107,6 +108,71 @@ export async function retrieveTool(args: {
         }
       }
 
+      // Check if adaptive retrieval is enabled
+      const enableAdaptive = (features?.ENABLE_ADAPTIVE_RETRIEVAL ?? config.ENABLE_ADAPTIVE_RETRIEVAL) === true;
+
+      if (enableAdaptive) {
+        // Use adaptive retrieval with quality assessment and query reformulation
+        const adaptiveResult = await retrieveWithAdaptiveRefinement(query, {
+          top: top || config.RAG_TOP_K,
+          filter,
+          minCoverage: config.ADAPTIVE_MIN_COVERAGE,
+          minDiversity: config.ADAPTIVE_MIN_DIVERSITY
+        });
+        const attempts = adaptiveResult.attempts ?? [];
+        const initial = adaptiveResult.initialQuality ?? adaptiveResult.quality;
+        const finalQ = adaptiveResult.quality;
+        const triggered = (attempts?.length ?? 1) > 1 || adaptiveResult.reformulations.length > 0;
+        const trigger_reason = initial.coverage < (config.ADAPTIVE_MIN_COVERAGE ?? 0.4)
+          && initial.diversity < (config.ADAPTIVE_MIN_DIVERSITY ?? 0.3)
+          ? 'both'
+          : initial.coverage < (config.ADAPTIVE_MIN_COVERAGE ?? 0.4)
+          ? 'coverage'
+          : initial.diversity < (config.ADAPTIVE_MIN_DIVERSITY ?? 0.3)
+          ? 'diversity'
+          : null;
+        const latency_ms_total = attempts.reduce((sum, a) => sum + (a.latency_ms ?? 0), 0);
+        const redact = (s: string) => (s.length <= 60 ? s : `${s.slice(0, 30)} … ${s.slice(-20)}`);
+        const adaptiveStats = {
+          enabled: true,
+          attempts: attempts.length || (triggered ? adaptiveResult.reformulations.length + 1 : 1),
+          triggered,
+          trigger_reason,
+          thresholds: { coverage: config.ADAPTIVE_MIN_COVERAGE, diversity: config.ADAPTIVE_MIN_DIVERSITY },
+          initial_quality: initial,
+          final_quality: finalQ,
+          reformulations_count: adaptiveResult.reformulations.length,
+          reformulations_sample: adaptiveResult.reformulations.slice(0, 2).map(redact),
+          latency_ms_total,
+          per_attempt: attempts.map((a) => ({
+            attempt: a.attempt,
+            query: redact(a.query),
+            quality: a.quality,
+            latency_ms: a.latency_ms
+          }))
+        } as const;
+
+        return {
+          response: '',
+          references: adaptiveResult.references,
+          adaptiveStats: adaptiveStats as any,
+          activity: [
+            {
+              type: 'adaptive_search',
+              description: `Retrieved ${adaptiveResult.references.length} results (coverage: ${adaptiveResult.quality.coverage.toFixed(2)}, diversity: ${adaptiveResult.quality.diversity.toFixed(2)})${adaptiveResult.reformulations.length ? `, ${adaptiveResult.reformulations.length} reformulations` : ''}`
+            },
+            ...(adaptiveResult.reformulations.length
+              ? [
+                  {
+                    type: 'query_reformulation',
+                    description: `Reformulated: ${adaptiveResult.reformulations.join(' → ')}`
+                  }
+                ]
+              : [])
+          ]
+        };
+      }
+
       try {
         // Primary: Hybrid semantic search with high threshold
         const result = await hybridSemanticSearch(query, {
@@ -118,6 +184,23 @@ export async function retrieveTool(args: {
         });
 
         // If we have good results, return them
+        const activity: any[] = [];
+        // Vector filter mode note (heuristic)
+        if (filter && isRestrictiveFilter(filter)) {
+          activity.push({
+            type: 'vector_filter_mode',
+            description: 'Using preFilter for vector search due to restrictive filter.'
+          });
+        }
+        // Coverage gate note
+        // Note: Azure returns @search.coverage as 0-100 percentage; normalize to 0-1 for comparison
+        if (typeof result.coverage === 'number' && (result.coverage / 100) < config.SEARCH_MIN_COVERAGE) {
+          activity.push({
+            type: 'low_coverage',
+            description: `Search coverage ${result.coverage.toFixed(0)}% below ${(config.SEARCH_MIN_COVERAGE * 100).toFixed(0)}% threshold.`
+          });
+        }
+
         if (result.references.length >= config.RETRIEVAL_MIN_DOCS) {
           return {
             response: '', // Not needed for orchestrator pattern
@@ -126,7 +209,8 @@ export async function retrieveTool(args: {
               {
                 type: 'search',
                 description: `Hybrid semantic search returned ${result.references.length} results (threshold: ${config.RERANKER_THRESHOLD})`
-              }
+              },
+              ...activity
             ]
           };
         }

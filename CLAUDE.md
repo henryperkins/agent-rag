@@ -291,7 +291,7 @@ If you encounter configuration issues, see:
 - **Integration tests**: Test with real Azure services (requires credentials)
 - **Manual testing**: Use frontend streaming mode to observe full pipeline
 - **Telemetry inspection**: `curl http://localhost:8787/admin/telemetry | jq`
-- **Current coverage**: 57/57 tests passing (54 backend + 3 frontend)
+- **Current coverage**: 65 tests passing across 18 test files
 
 ## Recent Changes
 
@@ -299,11 +299,10 @@ If you encounter configuration issues, see:
 
 **Critical Bug Fixes**:
 
-1. **Azure AI Search API Version** - Fixed invalid API version (2025-10-01 → 2025-09-01)
-2. **Schema Field Mismatch** - Removed requests for non-existent `title`/`url` fields from `earth_at_night` index
-3. **Intent Classification Schema** - Added `'reasoning'` to required fields in JSON schema
-4. **Token Limit** - Increased `INTENT_CLASSIFIER_MAX_TOKENS` from 10 to 100 (meets minimum 16)
-5. **Deployment Names** - Fixed confusion between Azure OpenAI model names vs deployment names
+1. **Schema Field Mismatch** - Removed requests for non-existent `title`/`url` fields from `earth_at_night` index
+2. **Intent Classification Schema** - Added `'reasoning'` to required fields in JSON schema
+3. **Token Limit** - Increased `INTENT_CLASSIFIER_MAX_TOKENS` from 10 to 100 (meets minimum 16)
+4. **Coverage Threshold Scale Mismatch** - Fixed Azure coverage (0-100) vs config (0-1) scale comparison
 
 **New Documentation**:
 
@@ -312,7 +311,7 @@ If you encounter configuration issues, see:
 - Updated `docs/TODO.md` with bug fix history
 - Updated `docs/CODEBASE_AUDIT_2025-10-10-REVISED.md` (Revision 4)
 
-**Impact**: All 57 tests passing, zero configuration errors, full chat pipeline operational
+**Impact**: All 65 tests passing across 18 test files, full chat pipeline operational
 
 ### v2.0.1 - Feature Toggles
 
