@@ -103,6 +103,9 @@ const envSchema = z.object({
   WEB_MAX_REDUNDANCY: z.coerce.number().default(0.9),
   WEB_MIN_RELEVANCE: z.coerce.number().default(0.3),
 
+  ENABLE_ACADEMIC_SEARCH: z.coerce.boolean().default(true),
+  ACADEMIC_SEARCH_MAX_RESULTS: z.coerce.number().default(6),
+
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(10),
   REQUEST_TIMEOUT_MS: z.coerce.number().default(30000),

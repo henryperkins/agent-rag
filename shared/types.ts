@@ -182,14 +182,26 @@ export interface AgenticRetrievalResponse {
 }
 
 export interface WebResult {
-  id: string;
+  id?: string;
   title: string;
   snippet: string;
   url: string;
   body?: string;
+  content?: string;
   rank?: number;
   relevance?: number;
-  fetchedAt: string;
+  fetchedAt?: string;
+  // Academic paper fields
+  source?: string; // 'Semantic Scholar', 'arXiv', 'Google', etc.
+  authors?: string;
+  publishedDate?: string;
+  citationCount?: number;
+  influentialCitationCount?: number;
+  authorityScore?: number; // 0-1 normalized score
+  venue?: string;
+  category?: string;
+  isOpenAccess?: boolean;
+  pdfUrl?: string;
 }
 
 export interface WebSearchResponse {

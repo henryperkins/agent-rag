@@ -217,8 +217,43 @@ export async function dispatchTools({
     const step = plan.steps.find((s) => s.action === 'web_search' || s.action === 'both');
     const query = step?.query?.trim() || queryFallback;
     const count = step?.k ?? config.WEB_RESULTS_MAX;
+
+    // Detect academic queries and use multi-source academic search
+    const academicKeywords = ['paper', 'research', 'study', 'publication', 'article', 'scholar', 'journal', 'arxiv', 'academic'];
+    const isAcademicQuery = config.ENABLE_ACADEMIC_SEARCH && academicKeywords.some(keyword => query.toLowerCase().includes(keyword));
+
     try {
-      const search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE });
+      let search: WebSearchResponse;
+
+      if (isAcademicQuery) {
+        // Use multi-source academic search (Semantic Scholar + arXiv)
+        // Dynamic import to avoid issues with axios in test environments
+        const { multiSourceAcademicSearch } = await import('../tools/multiSourceWeb.js');
+        const academicResult = await multiSourceAcademicSearch({
+          query,
+          maxResults: config.ACADEMIC_SEARCH_MAX_RESULTS
+        });
+
+        // Convert to WebSearchResponse format
+        search = {
+          results: academicResult.results.map((r, i) => ({
+            ...r,
+            id: `academic_${i}`,
+            fetchedAt: new Date().toISOString()
+          })),
+          contextText: '',
+          tokens: 0,
+          trimmed: false
+        };
+
+        activity.push({
+          type: 'academic_search',
+          description: `Fetched ${academicResult.totalResults} academic papers (${academicResult.sources.semanticScholar} from Semantic Scholar, ${academicResult.sources.arxiv} from arXiv).`
+        });
+      } else {
+        // Use regular web search
+        search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE });
+      }
       if (search.results?.length) {
         let resultsToUse = search.results;
 
