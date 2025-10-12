@@ -462,6 +462,42 @@ html,
   border-radius: 2px;
 }
 
+.semantic-captions {
+  margin-top: 8px;
+  padding: 8px;
+  background: #f0fdf4;
+  border-left: 3px solid #10b981;
+  border-radius: 4px;
+}
+
+.caption-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #059669;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.caption-snippet {
+  margin-top: 6px;
+}
+
+.caption-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #065f46;
+}
+
+.caption-text em {
+  font-style: normal;
+  font-weight: 600;
+  color: #047857;
+  background: #d1fae5;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
 .source-link {
   display: inline-flex;
   margin-top: 8px;

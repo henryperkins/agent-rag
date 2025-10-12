@@ -57,6 +57,21 @@ export function SourcesPanel({ citations, isStreaming }: SourcesPanelProps) {
                   ))}
                 </div>
               ) : null}
+              {citation.captions && citation.captions.length > 0 && (
+                <div className="semantic-captions">
+                  <div className="caption-label">Relevant excerpts:</div>
+                  {citation.captions.map((caption, captionIndex) => (
+                    <div key={captionIndex} className="caption-snippet">
+                      <div
+                        className="caption-text"
+                        dangerouslySetInnerHTML={{
+                          __html: sanitizeHighlight(caption.highlights || caption.text)
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
               {citation.url && (
                 <a href={citation.url} target="_blank" rel="noreferrer" className="source-link">
                   View source →

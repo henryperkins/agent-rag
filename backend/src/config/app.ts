@@ -37,7 +37,7 @@ const envSchema = z.object({
   AZURE_SEARCH_FEDERATED_INDEXES: z.string().default(''),
 
   RAG_TOP_K: z.coerce.number().default(5),
-  ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(false),
+  ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(true), // 40-50% token savings
   LAZY_SUMMARY_MAX_CHARS: z.coerce.number().default(300),
   LAZY_PREFETCH_COUNT: z.coerce.number().default(10),
   LAZY_LOAD_THRESHOLD: z.coerce.number().default(0.5),
@@ -64,7 +64,7 @@ const envSchema = z.object({
   ADAPTIVE_MAX_ATTEMPTS: z.coerce.number().default(3),
   SEARCH_MIN_COVERAGE: z.coerce.number().default(0.8),
   ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
-  ENABLE_INTENT_ROUTING: z.coerce.boolean().default(false),
+  ENABLE_INTENT_ROUTING: z.coerce.boolean().default(true), // 20-30% cost savings via model selection
   INTENT_CLASSIFIER_MODEL: z.string().default('gpt-4o-mini'),
   INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(100),
   MODEL_FAQ: z.string().default('gpt-4o-mini'),
@@ -114,8 +114,8 @@ const envSchema = z.object({
 
   // Responses API feature gates
   RESPONSES_PARALLEL_TOOL_CALLS: z.coerce.boolean().default(true),
-  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(false),
-  ENABLE_RESPONSE_STORAGE: z.coerce.boolean().default(false),
+  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(true), // Enable cost telemetry
+  ENABLE_RESPONSE_STORAGE: z.coerce.boolean().default(true), // Enable response audit trails
 
   SESSION_DB_PATH: z.string().default('./data/session-store.db')
 });
