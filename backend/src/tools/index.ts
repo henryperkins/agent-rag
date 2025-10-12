@@ -113,12 +113,17 @@ export async function retrieveTool(args: {
 
       if (enableAdaptive) {
         // Use adaptive retrieval with quality assessment and query reformulation
-        const adaptiveResult = await retrieveWithAdaptiveRefinement(query, {
-          top: top || config.RAG_TOP_K,
-          filter,
-          minCoverage: config.ADAPTIVE_MIN_COVERAGE,
-          minDiversity: config.ADAPTIVE_MIN_DIVERSITY
-        });
+        const adaptiveResult = await retrieveWithAdaptiveRefinement(
+          query,
+          {
+            top: top || config.RAG_TOP_K,
+            filter,
+            minCoverage: config.ADAPTIVE_MIN_COVERAGE,
+            minDiversity: config.ADAPTIVE_MIN_DIVERSITY
+          },
+          1, // attempt (starts at 1)
+          config.ADAPTIVE_MAX_ATTEMPTS
+        );
         const attempts = adaptiveResult.attempts ?? [];
         const initial = adaptiveResult.initialQuality ?? adaptiveResult.quality;
         const finalQ = adaptiveResult.quality;

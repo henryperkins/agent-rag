@@ -461,10 +461,11 @@ if (filter && isRestrictiveFilter(filter)) {
    - **Tests**: `webQualityFilter.test.ts` (5 tests, all passing)
    - **Impact**: 30-50% better web result quality
 
-3. **PDF Upload Pipeline** (v2.1.0):
-   - Runtime document ingestion
-   - Multipart upload support
-   - **Routes**: `POST /documents/upload`
+3. **PDF Upload Pipeline** (v2.0.0):
+   - Runtime document ingestion via `POST /documents/upload`
+   - Multipart upload support with validation
+   - **Implementation**: `backend/src/routes/documents.ts`, `backend/src/tools/documentProcessor.ts`
+   - **Completed**: October 7, 2025
 
 4. **User Sessions & Database** (v2.0.0):
    - SQLite-backed session persistence
@@ -483,6 +484,14 @@ if (filter && isRestrictiveFilter(filter)) {
    - **Tests**: `features.test.ts` (3 tests), `FeatureTogglePanel.test.tsx` (3 tests)
    - **Impact**: Users can enable cost-saving features without redeployment
    - **Documentation**: `docs/feature-toggle-plan.md` (✅ COMPLETED Oct 11)
+
+7. **Developer Experience Enhancements** (`CLAUDE.md`, October 11, 2025):
+   - Added monorepo workspace commands (pnpm -r build, test, lint, typecheck, format)
+   - Added Development Workflow section documenting Husky + lint-staged pre-commit hooks
+   - Added backend utility scripts documentation (pnpm setup, pnpm cleanup)
+   - Added frontend testing commands (pnpm test, pnpm test:watch)
+   - Fixed formatting error in Streaming Architecture section header
+   - **Impact**: Improved developer onboarding, clearer workflow documentation
 
 #### Implemented Patterns ✅
 
@@ -530,6 +539,8 @@ if (filter && isRestrictiveFilter(filter)) {
 - ✅ Type safety enforced (TypeScript strict mode)
 - ✅ Proper async/await usage throughout
 - ✅ Input sanitization (`middleware/sanitize.ts`)
+
+**Note**: The 57 tests represent individual test cases across 16 test suite files (15 backend suites + 1 frontend suite)
 
 #### Recently Resolved Issues (October 11, 2025)
 
@@ -593,11 +604,13 @@ if (filter && isRestrictiveFilter(filter)) {
 
 **Phase 1 Status**: 2/3 quick wins completed ✅
 
-| Enhancement              | Status      | Priority | Effort   | Impact                |
-| ------------------------ | ----------- | -------- | -------- | --------------------- |
-| 1. Citation Tracking     | ✅ Complete | HIGH     | 1 day    | Learning loop         |
-| 2. Web Quality Filtering | ✅ Complete | HIGH     | 1 day    | 30-50% better results |
-| 3. Adaptive Retrieval    | ⏳ Planned  | HIGH     | 3-5 days | 30-50% fewer failures |
+| Enhancement              | Status      | Priority | Effort   | Impact                | TODO Ref |
+| ------------------------ | ----------- | -------- | -------- | --------------------- | -------- |
+| 1. Citation Tracking     | ✅ Complete | HIGH     | 1 day    | Learning loop         | Item #6  |
+| 2. Web Quality Filtering | ✅ Complete | HIGH     | 1 day    | 30-50% better results | Item #5  |
+| 3. Adaptive Retrieval    | ⏳ Planned  | HIGH     | 3-5 days | 30-50% fewer failures | Item #7  |
+
+**Note**: Enhancement numbers are phase-specific (1-3 for Phase 1). Cross-reference with `TODO.md` global item numbers shown in "TODO Ref" column.
 
 **Phase 2: Medium-Term** (1-3 months):
 

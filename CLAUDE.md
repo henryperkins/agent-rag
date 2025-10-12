@@ -26,6 +26,8 @@ pnpm test                 # Run vitest tests
 pnpm test:watch           # Run tests in watch mode
 pnpm test:coverage        # Run tests with coverage
 pnpm lint                 # Lint TypeScript files
+pnpm setup                # Initialize database and resources
+pnpm cleanup              # Clean up temporary files
 ```
 
 ### Frontend
@@ -36,7 +38,20 @@ pnpm install              # Install dependencies
 pnpm dev                  # Run Vite dev server (port 5173)
 pnpm build                # Build for production (tsc + vite build)
 pnpm preview              # Preview production build
+pnpm test                 # Run frontend tests
+pnpm test:watch           # Run tests in watch mode
 pnpm lint                 # Lint TypeScript/TSX files
+```
+
+### Monorepo (Root)
+
+```bash
+pnpm install              # Install all workspace dependencies
+pnpm -r build             # Build all packages
+pnpm -r test              # Run tests in all packages
+pnpm -r lint              # Lint all packages
+pnpm typecheck            # Type-check all packages
+pnpm format               # Format markdown/JSON/YAML files
 ```
 
 ### Run Tests
@@ -175,7 +190,7 @@ The application supports **per-session feature overrides** via UI panel or API:
 - Graceful degradation: Returns empty context if all retrieval fails
 - Azure OpenAI structured outputs with fallback to heuristic mode if JSON schema validation fails
 
--### Streaming Architecture
+### Streaming Architecture
 
 - Orchestrator emits typed events: `status`, `route`, `plan`, `context`, `tool`, `tokens`, `critique`, `complete`, `telemetry`, `trace`, `done`
 - Frontend subscribes via EventSource and updates UI reactively
@@ -284,6 +299,16 @@ If you encounter configuration issues, see:
   - Deployment name vs model name confusion
   - Token limits below Azure OpenAI minimums
   - Intent classification schema validation errors
+
+## Development Workflow
+
+This project uses **Husky** + **lint-staged** for pre-commit hooks:
+
+- Auto-linting on commit (backend .ts, frontend .ts/.tsx)
+- Auto-formatting (markdown, JSON, YAML)
+- Conventional commits enforced via commitlint
+
+Git hooks are installed automatically after `pnpm install` via the `prepare` script.
 
 ## Testing Strategy
 

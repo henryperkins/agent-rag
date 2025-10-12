@@ -20,16 +20,19 @@ This document tracks **actionable implementation tasks** derived from planning d
 
 - ✅ **6 enhancements completed** (Items 4, 5, 6, 11, 13, Runtime Toggles)
 - 🏗️ **Phase 1 Azure Enhancements**: 2/3 complete (67%)
-  - ✅ Web Quality Filtering (Item 5)
-  - ✅ Citation Usage Tracking (Item 6)
-  - ⏳ Adaptive Query Reformulation (Item 7) - Next priority
-- 📊 **65 tests passing** across 18 test files
+  - ✅ Web Quality Filtering (Item 5 / Phase 1 Enhancement #2)
+  - ✅ Citation Usage Tracking (Item 6 / Phase 1 Enhancement #1)
+  - ⏳ Adaptive Query Reformulation (Item 7 / Phase 1 Enhancement #3) - Next priority
+
+  **Note**: Item numbers reflect global TODO task IDs, while Phase 1 Enhancement numbers align with CODEBASE_AUDIT and IMPLEMENTATION_PROGRESS phase-specific numbering
+
+- 📊 **57/57 tests passing** (57 test cases across 16 test suites: 15 backend + 1 frontend)
 
 **Recent Completions**:
 
-- October 2025: Web Quality Filtering, Citation Tracking
-- v2.1.0: PDF Upload Pipeline
-- v2.0.0: User Sessions & Database
+- October 11, 2025: Runtime Feature Toggles (v2.0.1), Configuration Bug Fixes (v2.0.2), CLAUDE.md Enhancements
+- October 8, 2025: SSE timeout fix, Sanitization error handling (v2.0.1)
+- October 7, 2025: Web Quality Filtering, Citation Tracking, PDF Upload, User Sessions & Database (v2.0.0)
 
 ---
 
@@ -363,10 +366,12 @@ emit?.('summary_selection_stats', summaryStats);
 ### 11. PDF Upload & Processing
 
 **Status**: `[x]` Completed
-**Completed**: v2.1.0 (September 2025)
+**Completed**: v2.0.0 (October 7, 2025)
 **Priority**: User-requested
 **Effort**: 2-3 weeks (actual: as estimated)
 **Source**: [enhancement-implementation-plan.md:136-370](enhancement-implementation-plan.md:136-370), [quickstart-pdf-upload.md](quickstart-pdf-upload.md)
+
+**Note**: Runtime PDF upload and processing integrated as part of v2.0.0 release
 
 **Scope**: Full PDF upload, chunking, embedding, and indexing pipeline
 
@@ -660,6 +665,12 @@ emit?.('summary_selection_stats', summaryStats);
 - [x] Fix `docs/COMPREHENSIVE_AUDIT_REPORT.md` broken references (Oct 9, 2025)
 - [x] Create `docs/INDEX.md` - Documentation catalog (Oct 9, 2025)
 - [x] Create `docs/TODO.md` - This file (Oct 9, 2025)
+- [x] Enhanced `CLAUDE.md` developer guide (Oct 11, 2025)
+  - Added monorepo workspace commands section
+  - Added Development Workflow documentation (Husky + lint-staged)
+  - Added backend utility scripts (setup, cleanup)
+  - Added frontend testing commands
+  - Fixed formatting errors
 
 ### Core Features (v1.0.0 - v2.0.1)
 
@@ -678,7 +689,7 @@ emit?.('summary_selection_stats', summaryStats);
 - [x] SSE timeout fix (v2.0.1)
 - [x] Sanitization error handling (v2.0.1)
 
-### Runtime Feature Toggles (v2.1.1 - October 11, 2025)
+### Runtime Feature Toggles (v2.0.1 - October 11, 2025)
 
 - [x] Feature toggle resolution infrastructure (`backend/src/config/features.ts`)
 - [x] Per-session override capability (routes + session persistence)
@@ -767,6 +778,8 @@ emit?.('summary_selection_stats', summaryStats);
 ### Implementation Guidelines
 
 1. **Feature Flags**: All new features must be behind config flags (default: `false`)
+   - **Cost-Saving Exceptions**: `ENABLE_LAZY_RETRIEVAL` and `ENABLE_INTENT_ROUTING` are currently disabled by default but recommended to enable for production (see CODEBASE_AUDIT Action 1 for 50-65% cost reduction)
+   - **Runtime Overrides**: All 9 feature flags support per-session overrides via FeatureTogglePanel UI (v2.0.1+)
 2. **Testing**: Unit tests required before merge (target: >80% coverage)
 3. **Documentation**: Update ROADMAP.md and IMPLEMENTED_VS_PLANNED.md
 4. **Telemetry**: Add observability for all new operations
