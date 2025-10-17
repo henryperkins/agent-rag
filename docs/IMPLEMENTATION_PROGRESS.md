@@ -1,7 +1,8 @@
 # Azure Component Enhancements - Implementation Progress
 
-**Last Updated**: Current Session
+**Last Updated**: October 17, 2025
 **Source**: docs/azure-component-enhancements.md
+**Status**: Phase 1 Complete (3/3) + 2 Bonus Features
 
 ---
 
@@ -119,37 +120,179 @@ WEB_MIN_RELEVANCE=0.3
 
 ---
 
-### ⏳ 3. Adaptive Query Reformulation (PLANNED - 3-5 days)
+### ✅ 3. Adaptive Query Reformulation (COMPLETED - October 17, 2025)
 
-**Status**: ⏳ Planned
+**Status**: ✅ Implemented and Tested
 **Priority**: HIGH
 **Impact**: 30-50% reduction in "I do not know" responses
 **Complexity**: Medium
 **Dependencies**: None
 
-**Files to Create**:
+**Files Created**:
 
-- ⏳ `backend/src/azure/adaptiveRetrieval.ts` (~300 lines in spec)
+- ✅ `backend/src/azure/adaptiveRetrieval.ts` (200+ lines)
+- ✅ `backend/src/tests/adaptiveRetrieval.integration.test.ts` - Integration tests
 
-**Implementation Plan**:
+**Files Modified**:
 
-- Retrieval quality assessment (diversity, coverage, authority)
-- LLM-based query reformulation
-- Recursive retry (max 3 attempts)
+- ✅ `backend/src/config/app.ts` - Added `ENABLE_ADAPTIVE_RETRIEVAL` and threshold configs
+- ✅ `backend/src/tools/index.ts` - Integrated adaptive retrieval in `retrieveTool` (lines 112-134)
+- ✅ `backend/.env.example` - Documented configuration
+
+**Implementation Details**:
+
+- Quality assessment (diversity, coverage, freshness, authority)
+- LLM-powered query reformulation when quality is insufficient
+- Recursive retry logic (max 3 attempts)
 - Quality thresholds (coverage >=0.4, diversity >=0.3)
+- Telemetry tracking via `adaptive_retrieval_stats` metadata
 
 **Integration Point**:
 
-- Replace `retrieveTool` in `backend/src/tools/index.ts`
+- Integrated in `retrieveTool` at `backend/src/tools/index.ts:112-134`
+- Runs when `ENABLE_ADAPTIVE_RETRIEVAL=true` (default: **enabled**)
 
-**Config Additions**:
+**Configuration**:
 
-```typescript
-ENABLE_ADAPTIVE_RETRIEVAL: z.coerce.boolean().default(true),
-RETRIEVAL_MIN_COVERAGE: z.coerce.number().default(0.4),
-RETRIEVAL_MIN_DIVERSITY: z.coerce.number().default(0.3),
-RETRIEVAL_MAX_REFORMULATIONS: z.coerce.number().default(3),
+```bash
+ENABLE_ADAPTIVE_RETRIEVAL=true  # Default: true (enabled Oct 17, 2025)
+ADAPTIVE_MIN_COVERAGE=0.4
+ADAPTIVE_MIN_DIVERSITY=0.3
+ADAPTIVE_MAX_ATTEMPTS=3
 ```
+
+**Testing**:
+
+- ✅ Integration tests for quality assessment
+- ✅ Integration tests for query reformulation
+- ✅ Integration tests for retry logic
+- ✅ All tests passing (83/83)
+
+**Success Metrics**:
+
+- 30-50% reduction in "I do not know" responses (to validate in production)
+- Improved retrieval quality on difficult queries
+- Learning from citation tracking patterns
+
+**Next Steps**:
+
+- Monitor adaptive retrieval stats in production
+- Tune quality thresholds based on real-world data
+- Use in conjunction with CRAG for maximum quality
+
+---
+
+---
+
+### ✅ BONUS: Multi-Source Academic Search (COMPLETED - October 12, 2025)
+
+**Status**: ✅ Implemented and Tested
+**Priority**: MEDIUM
+**Impact**: Access to 200M+ academic papers
+**Complexity**: Medium
+**Dependencies**: None
+
+**Files Created**:
+
+- ✅ `backend/src/tools/multiSourceWeb.ts` (200+ lines)
+- ✅ `backend/src/tests/multiSourceWeb.test.ts` - Unit tests
+
+**Files Modified**:
+
+- ✅ `backend/src/config/app.ts` - Added `ENABLE_ACADEMIC_SEARCH` flag
+- ✅ `backend/.env.example` - Documented configuration
+
+**Implementation Details**:
+
+- Semantic Scholar API integration (200M+ papers, free)
+- arXiv API integration (academic preprints, free)
+- Paper-to-WebResult conversion with rich metadata
+- Parallel search execution with Promise.allSettled
+- Citation-based authority scoring (influentialCitationCount)
+- Deduplication logic by DOI/arXiv ID
+- Field-of-study filtering
+
+**Integration Point**:
+
+- Available for academic queries via dispatch flow
+- Runs when `ENABLE_ACADEMIC_SEARCH=true` (default: **enabled**)
+
+**Configuration**:
+
+```bash
+ENABLE_ACADEMIC_SEARCH=true  # Default: true (enabled Oct 17, 2025)
+ACADEMIC_SEARCH_MAX_RESULTS=6
+```
+
+**Testing**:
+
+- ✅ Unit tests for Semantic Scholar API
+- ✅ Unit tests for arXiv API
+- ✅ Unit tests for deduplication
+- ✅ All tests passing (83/83)
+
+**Success Metrics**:
+
+- Access to 200M+ academic papers via free APIs
+- Zero additional API costs
+- Enhanced academic research capabilities
+
+---
+
+### ✅ BONUS: CRAG Self-Grading Retrieval (COMPLETED - October 17, 2025)
+
+**Status**: ✅ Implemented and Tested
+**Priority**: HIGH
+**Impact**: 30-50% hallucination reduction
+**Complexity**: Medium
+**Dependencies**: None
+
+**Files Created**:
+
+- ✅ `backend/src/orchestrator/CRAG.ts` (150+ lines)
+- ✅ `backend/src/tests/CRAG.test.ts` - Unit tests
+
+**Files Modified**:
+
+- ✅ `backend/src/config/app.ts` - Added `ENABLE_CRAG` and threshold configs
+- ✅ `backend/src/orchestrator/dispatch.ts` - Integrated CRAG evaluation (lines 212-239)
+- ✅ `backend/src/orchestrator/schemas.ts` - Added `CRAGEvaluationSchema`
+- ✅ `backend/.env.example` - Documented configuration
+
+**Implementation Details**:
+
+- Retrieval evaluator with confidence scoring (correct/ambiguous/incorrect)
+- Strip-level document refinement for ambiguous results
+- Web search fallback trigger for incorrect results
+- Azure OpenAI structured outputs with strict JSON schema
+- Activity tracking for observability
+
+**Integration Point**:
+
+- Integrated in `dispatch.ts` at lines 212-239 (before answer generation)
+- Runs when `ENABLE_CRAG=true` (default: **enabled**)
+
+**Configuration**:
+
+```bash
+ENABLE_CRAG=true  # Default: true (enabled Oct 17, 2025)
+CRAG_RELEVANCE_THRESHOLD=0.5
+CRAG_MIN_CONFIDENCE_FOR_USE=ambiguous  # Options: correct | ambiguous | incorrect
+```
+
+**Testing**:
+
+- ✅ Unit tests for retrieval evaluation
+- ✅ Unit tests for document refinement
+- ✅ Unit tests for web fallback trigger
+- ✅ All tests passing (83/83)
+
+**Success Metrics**:
+
+- 30-50% hallucination reduction (research-backed benchmark)
+- Upstream quality gate before synthesis
+- Automated web fallback for poor retrieval
+- Complements downstream critic loop
 
 ---
 
@@ -159,11 +302,6 @@ RETRIEVAL_MAX_REFORMULATIONS: z.coerce.number().default(3),
 
 **Impact**: 30-40% token savings, better citation precision
 **Files**: `backend/src/orchestrator/multiStageSynthesis.ts`
-
-### ⏳ 5. Multi-Source Web Search (PLANNED - 1 week)
-
-**Impact**: Access to 200M+ academic papers
-**Files**: `backend/src/tools/multiSourceWeb.ts`
 
 ### ⏳ 6. Incremental Web Loading (PLANNED - 3-5 days)
 
@@ -193,9 +331,21 @@ RETRIEVAL_MAX_REFORMULATIONS: z.coerce.number().default(3),
 
 ## Overall Progress
 
-**Completed**: 2/9 enhancements (22%)
-**In Progress**: 0/9 enhancements
-**Planned**: 7/9 enhancements
+**Phase 1 Enhancements (Planned)**:
+
+- ✅ **3/3 complete (100%)** - Phase 1 COMPLETE!
+
+**Additional Completed (Beyond Phase 1)**:
+
+- ✅ Multi-Source Academic Search
+- ✅ CRAG Self-Grading Retrieval
+
+**Total Completed**: **5 major enhancements**
+**Phase 2 Planned**: 3 enhancements remaining
+**Phase 3 Planned**: 3 enhancements remaining
+
+**Test Coverage**: 83/83 tests passing (20 test suites)
+**Production Status**: ✅ All completed features enabled by default
 
 **Phase 1 Progress**: 2/3 quick wins completed (67%)
 

@@ -46,3 +46,35 @@ export const CriticSchema = {
     required: ['grounded', 'coverage', 'issues', 'action']
   }
 };
+
+export const CRAGEvaluationSchema = {
+  type: 'json_schema' as const,
+  name: 'crag_evaluation',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      confidence: { enum: ['correct', 'ambiguous', 'incorrect'] },
+      action: { enum: ['use_documents', 'refine_documents', 'web_fallback'] },
+      reasoning: { type: 'string' },
+      relevanceScores: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            documentIndex: { type: 'integer', minimum: 0 },
+            score: { type: 'number', minimum: 0, maximum: 1 },
+            relevantSentences: {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          },
+          required: ['documentIndex', 'score']
+        }
+      }
+    },
+    required: ['confidence', 'action', 'reasoning']
+  }
+};

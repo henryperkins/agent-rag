@@ -17,6 +17,7 @@ import { generateEmbedding } from '../azure/directSearch.js';
 import { filterWebResults } from '../tools/webQualityFilter.js';
 import type { FeatureGates } from '../config/features.js';
 import type { AdaptiveRetrievalStats } from '../../../shared/types.js';
+import { applyCRAG } from './CRAG.js';
 
 export interface DispatchResult {
   contextText: string;
@@ -208,7 +209,37 @@ export async function dispatchTools({
     }
   }
 
-  const wantsWeb = escalated || plan.steps.some((step) => step.action === 'web_search' || step.action === 'both');
+  // CRAG: Self-grading retrieval evaluation
+  let cragTriggeredWebSearch = false;
+  if (config.ENABLE_CRAG && shouldRetrieve && references.length > 0) {
+    emit?.('status', { stage: 'crag_evaluation' });
+    try {
+      const cragResult = await applyCRAG(queryFallback, references);
+
+      // Add CRAG activity steps
+      activity.push(...cragResult.activity);
+
+      // Handle CRAG corrective actions
+      if (cragResult.refinedDocuments && cragResult.refinedDocuments.length > 0) {
+        // Replace references with refined documents
+        references.length = 0;
+        references.push(...cragResult.refinedDocuments);
+      }
+
+      // If CRAG recommends web fallback, trigger web search
+      if (cragResult.shouldTriggerWebSearch) {
+        cragTriggeredWebSearch = true;
+      }
+    } catch (error: any) {
+      console.error('CRAG evaluation failed:', error.message);
+      activity.push({
+        type: 'crag_error',
+        description: `CRAG evaluation failed: ${error.message}. Proceeding without correction.`
+      });
+    }
+  }
+
+  const wantsWeb = cragTriggeredWebSearch || escalated || plan.steps.some((step) => step.action === 'web_search' || step.action === 'both');
   let webContextText = '';
   let webContextTokens = 0;
   let webContextTrimmed = false;

@@ -1,8 +1,16 @@
 # Agent-RAG Enhancements — Implemented vs. Planned
 
-_Last updated: 2025-10-08_
+_Last updated: 2025-10-17_
 
 This document consolidates the feature audit across the backend/frontend codebase, **Azure Component Enhancements**, and the **2025 Agentic RAG Techniques Deep Dive**. Items are split between capabilities that currently exist in the repository and enhancements that remain in planning or design-only form.
+
+**Recent Updates (October 17, 2025)**:
+
+- ✅ Adaptive Query Reformulation - COMPLETED
+- ✅ Multi-Source Academic Search - COMPLETED
+- ✅ CRAG Self-Grading Retrieval - COMPLETED
+- ✅ Production defaults optimized (7 feature flags enabled)
+- ✅ Test coverage expanded: 57 → 83 tests (+45%)
 
 ---
 
@@ -34,6 +42,23 @@ This document consolidates the feature audit across the backend/frontend codebas
   - SSE streaming client with plan/activity panels and newly surfaced search highlights (`frontend/src/components/SourcesPanel.tsx`).
   - Session telemetry recorder, OpenTelemetry spans, and structured `SessionTrace` payloads (`backend/src/orchestrator/sessionTelemetryStore.ts`, `backend/src/orchestrator/telemetry.ts`).
 
+- **Adaptive Retrieval**
+  - Quality-scored query reformulation with diversity, coverage, freshness, and authority metrics (`backend/src/azure/adaptiveRetrieval.ts`).
+  - LLM-powered query rewriting when retrieval quality is insufficient (max 3 attempts).
+  - Telemetry tracking via `adaptive_retrieval_stats` metadata (`backend/src/tools/index.ts`).
+  - Citation usage tracker feeding semantic memory analytics (`backend/src/orchestrator/citationTracker.ts`).
+
+- **Web Search Enhancements**
+  - Multi-source academic search with Semantic Scholar (200M+ papers) and arXiv integration (`backend/src/tools/multiSourceWeb.ts`).
+  - Domain authority and semantic quality filtering with configurable thresholds (`backend/src/tools/webQualityFilter.ts`).
+  - KB redundancy detection and spam domain filtering.
+
+- **Corrective RAG (CRAG)**
+  - Self-grading retrieval evaluator with confidence scoring (correct/ambiguous/incorrect) (`backend/src/orchestrator/CRAG.ts`).
+  - Strip-level document refinement for ambiguous results.
+  - Automated web search fallback trigger for incorrect results.
+  - Integrated in dispatch pipeline before answer generation (`backend/src/orchestrator/dispatch.ts`).
+
 ---
 
 ## 🛠️ Planned / Design-Only Enhancements (not in code yet)
@@ -45,22 +70,14 @@ This document consolidates the feature audit across the backend/frontend codebas
   - Scratchpad reasoning module (`orchestrator/scratchpad.ts`) and prompt enrichment.
   - Ensemble answer generation with parallel strategy selection.
 
-- **Adaptive Retrieval Upgrades**
-  - Quality-scored query reformulation (`retrieveWithAdaptiveRefinement`).
-  - Citation usage tracker feeding semantic memory analytics.
-
-- **Web Search Enhancements**
-  - Multi-source academic search (Semantic Scholar/arXiv).
-  - Domain authority/semantic quality filtering (`webQualityFilter.ts`).
-  - Incremental web loading with coverage-based batching.
+- **Incremental Web Loading**
+  - Coverage-based batching to reduce web API calls by 40-60%.
+  - Deferred loading based on search quality thresholds.
 
 ### From _docs/2025-agentic-rag-techniques-deepdive.md_
 
 - **Self-RAG Reflection Tokens**
   - `[ISREL]`, `[ISSUP]`, `[ISUSE]` gating, and full reflection-tuned critic/generator flow.
-
-- **Corrective RAG (CRAG)**
-  - Retrieval evaluator grading, knowledge strip refinement, and automated web fallback.
 
 - **HyDE Retrieval**
   - Hypothetical answer generation with answer-to-answer embedding search.

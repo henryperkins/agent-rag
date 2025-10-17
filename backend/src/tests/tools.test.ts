@@ -39,7 +39,10 @@ describe('retrieveTool coverage threshold', () => {
 
     const result = await retrieveTool({
       query: 'test query',
-      features: { ENABLE_MULTI_INDEX_FEDERATION: false }
+      features: {
+        ENABLE_MULTI_INDEX_FEDERATION: false,
+        ENABLE_ADAPTIVE_RETRIEVAL: false
+      }
     });
 
     // Should have low_coverage activity since 75% < 80% threshold
@@ -65,7 +68,10 @@ describe('retrieveTool coverage threshold', () => {
 
     const result = await retrieveTool({
       query: 'test query',
-      features: { ENABLE_MULTI_INDEX_FEDERATION: false }
+      features: {
+        ENABLE_MULTI_INDEX_FEDERATION: false,
+        ENABLE_ADAPTIVE_RETRIEVAL: false
+      }
     });
 
     expect(result.activity).toBeDefined();
@@ -87,7 +93,10 @@ describe('retrieveTool coverage threshold', () => {
 
     const result = await retrieveTool({
       query: 'test query',
-      features: { ENABLE_MULTI_INDEX_FEDERATION: false }
+      features: {
+        ENABLE_MULTI_INDEX_FEDERATION: false,
+        ENABLE_ADAPTIVE_RETRIEVAL: false
+      }
     });
 
     expect(result.activity).toBeDefined();
@@ -110,7 +119,10 @@ describe('retrieveTool coverage threshold', () => {
 
     const result = await retrieveTool({
       query: 'test query',
-      features: { ENABLE_MULTI_INDEX_FEDERATION: false }
+      features: {
+        ENABLE_MULTI_INDEX_FEDERATION: false,
+        ENABLE_ADAPTIVE_RETRIEVAL: false
+      }
     });
 
     expect(result.activity).toBeDefined();
@@ -133,7 +145,10 @@ describe('retrieveTool coverage threshold', () => {
 
     const result = await retrieveTool({
       query: 'test query',
-      features: { ENABLE_MULTI_INDEX_FEDERATION: false }
+      features: {
+        ENABLE_MULTI_INDEX_FEDERATION: false,
+        ENABLE_ADAPTIVE_RETRIEVAL: false
+      }
     });
 
     const lowCoverageActivity = result.activity?.find((a) => a.type === 'low_coverage');
@@ -159,7 +174,10 @@ describe('retrieveTool coverage threshold', () => {
 
     const result = await retrieveTool({
       query: 'test query',
-      features: { ENABLE_MULTI_INDEX_FEDERATION: false }
+      features: {
+        ENABLE_MULTI_INDEX_FEDERATION: false,
+        ENABLE_ADAPTIVE_RETRIEVAL: false
+      }
     });
 
     const lowCoverageActivity = result.activity?.find((a) => a.type === 'low_coverage');

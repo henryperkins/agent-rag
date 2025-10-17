@@ -7,6 +7,9 @@
   },
   "scripts": {
     "prepare": "husky",
+    "dev": "concurrently \"pnpm --filter backend dev\" \"pnpm --filter frontend dev\" --names \"backend,frontend\" --prefix-colors \"cyan,magenta\"",
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:frontend": "pnpm --filter frontend dev",
     "lint": "pnpm -r lint",
     "build": "pnpm -r build",
     "test": "pnpm -r --if-present test",
@@ -16,6 +19,7 @@
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
     "@commitlint/config-conventional": "^19.5.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9.11.1",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
@@ -35,4 +39,3 @@
     ]
   }
 }
-
