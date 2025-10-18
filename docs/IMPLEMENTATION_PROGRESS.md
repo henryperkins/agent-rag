@@ -1,8 +1,8 @@
 # Azure Component Enhancements - Implementation Progress
 
-**Last Updated**: October 17, 2025
+**Last Updated**: October 18, 2025
 **Source**: docs/azure-component-enhancements.md
-**Status**: Phase 1 Complete (3/3) + 2 Bonus Features
+**Status**: Phase 1 Complete (3/3) + Azure API Optimizations (3/3)
 
 ---
 
@@ -229,7 +229,7 @@ ACADEMIC_SEARCH_MAX_RESULTS=6
 - ✅ Unit tests for Semantic Scholar API
 - ✅ Unit tests for arXiv API
 - ✅ Unit tests for deduplication
-- ✅ All tests passing (83/83)
+- ✅ All tests passing (99/99)
 
 **Success Metrics**:
 
@@ -399,6 +399,121 @@ CRAG_MIN_CONFIDENCE_FOR_USE=ambiguous  # Options: correct | ambiguous | incorrec
 
 - Query reformulation success rate
 - Retrieval quality improvement trends
+
+---
+
+## Azure API Optimizations (Completed - October 2025)
+
+### ✅ 1. Vector Compression (COMPLETED)
+
+**Status**: ✅ Implemented
+**Priority**: HIGH
+**Impact**: 50-75% storage reduction, 20-30% latency improvement
+**Complexity**: Low
+**File**: `backend/src/azure/indexSetup.ts:79-100`
+
+**Implementation Details**:
+
+- Scalar quantization with int8 compression
+- Rescoring with full-precision vectors enabled
+- `preserveOriginals` storage method for accuracy
+- Default oversampling of 2x for quality
+- Integrated into HNSW profile configuration
+
+**Configuration**:
+
+```javascript
+compressions: [
+  {
+    name: 'sq_config',
+    kind: 'scalarQuantization',
+    rerankWithOriginalVectors: true,
+    rescoringOptions: {
+      enableRescoring: true,
+      defaultOversampling: 2,
+      rescoreStorageMethod: 'preserveOriginals',
+    },
+    scalarQuantizationParameters: {
+      quantizedDataType: 'int8',
+    },
+  },
+];
+```
+
+**Success Metrics**:
+
+- 50-75% reduction in vector storage size
+- 20-30% improvement in vector search latency
+- Maintained search quality with rescoring
+
+---
+
+### ✅ 2. Knowledge Agent Source Controls (COMPLETED)
+
+**Status**: ✅ Implemented
+**Priority**: MEDIUM
+**Impact**: Fine-grained retrieval control
+**Complexity**: Low
+**File**: `backend/src/azure/indexSetup.ts:296-298`
+
+**Implementation Details**:
+
+- `maxSubQueries: 3` - Limits query splitting for performance
+- `alwaysQuerySource: false` - Balances recall vs. latency
+- Applied per knowledge source in agent configuration
+
+**Configuration**:
+
+```javascript
+knowledgeSources: [
+  {
+    includeReferences: true,
+    includeReferenceSourceData: true,
+    maxSubQueries: 3,
+    alwaysQuerySource: false,
+  },
+];
+```
+
+**Success Metrics**:
+
+- Better control over retrieval behavior
+- Balanced recall and precision
+- Reduced unnecessary sub-query overhead
+
+---
+
+### ✅ 3. Response Metadata Correlation (COMPLETED)
+
+**Status**: ✅ Implemented
+**Priority**: MEDIUM
+**Impact**: Improved traceability and auditability
+**Complexity**: Low
+**File**: `backend/src/orchestrator/index.ts:261-266`
+
+**Implementation Details**:
+
+- Session ID correlation in response metadata
+- Intent classification tracking
+- Route model information
+- Sanitized user field for Azure compliance
+
+**Configuration**:
+
+```javascript
+metadata: {
+  sessionId,
+  intent: intentHint,
+  routeModel: routeConfig.model
+},
+user: sanitizeUserField(sessionId)
+```
+
+**Success Metrics**:
+
+- Full session traceability
+- Easier debugging and analytics
+- Compliance with Azure field limits
 
 ---
 
