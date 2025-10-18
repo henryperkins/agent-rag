@@ -206,7 +206,6 @@ function ChatApp() {
     if (mode === 'stream') {
       const answer = await stream.stream(updated, sessionId, featureSelections);
       setMessages((prev) => [...prev, { role: 'assistant' as const, content: answer }]);
-      stream.reset();
       return;
     }
 

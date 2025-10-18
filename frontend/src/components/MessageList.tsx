@@ -8,7 +8,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, streamingAnswer, isStreaming }: MessageListProps) {
-  const combined = streamingAnswer && streamingAnswer.length
+  const combined = isStreaming && streamingAnswer && streamingAnswer.length
     ? [...messages, { role: 'assistant', content: streamingAnswer }]
     : messages;
 
