@@ -250,7 +250,8 @@ async function generateAnswer(
       model: modelDeployment,
       max_output_tokens: routeConfig.maxTokens,
       parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
-      stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
+      // NOTE: Azure OpenAI doesn't support stream_options.include_usage yet
+      // stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
       textFormat: { type: 'text' },
       truncation: 'auto',
       store: config.ENABLE_RESPONSE_STORAGE,
@@ -346,7 +347,8 @@ async function generateAnswer(
           return;
         }
 
-        // Optional usage snapshots when stream_options.include_usage=true
+        // NOTE: This handler is for Chat Completions API with stream_options.include_usage=true
+        // Responses API provides usage in response.completed event instead (see below)
         if (type === 'response.usage' || delta?.response?.usage) {
           const usage = delta.response?.usage ?? delta.usage;
           if (usage) {
@@ -361,6 +363,10 @@ async function generateAnswer(
           }
           if (typeof delta.response?.id === 'string') {
             responseId = delta.response.id;
+          }
+          // Extract usage from response.completed event (Responses API built-in)
+          if (delta.response?.usage) {
+            emit?.('usage', delta.response.usage);
           }
           completed = true;
         }

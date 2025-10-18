@@ -1,4 +1,5 @@
-import { createResponse, extractOutputText } from '../azure/openaiClient.js';
+import { createResponse } from '../azure/openaiClient.js';
+import { extractOutputText } from '../utils/openai.js';
 import { CRAGEvaluationSchema } from './schemas.js';
 import { config } from '../config/app.js';
 import type { Reference, ActivityStep } from '../../shared/types.js';

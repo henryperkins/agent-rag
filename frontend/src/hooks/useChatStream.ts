@@ -143,7 +143,7 @@ export function useChatStream() {
     let finalAnswer = '';
 
     try {
-      const response = await fetch(`${(import.meta.env.VITE_API_BASE ?? __API_BASE__) as string}/chat/stream`, {
+      const response = await fetch('/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages, sessionId, feature_overrides: featureOverrides }),

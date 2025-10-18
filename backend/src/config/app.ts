@@ -121,7 +121,10 @@ const envSchema = z.object({
 
   // Responses API feature gates
   RESPONSES_PARALLEL_TOOL_CALLS: z.coerce.boolean().default(true),
-  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(true), // Enable cost telemetry
+  // NOTE: stream_options.include_usage is NOT supported by Azure Responses API
+  // It's only available in Chat Completions API (/chat/completions)
+  // Keeping this config for future compatibility, but it's currently unused
+  RESPONSES_STREAM_INCLUDE_USAGE: z.coerce.boolean().default(false), // NOT SUPPORTED - see above
   ENABLE_RESPONSE_STORAGE: z.coerce.boolean().default(true), // Enable response audit trails
 
   SESSION_DB_PATH: z.string().default('./data/session-store.db')
