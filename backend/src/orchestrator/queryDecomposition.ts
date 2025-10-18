@@ -75,7 +75,7 @@ export async function assessComplexity(question: string): Promise<ComplexityAsse
 
   try {
     const response = await createResponse({
-      model: config.MODEL_FAQ,
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.1,
       max_output_tokens: 150,
       textFormat: COMPLEXITY_SCHEMA,
@@ -113,7 +113,7 @@ Rules:
 
   try {
     const response = await createResponse({
-      model: config.MODEL_RESEARCH,
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.2,
       max_output_tokens: 800,
       textFormat: DECOMPOSITION_SCHEMA,

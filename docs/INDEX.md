@@ -1,8 +1,9 @@
 # Documentation Index
 
-**Last Updated**: October 9, 2025  
-**Total Documents**: 27  
+**Last Updated**: October 18, 2025
+**Total Documents**: 27 (+ 13 archived)
 **Repository**: Agent-RAG
+**Recent Cleanup**: Archived 13 outdated/redundant documents to `docs/archive/`
 
 ---
 
@@ -75,20 +76,24 @@
 
 #### Current State
 
-| Document                                               | Status | Description                                             | Date        |
-| ------------------------------------------------------ | ------ | ------------------------------------------------------- | ----------- |
-| [IMPLEMENTED_VS_PLANNED.md](IMPLEMENTED_VS_PLANNED.md) | ✅     | Complete feature inventory (implemented vs design-only) | Oct 8, 2025 |
-| [TEST_FIXES_SUMMARY.md](TEST_FIXES_SUMMARY.md)         | ✅     | Bug fixes and test corrections                          | Oct 7, 2025 |
-| [CRITIC_ENHANCEMENTS.md](CRITIC_ENHANCEMENTS.md)       | ✅     | Multi-pass critic loop implementation                   | Complete    |
-| [MANAGED_IDENTITY_FIX.md](MANAGED_IDENTITY_FIX.md)     | ✅     | Azure auth configuration fix                            | Oct 3, 2025 |
+| Document                                                 | Status | Description                                             | Date         |
+| -------------------------------------------------------- | ------ | ------------------------------------------------------- | ------------ |
+| [IMPLEMENTED_VS_PLANNED.md](IMPLEMENTED_VS_PLANNED.md)   | ✅     | Complete feature inventory (implemented vs design-only) | Oct 17, 2025 |
+| [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) | ✅     | Phase 1 implementation tracking                         | Oct 17, 2025 |
+| [CRITIC_ENHANCEMENTS.md](CRITIC_ENHANCEMENTS.md)         | ✅     | Multi-pass critic loop implementation                   | Complete     |
+| [CITATION_TRACKING.md](CITATION_TRACKING.md)             | ✅     | Citation tracking implementation guide                  | Complete     |
+| [WEB_QUALITY_FILTERING.md](WEB_QUALITY_FILTERING.md)     | ✅     | Web quality filter implementation guide                 | Complete     |
+
+**Archived Fix Summaries**: `TEST_FIXES_SUMMARY.md`, `VERIFICATION_SUMMARY.md`, `MANAGED_IDENTITY_FIX.md` → See `docs/archive/`
 
 #### Audits & Reports
 
-| Document                                                                     | Status | Description                              | Notes                           |
-| ---------------------------------------------------------------------------- | ------ | ---------------------------------------- | ------------------------------- |
-| [CODEBASE_AUDIT_2025-10-10-REVISED.md](CODEBASE_AUDIT_2025-10-10-REVISED.md) | ✅     | API Implementation & Documentation Audit | Oct 10, 2025 - Quality assured  |
-| [COMPREHENSIVE_AUDIT_REPORT.md](COMPREHENSIVE_AUDIT_REPORT.md)               | ✅     | Configuration alignment audit            | Oct 8, 2025 - Fixed broken refs |
-| [VERIFICATION_SUMMARY.md](VERIFICATION_SUMMARY.md)                           | ✅     | Implementation verification              | Oct 9, 2025 - Historical record |
+| Document                                                                     | Status | Description                              | Notes                                        |
+| ---------------------------------------------------------------------------- | ------ | ---------------------------------------- | -------------------------------------------- |
+| [CODEBASE_AUDIT_2025-10-10-REVISED.md](CODEBASE_AUDIT_2025-10-10-REVISED.md) | ✅     | API Implementation & Documentation Audit | Oct 10, 2025 - Quality assured               |
+| [audit-report-corrected.md](audit-report-corrected.md)                       | ✅     | Latest comprehensive audit (CURRENT)     | Oct 18, 2025 - Replaces older audit versions |
+
+**Archived Audit Reports**: `COMPREHENSIVE_AUDIT_REPORT*.md`, `audit-report.md` → See `docs/archive/`
 
 ---
 
@@ -164,9 +169,16 @@ The following contain implementation guidance for features **not yet built**:
 6. Sections of `architecture-map.md` (lines 198-206: document upload flow)
 7. Sections of `liner-comparison-analysis.md` (enhancement opportunities)
 
-### ⚠️ Contains Outdated References (1 document - Now Fixed)
+### 📦 Archived Documents (13 documents)
 
-- `COMPREHENSIVE_AUDIT_REPORT.md` - ✅ Fixed broken file references in v2.0.2
+See `docs/archive/ARCHIVE.md` for details on archived documentation.
+
+**Categories:**
+
+- Old audit reports (4): Superseded by `audit-report-corrected.md`
+- Redundant feature docs (4): Consolidated into main feature guides
+- Historical fix summaries (3): Work completed, archived for reference
+- Redundant planning (2): Consolidated into `ROADMAP.md` and `PRIORITIZED_ACTION_PLAN.md`
 
 ### ❌ Referenced but Non-Existent (9 documents)
 
@@ -190,11 +202,13 @@ These were referenced in older versions but have been **consolidated** into exis
 
 ### Coverage Statistics
 
-- **Total Documents**: 27
-- **Fully Implemented**: 21 (78%)
+- **Active Documents**: 27
+- **Archived Documents**: 13 (outdated/redundant)
+- **Fully Implemented**: 20 (74%)
 - **Planning/Design**: 7 (26%)
-- **Outdated/Broken**: 0 (0% after v2.0.2 fixes)
-- **Recent Additions**: CODEBASE_AUDIT_2025-10-10-REVISED.md (Oct 10, 2025)
+- **Outdated/Broken**: 0 (0% - all archived)
+- **Recent Additions**: audit-report-corrected.md (Oct 18, 2025)
+- **Recent Cleanup**: Oct 18, 2025 - Archived 13 redundant documents
 
 ### Quality Indicators
 

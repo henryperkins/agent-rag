@@ -75,11 +75,29 @@ export async function createIndexAndIngest(): Promise<void> {
           }
         }
       ],
+      // Enable scalar quantization compression and reference it from the profile
+      compressions: [
+        {
+          name: 'sq_config',
+          kind: 'scalarQuantization',
+          // Preserve originals to allow rescoring with full-precision vectors
+          rerankWithOriginalVectors: true,
+          rescoringOptions: {
+            enableRescoring: true,
+            defaultOversampling: 2,
+            rescoreStorageMethod: 'preserveOriginals'
+          },
+          scalarQuantizationParameters: {
+            quantizedDataType: 'int8'
+          }
+        }
+      ],
       profiles: [
         {
           name: 'hnsw_profile',
           algorithm: 'hnsw_algorithm',
-          vectorizer: 'openai_vectorizer'
+          vectorizer: 'openai_vectorizer',
+          compression: 'sq_config'
         }
       ],
       vectorizers: [
@@ -273,7 +291,10 @@ export async function createKnowledgeAgent(): Promise<void> {
       {
         name: knowledgeSourceName,
         includeReferences: true,
-        includeReferenceSourceData: true
+        includeReferenceSourceData: true,
+        // Finer-grained source-level controls per audit recommendations
+        maxSubQueries: 3,
+        alwaysQuerySource: false
       }
     ],
     outputConfiguration: {

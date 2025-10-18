@@ -111,7 +111,7 @@ Return strict JSON matching the provided schema.`;
 
   try {
     const response = await createResponse({
-      model: config.INTENT_CLASSIFIER_MODEL,
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.1,
       max_output_tokens: config.INTENT_CLASSIFIER_MAX_TOKENS,
       textFormat: INTENT_CLASSIFICATION_SCHEMA,

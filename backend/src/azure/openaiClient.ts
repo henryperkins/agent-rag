@@ -104,6 +104,9 @@ export interface ResponsePayload {
   background?: boolean;
   include?: string[];
   truncation?: 'auto' | 'none';
+  // Correlation fields for auditability
+  metadata?: Record<string, unknown>;
+  user?: string;
   // Advanced streaming options pass-through
   stream_options?: { include_usage?: boolean };
   // Optional raw fields for direct mapping
@@ -123,6 +126,8 @@ export async function createResponse(payload: ResponsePayload) {
     background: payload.background,
     include: payload.include,
     truncation: payload.truncation,
+    metadata: payload.metadata,
+    user: payload.user,
     input:
       payload.input ?? payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
     instructions: payload.instructions,
@@ -155,6 +160,8 @@ export async function createResponseStream(payload: ResponsePayload) {
     background: payload.background,
     include: payload.include,
     truncation: payload.truncation,
+    metadata: payload.metadata,
+    user: payload.user,
     input:
       payload.input ?? payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
     instructions: payload.instructions,

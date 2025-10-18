@@ -1,6 +1,6 @@
 # Agent-RAG Development Roadmap
 
-**Last Updated**: October 17, 2025
+**Last Updated**: October 18, 2025
 **Current Version**: 2.0.3
 **Status**: Production-Ready with Phase 1 Complete
 
@@ -95,9 +95,9 @@ This roadmap consolidates planning information across multiple strategy document
 - [x] Update README.md with feature flag warnings (COMPLETED v2.0.1)
 - [x] Apply SSE timeout fix (COMPLETED v2.0.1)
 - [x] Apply sanitization error fix (COMPLETED v2.0.1)
-- [ ] Create consolidated ROADMAP.md (THIS FILE)
-- [ ] Fix COMPREHENSIVE_AUDIT_REPORT.md broken references
-- [ ] Create documentation INDEX.md
+- [x] Create consolidated ROADMAP.md (COMPLETED - THIS FILE)
+- [x] Archive outdated audit reports (COMPLETED - Oct 18, 2025)
+- [x] Create documentation INDEX.md (COMPLETED)
 - [ ] Create implementation TODO.md
 
 **Deliverable**: Clear documentation preventing deployment confusion
@@ -352,8 +352,8 @@ This roadmap consolidates planning information across multiple strategy document
 - [x] Update IMPLEMENTATION_PROGRESS.md (Phase 1 complete)
 - [x] Update IMPLEMENTED_VS_PLANNED.md (features moved to implemented)
 - [x] Update CODEBASE_AUDIT (Revision 5, actions 1-6 complete)
-- [ ] Fix broken references in COMPREHENSIVE_AUDIT_REPORT.md
-- [ ] Create INDEX.md documentation catalog
+- [x] Archive outdated audit reports (Oct 18, 2025)
+- [x] Create INDEX.md documentation catalog (Oct 18, 2025)
 
 **Telemetry Enhancements** (Next Sprint):
 
@@ -546,9 +546,11 @@ This roadmap consolidates planning information across multiple strategy document
 ### Implementation Status
 
 - [IMPLEMENTED_VS_PLANNED.md](IMPLEMENTED_VS_PLANNED.md) - Feature inventory (exists vs planned)
+- [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) - Phase 1 implementation tracking
 - [CRITIC_ENHANCEMENTS.md](CRITIC_ENHANCEMENTS.md) - Multi-pass critic implementation details
-- [TEST_FIXES_SUMMARY.md](TEST_FIXES_SUMMARY.md) - Recent bug fixes (Oct 7, 2025)
-- [MANAGED_IDENTITY_FIX.md](MANAGED_IDENTITY_FIX.md) - Azure auth configuration
+- [CITATION_TRACKING.md](CITATION_TRACKING.md) - Citation tracking implementation
+- [WEB_QUALITY_FILTERING.md](WEB_QUALITY_FILTERING.md) - Web quality filter implementation
+- Historical fixes archived in `docs/archive/` (see ARCHIVE.md)
 
 ### Architecture
 

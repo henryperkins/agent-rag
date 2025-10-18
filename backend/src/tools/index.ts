@@ -8,6 +8,7 @@ import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
 import type { AgentMessage, Reference, LazyReference, FeatureOverrideMap } from '../../../shared/types.js';
 import { extractOutputText } from '../utils/openai.js';
+import { sanitizeUserField } from '../utils/session.js';
 
 export const toolSchemas = {
   retrieve: {
@@ -319,6 +320,9 @@ export async function answerTool(args: {
   temperature?: number;
   previousResponseId?: string;
   features?: FeatureOverrideMap;
+  sessionId?: string;
+  userId?: string;
+  intent?: string;
 }) {
   const { features, previousResponseId, ...rest } = args;
   const enableResponseStorage = (features?.ENABLE_RESPONSE_STORAGE ?? config.ENABLE_RESPONSE_STORAGE) === true;
@@ -350,6 +354,12 @@ export async function answerTool(args: {
     parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
     truncation: 'auto',
     store: enableResponseStorage,
+    metadata: {
+      sessionId: args.sessionId,
+      userId: args.userId ?? args.sessionId,
+      intent: args.intent
+    },
+    user: sanitizeUserField(args.userId ?? args.sessionId),
     // Only send previous_response_id when storage is enabled
     ...(enableResponseStorage && previousResponseId ? { previous_response_id: previousResponseId } : {})
   });

@@ -95,7 +95,7 @@ For each document, assign a relevance score (0-1) and optionally identify releva
       textFormat: CRAGEvaluationSchema,
       temperature: 0.0,
       max_output_tokens: 500,
-      model: config.INTENT_CLASSIFIER_MODEL
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 
     const evaluation = extractOutputText(response) as CRAGEvaluation;

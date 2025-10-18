@@ -11,11 +11,13 @@
 Switching the orchestrator from `agenticRetrieval` to `directSearch` broke Azure Cognitive Search authentication for tenants using Managed Service Identity (MSI).
 
 **Root Cause:**
+
 - `backend/src/azure/directSearch.ts:268-286` only sent `Content-Type` header unless `AZURE_SEARCH_API_KEY` was set
 - Previous `agenticRetrieval` flow explicitly acquired bearer tokens from `DefaultAzureCredential` when no key was present
 - Result: All search requests returned `401 Unauthorized` in MSI-backed deployments, breaking RAG retrieval entirely
 
 **Impact:**
+
 - **Severity:** P0 (Critical) - Complete retrieval failure
 - **Affected:** All Azure deployments using Managed Identity instead of API keys
 - **Scope:** Every RAG query (hybrid search, vector search, keyword search)
@@ -64,7 +66,7 @@ async function getSearchAuthHeaders(): Promise<Record<string, string>> {
 
   cachedSearchToken = {
     token: tokenResponse.token,
-    expiresOnTimestamp: tokenResponse.expiresOnTimestamp
+    expiresOnTimestamp: tokenResponse.expiresOnTimestamp,
   };
 
   return { Authorization: `Bearer ${tokenResponse.token}` };
@@ -74,9 +76,10 @@ async function getSearchAuthHeaders(): Promise<Record<string, string>> {
 #### 2. Updated `executeSearch` to Use New Auth Helper (lines 314-318)
 
 **Before:**
+
 ```typescript
 const headers: Record<string, string> = {
-  'Content-Type': 'application/json'
+  'Content-Type': 'application/json',
 };
 
 if (config.AZURE_SEARCH_API_KEY) {
@@ -85,11 +88,12 @@ if (config.AZURE_SEARCH_API_KEY) {
 ```
 
 **After:**
+
 ```typescript
 const authHeaders = await getSearchAuthHeaders();
 const headers: Record<string, string> = {
   'Content-Type': 'application/json',
-  ...authHeaders
+  ...authHeaders,
 };
 ```
 
@@ -107,6 +111,7 @@ executeSearch()
 ```
 
 **Headers Sent:**
+
 ```http
 Content-Type: application/json
 api-key: <your-api-key>
@@ -128,6 +133,7 @@ executeSearch()
 ```
 
 **Headers Sent:**
+
 ```http
 Content-Type: application/json
 Authorization: Bearer <azure-ad-token>
@@ -138,11 +144,13 @@ Authorization: Bearer <azure-ad-token>
 ## Token Caching Strategy
 
 **Why Cache?**
+
 - Acquiring tokens via `DefaultAzureCredential` has latency (~50-200ms)
 - Azure AD tokens typically valid for 60-90 minutes
 - Caching reduces overhead and improves performance
 
 **Cache Invalidation:**
+
 - Token refreshed when `expiresOnTimestamp - now < 120000` (2-minute buffer)
 - Ensures token never expires mid-request
 - Automatic rotation without manual intervention
@@ -158,15 +166,16 @@ For Managed Identity to work, the identity must have appropriate Azure RBAC role
 
 ### Required Roles
 
-| Role | Scope | Required For |
-|------|-------|--------------|
-| **Search Index Data Reader** | Search Service or Index | Read operations (queries) |
-| **Search Index Data Contributor** | Search Service or Index | Read + Write operations |
-| **Search Service Contributor** | Search Service | Management operations |
+| Role                              | Scope                   | Required For              |
+| --------------------------------- | ----------------------- | ------------------------- |
+| **Search Index Data Reader**      | Search Service or Index | Read operations (queries) |
+| **Search Index Data Contributor** | Search Service or Index | Read + Write operations   |
+| **Search Service Contributor**    | Search Service          | Management operations     |
 
 ### Assigning Roles
 
 **Via Azure Portal:**
+
 1. Navigate to Azure Cognitive Search service
 2. Select "Access Control (IAM)"
 3. Click "Add role assignment"
@@ -175,6 +184,7 @@ For Managed Identity to work, the identity must have appropriate Azure RBAC role
 6. Save
 
 **Via Azure CLI:**
+
 ```bash
 # Get resource ID of your search service
 SEARCH_ID=$(az search service show \
@@ -196,6 +206,7 @@ az role assignment create \
 ```
 
 **Via Bicep/ARM:**
+
 ```bicep
 resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(searchService.id, managedIdentity.id, searchDataReaderRole.id)
@@ -228,6 +239,7 @@ resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 ### Integration Testing
 
 #### Test API Key Authentication
+
 ```bash
 # Set API key
 export AZURE_SEARCH_API_KEY="your-api-key"
@@ -239,6 +251,7 @@ pnpm dev
 ```
 
 #### Test Managed Identity Authentication
+
 ```bash
 # Remove API key
 unset AZURE_SEARCH_API_KEY
@@ -256,6 +269,7 @@ pnpm dev
 ```
 
 #### Test Token Caching
+
 ```bash
 # Enable debug logging
 export LOG_LEVEL=debug
@@ -276,13 +290,14 @@ curl -X POST http://localhost:8787/chat/stream \
 
 ✅ **100% Backward Compatible**
 
-| Scenario | Before Fix | After Fix |
-|----------|-----------|-----------|
-| API Key set in config | ✅ Works | ✅ Works (unchanged) |
-| API Key not set, MSI available | ❌ 401 Error | ✅ Works (fixed) |
-| API Key not set, no credentials | ❌ 401 Error | ❌ Error (expected) |
+| Scenario                        | Before Fix   | After Fix            |
+| ------------------------------- | ------------ | -------------------- |
+| API Key set in config           | ✅ Works     | ✅ Works (unchanged) |
+| API Key not set, MSI available  | ❌ 401 Error | ✅ Works (fixed)     |
+| API Key not set, no credentials | ❌ 401 Error | ❌ Error (expected)  |
 
 **Migration Path:**
+
 - Existing deployments with API keys: No changes needed
 - MSI deployments: Fix automatically restores functionality
 - New deployments: Choose API key or MSI, both work
@@ -305,13 +320,16 @@ curl -X POST http://localhost:8787/chat/stream \
 ## Related Files
 
 **Modified:**
+
 - `backend/src/azure/directSearch.ts` (+47 lines)
 
 **Created:**
+
 - `backend/src/tests/directSearch.auth.test.ts` (new file)
 - `docs/MANAGED_IDENTITY_FIX.md` (this file)
 
 **References:**
+
 - `backend/src/azure/agenticRetrieval.ts.backup` (original implementation)
 - `backend/src/azure/openaiClient.ts` (token caching pattern)
 - `backend/src/azure/indexSetup.ts` (similar auth pattern)
@@ -321,15 +339,18 @@ curl -X POST http://localhost:8787/chat/stream \
 ## Performance Impact
 
 **Token Acquisition:**
+
 - First call: +50-200ms (credential acquisition)
 - Cached calls: <1ms (in-memory lookup)
 - Cache hit rate: ~99.9% (tokens valid ~60 minutes, queries every few seconds)
 
 **Memory:**
+
 - Cached token: ~2KB per instance
 - Negligible impact
 
 **Network:**
+
 - Reduced token acquisition calls by ~99.9%
 - No additional network overhead for cached tokens
 
@@ -338,21 +359,25 @@ curl -X POST http://localhost:8787/chat/stream \
 ## Security Considerations
 
 **Token Storage:**
+
 - Tokens cached in memory (not persisted to disk)
 - Cleared on process restart
 - Not logged or exposed in telemetry
 
 **Token Expiry:**
+
 - 2-minute buffer before expiry
 - Automatic refresh on expiry
 - No manual token management needed
 
 **Least Privilege:**
+
 - Managed Identity requires explicit RBAC role assignment
 - No hard-coded credentials in code or config
 - Follows Azure security best practices
 
 **Audit Trail:**
+
 - All search requests logged with authentication method
 - Token acquisition logged at debug level
 - Failed auth attempts logged as errors
@@ -372,14 +397,16 @@ AZURE_SEARCH_API_KEY=your-api-key
 
 **1. Enable Managed Identity**
 
-*Azure App Service:*
+_Azure App Service:_
+
 ```bash
 az webapp identity assign \
   --name <app-name> \
   --resource-group <resource-group>
 ```
 
-*Azure Container Apps:*
+_Azure Container Apps:_
+
 ```bash
 az containerapp identity assign \
   --name <app-name> \
@@ -388,11 +415,13 @@ az containerapp identity assign \
 ```
 
 **2. Assign RBAC Role**
+
 ```bash
 # See "Azure RBAC Requirements" section above
 ```
 
 **3. Remove API Key from Config**
+
 ```bash
 # In Azure Portal: App Service > Configuration > Application settings
 # Delete: AZURE_SEARCH_API_KEY
@@ -405,6 +434,7 @@ az webapp config appsettings delete \
 ```
 
 **4. Restart Application**
+
 ```bash
 az webapp restart \
   --name <app-name> \
@@ -412,6 +442,7 @@ az webapp restart \
 ```
 
 **5. Verify**
+
 ```bash
 # Check logs for successful authentication
 az webapp log tail \
@@ -427,11 +458,13 @@ az webapp log tail \
 ### Error: "Failed to obtain Azure Search token for managed identity authentication"
 
 **Causes:**
+
 1. Managed Identity not enabled
 2. No Azure credentials available locally
 3. Network issues preventing token acquisition
 
 **Solutions:**
+
 ```bash
 # Check if MSI enabled
 az webapp identity show --name <app> --resource-group <rg>
@@ -447,11 +480,13 @@ curl https://login.microsoftonline.com/.well-known/openid-configuration
 ### Error: "401 Unauthorized" on Search Requests
 
 **Causes:**
+
 1. RBAC role not assigned
 2. Wrong scope (assigned to wrong resource)
 3. Role propagation delay
 
 **Solutions:**
+
 ```bash
 # Verify role assignment
 az role assignment list \
@@ -465,10 +500,12 @@ az role assignment list \
 ### Error: "403 Forbidden" on Search Requests
 
 **Causes:**
+
 1. Assigned role lacks required permissions
 2. IP firewall blocking requests
 
 **Solutions:**
+
 ```bash
 # Verify role is "Search Index Data Reader" or higher
 # Check search service firewall settings
@@ -486,6 +523,7 @@ az search service show \
 If issues arise, revert to API key authentication:
 
 **1. Set API Key**
+
 ```bash
 az webapp config appsettings set \
   --name <app-name> \
@@ -494,11 +532,13 @@ az webapp config appsettings set \
 ```
 
 **2. Restart**
+
 ```bash
 az webapp restart --name <app-name> --resource-group <resource-group>
 ```
 
 **3. Code Rollback (if needed)**
+
 ```bash
 git revert <commit-hash>
 pnpm build

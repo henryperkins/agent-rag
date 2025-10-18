@@ -1,6 +1,7 @@
 # Next Steps Implementation Guide
 
 **Created**: October 9, 2025  
+**Last Updated**: October 18, 2025  
 **Phase**: Post-Documentation Organization  
 **Source**: Original comprehensive sweep analysis
 
@@ -20,7 +21,7 @@ Documentation organization tasks (1-4) are complete:
 
 ## Phase 2: Backend Telemetry Enhancements (Est. 2-3 hours)
 
-### Task 5: Semantic Summary Telemetry Aggregation
+### Task 5: Semantic Summary Telemetry Aggregation ✅ Completed
 
 **Objective**: Close the TODO from [`semantic-summary-plan.md:11`](semantic-summary-plan.md:11)  
 **Priority**: Medium  
@@ -37,11 +38,11 @@ The system currently captures per-session summary selection stats:
 
 **Location**: [`sessionTelemetryStore.ts:365-366`](../backend/src/orchestrator/sessionTelemetryStore.ts:365-366) stores `summarySelection` per session.
 
-**Problem**: No aggregate statistics across sessions for trend analysis.
+**Status**: Implemented. Cross-session aggregates maintained in-memory and exposed at `/admin/telemetry`.
 
-#### Implementation Steps
+#### Implementation Notes
 
-**Step 1: Add aggregate state (after line 72)**
+Aggregate state introduced and wired via `summary_selection_stats` events.
 
 ```typescript
 // After: const sessionTelemetry: SessionTelemetryRecord[] = [];
@@ -538,10 +539,10 @@ Add one-line comments matching `.env.example` phrasing:
 // Around lines 55-90 (feature flags section):
 
 // Summary-first document loading: saves 40-50% retrieval tokens
-ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(false),
+ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(true),
 
 // Adaptive model selection: saves 20-30% by routing to cheaper models
-ENABLE_INTENT_ROUTING: z.coerce.boolean().default(false),
+ENABLE_INTENT_ROUTING: z.coerce.boolean().default(true),
 
 // Embedding-based context selection: +$20-30/month
 ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
@@ -578,8 +579,8 @@ ENABLE_CRITIC: z.coerce.boolean().default(true),
 
 **Backend Actions**:
 
-- [ ] Task 5: Semantic summary telemetry aggregation (2-3 hours)
-- [ ] Task 6: Add summary_selection_stats event (15 min)
+- [x] Task 5: Semantic summary telemetry aggregation ✅ (done)
+- [x] Task 6: Add summary_selection_stats event ✅ (done)
 - [ ] Task 7: Update responses-api.md documentation (15 min)
 - [ ] Task 9: Add config flag comments (30 min)
 

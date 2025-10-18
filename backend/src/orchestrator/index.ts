@@ -36,6 +36,7 @@ import type { RouteConfig } from './router.js';
 import { loadFullContent, identifyLoadCandidates } from '../azure/lazyRetrieval.js';
 import { trackCitationUsage } from './citationTracker.js';
 import { resolveFeatureToggles, type FeatureGates } from '../config/features.js';
+import { sanitizeUserField } from '../utils/session.js';
 
 type ExecMode = 'sync' | 'stream';
 
@@ -133,7 +134,9 @@ async function generateAnswer(
   emit?: (event: string, data: unknown) => void,
   revisionNotes?: string[],
   lazyRefs: LazyReference[] = [],
-  previousResponseId?: string
+  previousResponseId?: string,
+  sessionId?: string,
+  intentHint?: string
 ): Promise<GenerateAnswerResult> {
   const routePromptHint = routeConfig.systemPromptHints ? `${routeConfig.systemPromptHints}\n\n` : '';
   const basePrompt = `${routePromptHint}Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.`;
@@ -255,6 +258,12 @@ async function generateAnswer(
       textFormat: { type: 'text' },
       truncation: 'auto',
       store: config.ENABLE_RESPONSE_STORAGE,
+      metadata: {
+        sessionId,
+        intent: intentHint,
+        routeModel: routeConfig.model
+      },
+      user: sanitizeUserField(sessionId),
       // Only send previous_response_id when storage is enabled
       ...(config.ENABLE_RESPONSE_STORAGE && previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
@@ -430,7 +439,10 @@ async function generateAnswer(
     systemPrompt: basePrompt,
     temperature: 0.4,
     previousResponseId,
-    features: featureStates
+    features: featureStates,
+    sessionId,
+    userId: sessionId,
+    intent: intentHint
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
@@ -844,7 +856,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
           emit,
           revisionNotes,
           lazyReferenceState,
-          previousResponseId
+          previousResponseId,
+          options.sessionId,
+          intent
         )
       );
       answer = answerResult.answer;
@@ -942,7 +956,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         emit,
         undefined,
         lazyReferenceState,
-        previousResponseId
+        previousResponseId,
+        options.sessionId,
+        intent
       )
     );
     answer = answerResult.answer;

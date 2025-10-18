@@ -377,6 +377,9 @@ export interface OrchestratorTools {
     temperature?: number;
     previousResponseId?: string;
     features?: FeatureOverrideMap;
+    sessionId?: string;
+    userId?: string;
+    intent?: string;
   }) => Promise<{ answer: string; citations?: Reference[]; responseId?: string }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
 }
