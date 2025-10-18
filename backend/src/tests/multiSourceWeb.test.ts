@@ -190,7 +190,7 @@ describe('Multi-Source Academic Search', () => {
 
       // High citation paper should be first
       expect(result.results[0].title).toBe('High Citation Paper');
-      expect(result.results[0].authorityScore).toBeGreaterThan(result.results[1].authorityScore);
+      expect(result.results[0].authorityScore).toBeGreaterThan(result.results[1].authorityScore ?? 0);
     });
 
     it('should respect maxResults limit', async () => {

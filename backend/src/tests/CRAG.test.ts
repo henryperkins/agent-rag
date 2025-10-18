@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest';
 import { evaluateRetrieval, refineDocuments, applyCRAG, type CRAGEvaluation } from '../orchestrator/CRAG.js';
-import type { Reference } from '../../shared/types.js';
+import type { Reference } from '../../../shared/types.js';
 import * as openaiClient from '../azure/openaiClient.js';
 import * as openaiUtils from '../utils/openai.js';
 

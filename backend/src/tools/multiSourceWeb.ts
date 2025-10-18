@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { parseStringPromise } from 'xml2js';
-import type { WebResult } from '../../shared/types.js';
+import type { WebResult } from '../../../shared/types.js';
 
 // ============================================================================
 // Types

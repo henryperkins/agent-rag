@@ -263,7 +263,7 @@ async function generateAnswer(
         intent: intentHint,
         routeModel: routeConfig.model
       },
-      user: sanitizeUserField(sessionId),
+      user: sanitizeUserField(sessionId ?? 'unknown'),
       // Only send previous_response_id when storage is enabled
       ...(config.ENABLE_RESPONSE_STORAGE && previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
@@ -591,7 +591,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
           maxAgeDays: config.SEMANTIC_MEMORY_PRUNE_AGE_DAYS
         });
 
-        if (recalledMemories.length) {
+        if (recalledMemories && recalledMemories.length) {
           memoryContextBlock = recalledMemories
             .map((memory, idx) => `[Memory ${idx + 1}] ${memory.text}`)
             .join('\n');
@@ -1005,7 +1005,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     activity: dispatch.activity
   });
 
-  const semanticMemorySummary = recalledMemories.length
+  const semanticMemorySummary = recalledMemories && recalledMemories.length
     ? {
         recalled: recalledMemories.length,
         entries: recalledMemories.map((memory) => ({
@@ -1038,7 +1038,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         trimmed: dispatch.webContextTrimmed,
         text: dispatch.webContextText,
         results: dispatch.webResults.map((result) => ({
-          id: result.id,
+          id: result.id ?? result.url,
           title: result.title,
           url: result.url,
           rank: result.rank

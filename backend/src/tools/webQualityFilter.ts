@@ -113,7 +113,8 @@ export async function filterWebResults(
 
       const overall = authority * 0.3 + (1 - redundancy) * 0.3 + relevance * 0.4;
       const score: QualityScore = { authority, redundancy, relevance, overall };
-      scores.set(result.id, score);
+      const resultId = result.id ?? result.url;
+      scores.set(resultId, score);
       return { result, score };
     })
   );

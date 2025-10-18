@@ -76,6 +76,9 @@ importers:
       '@types/node':
         specifier: ^22.7.4
         version: 22.18.8
+      axios:
+        specifier: ^1.12.2
+        version: 1.12.2
       better-sqlite3:
         specifier: ^9.6.0
         version: 9.6.0

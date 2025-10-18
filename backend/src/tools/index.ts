@@ -359,7 +359,7 @@ export async function answerTool(args: {
       userId: args.userId ?? args.sessionId,
       intent: args.intent
     },
-    user: sanitizeUserField(args.userId ?? args.sessionId),
+    user: sanitizeUserField(args.userId ?? args.sessionId ?? 'unknown'),
     // Only send previous_response_id when storage is enabled
     ...(enableResponseStorage && previousResponseId ? { previous_response_id: previousResponseId } : {})
   });

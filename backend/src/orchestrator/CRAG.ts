@@ -2,7 +2,7 @@ import { createResponse } from '../azure/openaiClient.js';
 import { extractOutputText } from '../utils/openai.js';
 import { CRAGEvaluationSchema } from './schemas.js';
 import { config } from '../config/app.js';
-import type { Reference, ActivityStep } from '../../shared/types.js';
+import type { Reference, ActivityStep } from '../../../shared/types.js';
 
 // ============================================================================
 // Types
@@ -98,7 +98,8 @@ For each document, assign a relevance score (0-1) and optionally identify releva
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 
-    const evaluation = extractOutputText(response) as CRAGEvaluation;
+    const evaluationText = extractOutputText(response);
+    const evaluation = evaluationText as unknown as CRAGEvaluation;
     return evaluation;
   } catch (error: any) {
     console.error('CRAG evaluation error:', error.message);
