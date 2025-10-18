@@ -426,16 +426,30 @@ export async function hybridSemanticSearch(
 
   const response = await executeSearch(indexName, builder);
 
-  // Filter by reranker threshold if semantic ranking was used
+  const top = options.top || config.RAG_TOP_K;
   let results = response.value;
-  if (options.rerankerThreshold && results[0]?.['@search.rerankerScore'] !== undefined) {
-    results = results.filter(r =>
-      (r['@search.rerankerScore'] || 0) >= (options.rerankerThreshold || 0)
+
+  if (
+    options.rerankerThreshold !== undefined &&
+    results.length > 0 &&
+    results[0]?.['@search.rerankerScore'] !== undefined
+  ) {
+    const threshold = options.rerankerThreshold;
+    const filtered = results.filter(
+      (r) => (r['@search.rerankerScore'] ?? 0) >= (threshold ?? 0)
     );
+
+    if (filtered.length > 0) {
+      results = filtered;
+    } else if (results.length > 0) {
+      console.warn(
+        `Hybrid search results below reranker threshold ${threshold}. Using unfiltered results.`
+      );
+    }
   }
 
   // Limit to final top k
-  results = results.slice(0, options.top || config.RAG_TOP_K);
+  results = results.slice(0, top);
 
   // Convert to references
   const references: Reference[] = results.map((result, idx) => ({

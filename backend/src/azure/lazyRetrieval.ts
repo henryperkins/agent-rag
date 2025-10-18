@@ -72,9 +72,10 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
     prefetchCount = config.LAZY_PREFETCH_COUNT
   } = options;
 
+  const searchTop = Math.max(prefetchCount, top);
   const result = await withRetry('lazy-search', () =>
     hybridSemanticSearch(query, {
-      top: Math.max(prefetchCount, top),
+      top: searchTop,
       filter,
       rerankerThreshold,
       selectFields: ['id', 'page_chunk', 'page_number'],

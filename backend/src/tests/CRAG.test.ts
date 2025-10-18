@@ -2,9 +2,13 @@ import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest'
 import { evaluateRetrieval, refineDocuments, applyCRAG, type CRAGEvaluation } from '../orchestrator/CRAG.js';
 import type { Reference } from '../../shared/types.js';
 import * as openaiClient from '../azure/openaiClient.js';
+import * as openaiUtils from '../utils/openai.js';
 
 vi.mock('../azure/openaiClient.js', () => ({
-  createResponse: vi.fn(),
+  createResponse: vi.fn()
+}));
+
+vi.mock('../utils/openai.js', () => ({
   extractOutputText: vi.fn()
 }));
 
@@ -15,7 +19,7 @@ describe('CRAG Retrieval Evaluator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateResponse = vi.mocked(openaiClient.createResponse);
-    mockExtractOutputText = vi.mocked(openaiClient.extractOutputText);
+    mockExtractOutputText = vi.mocked(openaiUtils.extractOutputText);
   });
 
   describe('evaluateRetrieval', () => {
