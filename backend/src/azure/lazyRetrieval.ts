@@ -56,7 +56,16 @@ function createFullLoader(id: string | undefined, query: string, baseFilter?: st
       cached = result.references[0]?.content ?? '';
       return cached;
     } catch (error) {
-      console.warn(`Failed to load full content for ${id}:`, error);
+      const errorDetails = {
+        operation: 'lazy-load-full',
+        documentId: id,
+        query: query.substring(0, 100),
+        filter: baseFilter,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined
+      };
+      console.error('[LAZY_LOAD_FULL_ERROR] Failed to load full document content:', JSON.stringify(errorDetails, null, 2));
       cached = '';
       return cached;
     }
@@ -73,15 +82,32 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
   } = options;
 
   const searchTop = Math.max(prefetchCount, top);
-  const result = await withRetry('lazy-search', () =>
-    hybridSemanticSearch(query, {
+
+  let result;
+  try {
+    result = await withRetry('lazy-search', () =>
+      hybridSemanticSearch(query, {
+        top: searchTop,
+        filter,
+        rerankerThreshold,
+        selectFields: ['id', 'page_chunk', 'page_number'],
+        searchFields: ['page_chunk']
+      })
+    );
+  } catch (error) {
+    const errorDetails = {
+      operation: 'lazy-search',
+      query: query.substring(0, 100),
       top: searchTop,
       filter,
       rerankerThreshold,
-      selectFields: ['id', 'page_chunk', 'page_number'],
-      searchFields: ['page_chunk']
-    })
-  );
+      errorType: error instanceof Error ? error.constructor.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined
+    };
+    console.error('[LAZY_RETRIEVAL_ERROR] Lazy hybrid search failed:', JSON.stringify(errorDetails, null, 2));
+    throw error;
+  }
 
   const sliced = result.references.slice(0, top);
   const summaries = sliced.map((ref, index): LazyReference => {

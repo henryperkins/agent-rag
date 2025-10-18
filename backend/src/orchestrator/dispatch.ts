@@ -172,9 +172,35 @@ export async function dispatchTools({
     const wantsLazy = (preferLazy ?? features.lazyRetrieval) === true;
     const supportsLazy = typeof lazyRetrieve === 'function';
     const useLazy = wantsLazy && supportsLazy;
-    const retrieval = useLazy
-      ? await lazyRetrieve({ query, top: retrievalStep?.k })
-      : await retrieve({ query, messages, features: featureStates });
+
+    let retrieval;
+    let lazyRetrievalFailed = false;
+    if (useLazy) {
+      try {
+        retrieval = await lazyRetrieve({ query, top: retrievalStep?.k });
+      } catch (error) {
+        lazyRetrievalFailed = true;
+        const errorDetails = {
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          query: query.substring(0, 100),
+          top: retrievalStep?.k
+        };
+        console.error('[DISPATCH_ERROR] Lazy retrieval failed, falling back to direct retrieval:', errorDetails);
+
+        // Emit telemetry for lazy retrieval failure
+        emit?.('telemetry', {
+          type: 'lazy_retrieval_error',
+          timestamp: new Date().toISOString(),
+          error: errorDetails
+        });
+
+        // Fallback to direct retrieval
+        retrieval = await retrieve({ query, messages, features: featureStates });
+      }
+    } else {
+      retrieval = await retrieve({ query, messages, features: featureStates });
+    }
 
     references.push(...(retrieval.references ?? []));
     if ('lazyReferences' in retrieval && Array.isArray(retrieval.lazyReferences) && retrieval.lazyReferences.length) {
@@ -186,8 +212,12 @@ export async function dispatchTools({
     activity.push(
       ...(retrieval.activity ?? []),
       {
-        type: 'plan',
-        description: `${useLazy ? 'Lazy' : 'Direct'} Azure AI Search retrieval executed via orchestrator.`
+        type: useLazy && !lazyRetrievalFailed ? 'plan' : lazyRetrievalFailed ? 'lazy_retrieval_fallback' : 'plan',
+        description: useLazy && !lazyRetrievalFailed
+          ? 'Lazy Azure AI Search retrieval executed via orchestrator.'
+          : lazyRetrievalFailed
+          ? 'Lazy retrieval failed, fell back to direct Azure AI Search retrieval.'
+          : 'Direct Azure AI Search retrieval executed via orchestrator.'
       }
     );
     if (typeof retrieval.response === 'string' && retrieval.response.trim().length) {
