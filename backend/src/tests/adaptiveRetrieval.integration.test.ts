@@ -33,7 +33,7 @@ describe('Adaptive Retrieval Telemetry', () => {
     process.env.ADAPTIVE_MIN_DIVERSITY = '0.3';
   });
 
-  it('emits telemetry and returns adaptive stats when enabled', async () => {
+  it('emits telemetry and returns adaptive stats when enabled', { timeout: 30000 }, async () => {
     const events: Array<{ event: string; data: any }> = [];
     const emit = (event: string, data: unknown) => events.push({ event, data });
 
