@@ -2,192 +2,218 @@
 
 ## Programming Languages
 
-- **TypeScript 5.6+**: Primary language for both backend and frontend
-- **Node.js 20+**: Runtime environment (LTS version required)
-- **JavaScript (ES Modules)**: Module system with `"type": "module"` in package.json
+### TypeScript 5.6+
+
+- **Backend**: Strict mode enabled, ES modules
+- **Frontend**: React with JSX/TSX support
+- **Shared**: Common type definitions across packages
+
+### Node.js 20+
+
+- **Runtime**: ES module support, native fetch API
+- **Package Manager**: pnpm 10+ (monorepo workspace support)
 
 ## Backend Technologies
 
 ### Core Framework
 
-- **Fastify 5.6+**: High-performance HTTP server with plugin architecture
-- **@fastify/cors**: CORS middleware for cross-origin requests
-- **@fastify/rate-limit**: Rate limiting for API protection
+- **Fastify 5.6+**: High-performance HTTP server
+  - Plugins: @fastify/cors, @fastify/multipart, @fastify/rate-limit
+  - Schema validation with JSON Schema
+  - Async/await request handlers
 
 ### AI/ML Services
 
-- **Azure OpenAI (openai 4.26+)**: GPT-4o and text-embedding-3-large models
-- **Azure AI Search (@azure/search-documents 12.1+)**: Hybrid semantic search
-- **@azure/identity 4.2+**: Azure authentication (API keys and Managed Identity)
+- **Azure OpenAI**: GPT-4o (gpt-4o-2024-08-06), text-embedding-3-large
+  - SDK: openai ^4.26.0
+  - Structured outputs with JSON schema
+  - Streaming completions
+- **Azure AI Search**: Hybrid semantic search
+  - SDK: @azure/search-documents ^12.1.0
+  - Vector + BM25 + L2 semantic reranking
+  - Semantic ranking configuration
 
 ### Database
 
-- **better-sqlite3 9.6+**: Synchronous SQLite3 bindings for semantic memory
-- **SQLite**: Embedded database with WAL mode for concurrent access
+- **SQLite**: better-sqlite3 ^9.6.0
+  - Semantic memory with vector embeddings
+  - Session transcripts and state
+  - WAL mode for concurrent access
 
 ### Observability
 
-- **OpenTelemetry**: Distributed tracing and metrics
-  - @opentelemetry/api 1.9+
-  - @opentelemetry/sdk-trace-node 1.25+
-  - @opentelemetry/exporter-trace-otlp-proto 0.52+
-- **Pino 9.3+**: High-performance JSON logging
-- **pino-pretty 11.2+**: Pretty-printed logs for development
+- **OpenTelemetry**: Distributed tracing
+  - @opentelemetry/api ^1.9.0
+  - @opentelemetry/sdk-trace-node ^1.25.1
+  - OTLP exporter for trace data
+- **Pino**: Structured logging
+  - pino ^9.3.2
+  - pino-pretty for development
 
 ### Utilities
 
-- **Zod 3.23+**: Runtime type validation and schema parsing
-- **dotenv 17.2+**: Environment variable management
-- **@dqbd/tiktoken 1.0+**: Token counting for OpenAI models
-
-### Testing
-
-- **Vitest 2.1+**: Fast unit test runner with Vite integration
-- **@vitest/coverage-v8**: Code coverage reporting
-- **tsx 4.19+**: TypeScript execution for scripts and development
+- **Zod ^3.23.8**: Runtime schema validation
+- **@dqbd/tiktoken ^1.0.15**: Token counting
+- **pdf-parse ^2.2.6**: PDF document processing
+- **xml2js ^0.6.2**: XML parsing
+- **dotenv ^17.2.3**: Environment configuration
 
 ## Frontend Technologies
 
 ### Core Framework
 
-- **React 18.3+**: UI library with hooks and functional components
-- **React DOM 18.3+**: React renderer for web
+- **React 18.3+**: Component-based UI
+  - Hooks: useState, useEffect, useCallback, useMemo
+  - Functional components only
+- **Vite 5.4+**: Build tool and dev server
+  - @vitejs/plugin-react ^4.3.2
+  - Fast HMR (Hot Module Replacement)
 
-### Build Tools
+### State Management
 
-- **Vite 5.4+**: Fast build tool and dev server
-- **@vitejs/plugin-react 4.3+**: React plugin for Vite
-- **TypeScript 5.6+**: Type checking and compilation
+- **TanStack Query 5.59+**: Server state management
+  - Query caching and invalidation
+  - Optimistic updates
+  - Automatic refetching
 
-### State Management & Data Fetching
+### HTTP Client
 
-- **@tanstack/react-query 5.59+**: Server state management and caching
-- **axios 1.7+**: HTTP client for API requests
-- **EventSource (native)**: SSE streaming for real-time updates
+- **Axios 1.7+**: Promise-based HTTP client
+  - Request/response interceptors
+  - Automatic JSON transformation
 
-### UI Utilities
+### UI Libraries
 
-- **clsx 2.1+**: Conditional CSS class composition
-- **dompurify 3.2+**: XSS protection for HTML sanitization
-- **react-hot-toast 2.4+**: Toast notifications
+- **react-hot-toast ^2.4.1**: Toast notifications
+- **dompurify ^3.2.7**: XSS sanitization
+- **clsx ^2.1.1**: Conditional class names
 
-## Shared Dependencies
+### Streaming
 
-- **TypeScript**: Shared types in `shared/types.ts` compiled to CommonJS
-- **Type Definitions**: @types/node, @types/react, @types/better-sqlite3
+- **EventSource**: Native SSE client for real-time updates
+
+## Testing
+
+### Test Framework
+
+- **Vitest 2.1+**: Unit and integration testing
+  - @vitest/coverage-v8 for coverage reports
+  - Compatible with Vite configuration
+
+### Frontend Testing
+
+- **Testing Library**: React component testing
+  - @testing-library/react ^16.3.0
+  - @testing-library/jest-dom ^6.9.1
+  - @testing-library/user-event ^14.6.1
+- **jsdom ^27.0.0**: DOM simulation
 
 ## Development Tools
 
-### Package Management
-
-- **pnpm 10.15+**: Fast, disk-efficient package manager (monorepo support)
-- **pnpm workspaces**: Monorepo configuration via `pnpm-workspace.yaml`
-
 ### Code Quality
 
-- **ESLint 9.11+**: Linting with flat config format
-- **typescript-eslint 8.45+**: TypeScript-specific linting rules
+- **ESLint 9.11+**: Linting
+  - typescript-eslint ^8.45.0
+  - eslint-config-prettier ^9.1.0
 - **Prettier 3.3+**: Code formatting
-- **eslint-config-prettier**: Disables conflicting ESLint rules
+- **EditorConfig**: Consistent editor settings
 
 ### Git Hooks
 
-- **Husky 9.1+**: Git hooks management
+- **Husky 9.1+**: Git hook management
+  - pre-commit: Lint staged files
+  - pre-push: Run tests
 - **lint-staged 15.2+**: Run linters on staged files
-- **@commitlint/cli 19.5+**: Commit message linting
-- **@commitlint/config-conventional**: Conventional commits standard
+- **commitlint 19.5+**: Conventional commit messages
 
-### CI/CD
+### Build Tools
 
-- **GitHub Actions**: Automated testing and linting (`.github/workflows/ci.yml`)
-
-## Build System
-
-### Backend Build
-
-```bash
-pnpm build          # TypeScript compilation (tsc)
-pnpm dev            # Development with tsx watch mode
-pnpm start          # Production server (node dist/server.js)
-```
-
-### Frontend Build
-
-```bash
-pnpm build          # TypeScript check + Vite build
-pnpm dev            # Vite dev server with HMR
-pnpm preview        # Preview production build
-```
-
-### Monorepo Commands
-
-```bash
-pnpm -r build       # Build all packages
-pnpm -r test        # Run all tests
-pnpm -r lint        # Lint all packages
-```
+- **TypeScript Compiler**: tsc for type checking and compilation
+- **tsx 4.19+**: TypeScript execution for development
 
 ## Development Commands
 
+### Monorepo (Root)
+
+```bash
+pnpm dev              # Start backend + frontend concurrently
+pnpm dev:backend      # Start backend only
+pnpm dev:frontend     # Start frontend only
+pnpm build            # Build all packages
+pnpm test             # Run all tests
+pnpm lint             # Lint all packages
+pnpm typecheck        # Type check all packages
+pnpm format           # Format markdown/JSON/YAML
+```
+
 ### Backend
 
-- `pnpm dev`: Start development server with hot reload (tsx watch)
-- `pnpm test`: Run Vitest tests
-- `pnpm test:watch`: Watch mode for tests
-- `pnpm test:coverage`: Generate coverage report
-- `pnpm lint`: ESLint check
-- `pnpm typecheck`: TypeScript type checking without emit
-- `pnpm setup`: Initialize semantic memory database
-- `pnpm cleanup`: Clean up database and temporary files
+```bash
+pnpm dev              # Start with hot reload (tsx watch)
+pnpm build            # Compile TypeScript to dist/
+pnpm start            # Run production build
+pnpm test             # Run Vitest tests
+pnpm test:watch       # Watch mode
+pnpm test:coverage    # With coverage report
+pnpm setup            # Initialize databases
+pnpm cleanup          # Clean databases
+pnpm lint             # ESLint check
+pnpm typecheck        # TypeScript check
+```
 
 ### Frontend
 
-- `pnpm dev`: Start Vite dev server (http://localhost:5173)
-- `pnpm build`: Production build to `dist/`
-- `pnpm preview`: Preview production build
-- `pnpm lint`: ESLint check
-- `pnpm typecheck`: TypeScript type checking
+```bash
+pnpm dev              # Start Vite dev server (port 5173)
+pnpm build            # Build for production (dist/)
+pnpm preview          # Preview production build
+pnpm test             # Run Vitest tests
+pnpm test:watch       # Watch mode
+pnpm lint             # ESLint check
+pnpm typecheck        # TypeScript check
+```
 
-### Root
+## Environment Requirements
 
-- `pnpm lint`: Lint all packages recursively
-- `pnpm build`: Build all packages
-- `pnpm test`: Run all tests
-- `pnpm format`: Format markdown, JSON, YAML files with Prettier
+### Node.js
+
+- Version: 22 or later
+- Specified in: .nvmrc (22), package.json engines (>=20)
+
+### Package Manager
+
+- pnpm 10.15.1 (specified in packageManager field)
+- Workspace support for monorepo
+
+### Azure Services
+
+- Azure AI Search instance with semantic ranking enabled
+- Azure OpenAI deployment with GPT-4o and text-embedding-3-large
+
+### Optional Services
+
+- Google Cloud Custom Search API (for web search)
 
 ## Configuration Files
 
 ### TypeScript
 
-- `tsconfig.base.json`: Base configuration for monorepo
-- `backend/tsconfig.json`: Backend-specific config (ES2022, Node20 module resolution)
-- `frontend/tsconfig.json`: Frontend-specific config (React JSX, DOM types)
+- `tsconfig.base.json`: Shared base configuration
+- `backend/tsconfig.json`: Backend-specific settings
+- `frontend/tsconfig.json`: Frontend-specific settings
+- `frontend/tsconfig.node.json`: Vite config types
 
 ### ESLint
 
-- `eslint.config.js`: Flat config format with TypeScript support
-- Extends: @eslint/js, typescript-eslint, eslint-config-prettier
+- `eslint.config.js`: Root configuration
+- `backend/eslint.config.js`: Backend rules
+- `frontend/eslint.config.js`: Frontend rules
 
-### Environment
+### Other
 
-- `.env`: Local environment variables (gitignored)
-- `.env.example`: Template with all available options
-- `.nvmrc`: Node.js version specification (20.19.5)
-
-## External Services
-
-### Required
-
-- **Azure AI Search**: Hybrid search with semantic ranking enabled
-- **Azure OpenAI**: GPT-4o and text-embedding-3-large deployments
-
-### Optional
-
-- **Google Custom Search API**: Web search fallback
-- **OpenTelemetry Collector**: Distributed tracing backend
-
-## Version Requirements
-
-- Node.js: >=20 (specified in package.json engines)
-- pnpm: 10.15.1 (specified in packageManager field)
-- TypeScript: 5.6+ (strict mode enabled)
+- `.editorconfig`: Editor settings
+- `.prettierignore`: Prettier exclusions
+- `prettier.config.cjs`: Prettier configuration
+- `commitlint.config.cjs`: Commit message rules
+- `.lintstagedrc.json`: Lint-staged configuration
+- `pnpm-workspace.yaml`: Workspace definition

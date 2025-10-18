@@ -2,149 +2,179 @@
 
 ## Directory Organization
 
-### Root Structure
+### Root Level (Monorepo)
 
 ```
-agent-rag/                    # Monorepo root
-├── backend/                  # Node.js/TypeScript backend service
-├── frontend/                 # React/TypeScript frontend application
-├── shared/                   # Shared TypeScript types
-├── docs/                     # Comprehensive documentation
-├── .amazonq/rules/           # Amazon Q rules and memory bank
-├── .github/workflows/        # CI/CD pipelines
-└── .husky/                   # Git hooks for code quality
+agent-rag/
+├── backend/          # Node.js/TypeScript API server
+├── frontend/         # React/Vite web application
+├── shared/           # Shared TypeScript types
+├── docs/             # Comprehensive documentation
+├── .amazonq/         # Amazon Q rules and memory bank
+├── .github/          # CI/CD workflows
+└── .husky/           # Git hooks (pre-commit, pre-push)
 ```
 
 ### Backend Structure (`backend/src/`)
 
 ```
 src/
-├── orchestrator/             # Core agentic orchestration logic
-│   ├── index.ts              # Main runSession entry point
-│   ├── plan.ts               # Query analysis and planning
-│   ├── dispatch.ts           # Tool routing and execution
-│   ├── critique.ts           # Multi-pass answer evaluation
-│   ├── compact.ts            # History compaction
-│   ├── router.ts             # Intent classification
-│   ├── summarySelector.ts    # Semantic summary selection
-│   └── semanticMemoryStore.ts # Persistent memory with SQLite
-├── azure/                    # Azure service integrations
-│   ├── directSearch.ts       # Azure AI Search client
-│   ├── lazyRetrieval.ts      # Lazy document loading wrapper
-│   └── openaiClient.ts       # Azure OpenAI client
-├── tools/                    # Tool implementations
-│   ├── index.ts              # retrieveTool, answerTool
-│   └── webSearch.ts          # Google Custom Search integration
-├── routes/                   # Fastify API routes
-│   └── chat.ts               # /chat and /chat/stream endpoints
-├── config/                   # Configuration with Zod schemas
-│   └── app.ts                # Environment variables and feature flags
-├── utils/                    # Shared utilities
-│   ├── resilience.ts         # Retry logic and error handling
-│   ├── telemetry.ts          # OpenTelemetry and logging
-│   └── tokenCounter.ts       # Token counting utilities
-├── tests/                    # Test suites
-│   ├── orchestrator.test.ts
-│   ├── orchestrator.integration.test.ts
-│   └── ...
-└── server.ts                 # Fastify server initialization
+├── orchestrator/     # Core agentic workflow logic
+│   ├── index.ts           # Main runSession entry point
+│   ├── plan.ts            # Query analysis and planning
+│   ├── dispatch.ts        # Tool routing and execution
+│   ├── critique.ts        # Answer evaluation
+│   ├── compact.ts         # History compaction
+│   ├── router.ts          # Intent classification
+│   ├── summarySelector.ts # Semantic summary selection
+│   └── semanticMemoryStore.ts # Persistent memory
+├── azure/            # Azure service integrations
+│   ├── directSearch.ts    # AI Search client
+│   ├── lazyRetrieval.ts   # Lazy loading wrapper
+│   └── openaiClient.ts    # OpenAI client
+├── tools/            # Tool implementations
+│   ├── index.ts           # retrieveTool, answerTool
+│   └── webSearch.ts       # Google Custom Search
+├── routes/           # Fastify API routes
+├── config/           # Configuration (Zod schemas)
+├── utils/            # Utilities (resilience, telemetry)
+├── services/         # Business logic services
+├── middleware/       # Fastify middleware
+├── agents/           # Agent implementations
+└── tests/            # Vitest test suites
 ```
 
 ### Frontend Structure (`frontend/src/`)
 
 ```
 src/
-├── components/               # React components
-│   ├── PlanPanel.tsx         # Plan and critique display
-│   ├── ActivityPanel.tsx     # Retrieval activity timeline
-│   ├── SourcesPanel.tsx      # Citations and sources
-│   ├── MessageList.tsx       # Chat history
-│   └── ChatInput.tsx         # User input interface
-├── hooks/                    # Custom React hooks
-│   ├── useChatStream.ts      # SSE streaming handler
-│   └── useChat.ts            # Synchronous API handler
-├── api/                      # API client functions
-├── App.tsx                   # Main application component
-└── types.ts                  # Frontend-specific types
+├── components/       # React components
+│   ├── PlanPanel.tsx      # Plan & critique display
+│   ├── ActivityPanel.tsx  # Retrieval activity
+│   ├── SourcesPanel.tsx   # Citations
+│   ├── MessageList.tsx    # Chat history
+│   ├── ChatInput.tsx      # User input
+│   └── __tests__/         # Component tests
+├── hooks/            # Custom React hooks
+│   ├── useChatStream.ts   # SSE handling
+│   └── useChat.ts         # Sync API
+├── api/              # API client
+│   └── client.ts          # Axios-based client
+├── App.tsx           # Main application
+└── types.ts          # Frontend types
 ```
 
-## Core Components and Relationships
+## Core Components
 
 ### Orchestrator Pipeline
 
-The orchestrator (`backend/src/orchestrator/index.ts`) coordinates the entire RAG workflow:
+The orchestrator implements a multi-stage agentic workflow:
 
-1. **Intent Classification** (`router.ts`) → Determines query type (FAQ/factual/research/chat)
-2. **Context Engineering** (`compact.ts`, `summarySelector.ts`) → Optimizes conversation history
-3. **Planning** (`plan.ts`) → Analyzes query and selects retrieval strategy
-4. **Tool Dispatch** (`dispatch.ts`) → Executes Azure Search, web search, or lazy retrieval
-5. **Synthesis** (`tools/index.ts`) → Generates answer with citations
-6. **Critique** (`critique.ts`) → Evaluates quality and triggers revisions if needed
+1. **Intent Classification** (`router.ts`): Categorizes queries (FAQ/factual/research/conversational)
+2. **Context Engineering** (`compact.ts`, `summarySelector.ts`): Token-budgeted history management
+3. **Planning** (`plan.ts`): Query analysis, confidence scoring, strategy selection
+4. **Tool Dispatch** (`dispatch.ts`): Executes retrieval tools with fallback logic
+5. **Synthesis** (`tools/index.ts`): Generates answers with citations
+6. **Critique** (`critique.ts`): Evaluates quality and triggers revisions
 
-### Azure Integration Layer
+### Azure Integrations
 
 - **directSearch.ts**: Direct Azure AI Search client with hybrid search (vector + BM25 + semantic reranking)
-- **lazyRetrieval.ts**: Wrapper for summary-first retrieval with on-demand full document hydration
-- **openaiClient.ts**: Azure OpenAI client for chat completions and embeddings
+- **lazyRetrieval.ts**: Wrapper for summary-first retrieval with on-demand hydration
+- **openaiClient.ts**: Azure OpenAI client for GPT-4o and text-embedding-3-large
 
-### API Layer
+### Data Persistence
 
-- **Synchronous**: `POST /chat` returns complete response with answer, citations, metadata
-- **Streaming**: `POST /chat/stream` uses SSE to emit events (route, plan, context, tool, token, critique, complete, telemetry, done)
+- **SQLite Databases** (`backend/data/`):
+  - `semantic-memory.db`: Cross-session memory with vector embeddings
+  - `session-store.db`: Conversation transcripts and session state
+- **WAL Mode**: Write-Ahead Logging for concurrent access
 
-### Frontend Architecture
+### API Routes
 
-- **State Management**: React hooks (useState, useEffect) for local state
-- **API Communication**: Axios for sync requests, EventSource for SSE streaming
-- **Component Hierarchy**: App → MessageList + ChatInput + PlanPanel + ActivityPanel + SourcesPanel
+- `POST /chat`: Synchronous chat endpoint
+- `POST /chat/stream`: SSE streaming endpoint
+- `POST /documents/upload`: PDF document upload
+- `GET /sessions/:id`: Session history retrieval
+- `GET /responses/:id`: Response details (Responses API)
+- `GET /admin/telemetry`: Development-only telemetry endpoint
 
 ## Architectural Patterns
 
-### Agentic Workflow Pattern
+### Agentic Workflow
 
-The system follows a plan-execute-evaluate loop:
+Multi-stage pipeline with planning, execution, and evaluation phases. Each stage emits telemetry events for observability.
 
-- **Planning**: LLM analyzes query and creates execution plan
-- **Execution**: Tools are dispatched based on plan
-- **Evaluation**: Critic assesses quality and triggers revisions
+### Hybrid Retrieval
 
-### Multi-Level Fallback Pattern
+Combines multiple search strategies:
 
-Graceful degradation with confidence-based escalation:
+- Vector similarity (embeddings)
+- BM25 keyword matching
+- L2 semantic reranking
+- Reciprocal Rank Fusion (RRF) for multi-source results
 
-1. Hybrid search (vector + BM25 + semantic)
-2. Pure vector search (if hybrid confidence < threshold)
-3. Web search (if vector confidence < threshold)
+### Lazy Loading
 
-### Lazy Loading Pattern
-
-Cost optimization through deferred loading:
+Summary-first retrieval pattern:
 
 1. Retrieve document summaries (~200 chars)
-2. Generate answer from summaries
-3. Critic evaluates sufficiency
-4. Load full documents only if needed
+2. Critic evaluates sufficiency
+3. Hydrate full documents only when needed
 
-### Context Engineering Pattern
+### Multi-Pass Critic
 
-Token-budgeted history management:
+Quality assurance loop:
 
-- **Compaction**: Extract summaries from old conversation turns
-- **Salience**: Identify key information to preserve
-- **Semantic Selection**: Rank summaries by relevance to current query
-- **Budget Enforcement**: Enforce token caps per section
+1. Generate answer
+2. Evaluate (grounding, coverage, quality)
+3. Revise if needed (up to CRITIC_MAX_RETRIES)
+4. Track iterations in critique timeline
 
-### Streaming Pattern
+### Context Engineering
 
-Real-time progress updates via SSE:
+Token-optimized context assembly:
 
-- Frontend subscribes to `/chat/stream`
-- Backend emits typed events (route, plan, tool, token, critique)
-- Frontend updates UI incrementally
-- Error handling with automatic reconnection
+- History compaction (extract summaries from old turns)
+- Salience extraction (identify key information)
+- Budget enforcement (caps per section)
+- Semantic summary selection (embedding-based ranking)
+
+### Streaming Architecture
+
+Server-Sent Events (SSE) with granular event types:
+
+- `route`: Intent classification
+- `plan`: Query analysis
+- `context`: Budget breakdown
+- `tool`: Retrieval updates
+- `token`: Answer streaming
+- `critique`: Evaluation results
+- `complete`: Final metadata
+- `telemetry`: Performance metrics
 
 ## Configuration Management
 
-- **Environment Variables**: Loaded via dotenv, validated with Zod schemas
-- **Feature Flags**: 7+ flags for progressive enablement (ENABLE_LAZY_RETRIEVAL, ENABLE_INTENT_ROUTING, etc.)
-- **Type Safety**: All config validated at startup with descriptive error messages
+### Environment-Based Config
+
+All configuration via `.env` files with Zod schema validation (`backend/src/config/app.ts`).
+
+### Feature Flags
+
+10 advanced feature flags control optional capabilities:
+
+- `ENABLE_LAZY_RETRIEVAL`: Summary-first loading
+- `ENABLE_INTENT_ROUTING`: Adaptive model selection
+- `ENABLE_WEB_RERANKING`: Unified result reranking
+- `ENABLE_SEMANTIC_SUMMARY`: Embedding-based context selection
+- `ENABLE_SEMANTIC_MEMORY`: Persistent memory
+- `ENABLE_QUERY_DECOMPOSITION`: Complex query handling
+- `ENABLE_SEMANTIC_BOOST`: Semantic similarity boosting
+- `ENABLE_MULTI_INDEX_FEDERATION`: Multi-index search
+- `ENABLE_RESPONSE_STORAGE`: Response audit trails
+- `ENABLE_ADAPTIVE_RETRIEVAL`: Adaptive retrieval strategies
+- `ENABLE_CRITIC`: Multi-pass evaluation (default: true)
+
+### Progressive Enablement
+
+Recommended rollout: Week 1 (cost optimization) → Week 2 (quality enhancement) → Week 3 (advanced features)

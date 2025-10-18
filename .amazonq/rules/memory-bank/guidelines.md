@@ -2,416 +2,434 @@
 
 ## Code Quality Standards
 
-### TypeScript Strict Mode
+### TypeScript Configuration
 
-- **Strict type checking enabled**: All code uses TypeScript strict mode with explicit types
-- **No implicit any**: All function parameters, return types, and variables have explicit type annotations
-- **Type imports**: Use `import type` for type-only imports to enable proper tree-shaking
-  ```typescript
-  import type { Reference, AgentMessage } from '../../../shared/types.js';
-  ```
-- **Interface over type**: Prefer `interface` for object shapes, `type` for unions/intersections
+- **Strict Mode**: Enabled across all packages (backend, frontend, shared)
+- **ES Modules**: Use `import`/`export` syntax, `.js` extensions in imports for Node.js compatibility
+- **Type Safety**: Explicit return types for public functions, avoid `any` except for error handling
+- **Shared Types**: Common interfaces in `shared/types.ts` for cross-package consistency
 
-### File Extensions
+### Code Formatting
 
-- **ES Modules**: All imports use `.js` extension even for TypeScript files
-  ```typescript
-  import { config } from '../config/app.js';
-  import { traced } from './telemetry.js';
-  ```
-- **Rationale**: Required for ES module resolution in Node.js with `"type": "module"`
+- **Line Endings**: LF (`\n`) per .editorconfig
+- **Indentation**: 2 spaces (no tabs)
+- **Semicolons**: Required at statement ends
+- **Quotes**: Single quotes for strings, double quotes in JSX
+- **Trailing Commas**: Used in multi-line objects/arrays
+- **Max Line Length**: 100 characters (printWidth in prettier.config.cjs)
 
 ### Naming Conventions
 
-- **camelCase**: Functions, variables, parameters
-  ```typescript
-  function generateAnswer() {}
-  const queryVector = await generateEmbedding(query);
-  ```
-- **PascalCase**: Classes, interfaces, types, enums
-  ```typescript
-  interface SearchOptions {}
-  class SearchQueryBuilder {}
-  type ExecMode = 'sync' | 'stream';
-  ```
-- **SCREAMING_SNAKE_CASE**: Constants and environment variables
-  ```typescript
-  const DEFAULT_INTENT_MODELS = { ... };
-  config.AZURE_OPENAI_ENDPOINT
-  ```
-- **Descriptive names**: Avoid abbreviations except common ones (id, url, api, http)
+- **Files**: camelCase for modules (`openaiClient.ts`), PascalCase for React components (`MessageList.tsx`)
+- **Functions**: camelCase with descriptive verbs (`generateAnswer`, `handleChatStream`)
+- **Types/Interfaces**: PascalCase (`AgentMessage`, `ChatResponse`, `OrchestratorTools`)
+- **Constants**: SCREAMING_SNAKE_CASE for environment-based config (`AZURE_OPENAI_ENDPOINT`)
+- **Private Functions**: Prefix with underscore or keep internal to module scope
 
-### Code Organization
+### Documentation
 
-- **Single responsibility**: Each file has one primary export/purpose
-- **Barrel exports**: Use index.ts for public API surface
-  ```typescript
-  // tools/index.ts
-  export { retrieveTool, answerTool } from './retrieve.js';
-  export { webSearchTool } from './webSearch.js';
-  ```
-- **Colocation**: Tests live in `src/tests/` directory, not alongside source files
-- **Shared types**: Common types in `shared/types.ts` for cross-package usage
+- **JSDoc Comments**: Minimal - code should be self-documenting
+- **Type Annotations**: Serve as inline documentation
+- **README Files**: Comprehensive project-level documentation in markdown
+- **Inline Comments**: Only for complex logic or non-obvious decisions
 
 ## Architectural Patterns
 
-### Async/Await Pattern
+### Backend Patterns
 
-- **Consistent async**: All async functions use async/await, never raw Promises
-- **Error propagation**: Let errors bubble up, catch at boundaries (route handlers, main orchestrator)
-  ```typescript
-  export async function runSession(options: RunSessionOptions): Promise<ChatResponse> {
-    try {
-      // Main logic
-      return response;
-    } catch (error) {
-      sessionSpan.recordException(error as Error);
-      throw error;
-    }
-  }
-  ```
+#### Configuration Management
 
-### Builder Pattern
+```typescript
+// Use Zod schemas for environment validation
+const envSchema = z.object({
+  PORT: z.coerce.number().default(8787),
+  AZURE_SEARCH_ENDPOINT: z.string().url(),
+  ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(true),
+});
 
-- **Fluent interfaces**: Use method chaining for complex object construction
-  ```typescript
-  const builder = new SearchQueryBuilder(query)
-    .asHybrid(queryVector, ['page_embedding_text_3_large'])
-    .withSemanticRanking('default')
-    .take(config.RAG_TOP_K * 2)
-    .selectFields(['id', 'page_chunk', 'page_number']);
-  ```
-- **Immutable builders**: Each method returns `this` for chaining
+export const config = envSchema.parse(process.env);
+```
 
-### Factory Pattern
+#### Async/Await Error Handling
 
-- **Tool factories**: Tools are functions that return standardized response shapes
-  ```typescript
-  export async function retrieveTool(args: { query: string }): Promise<AgenticRetrievalResponse> {
-    return { response, references, activity };
-  }
-  ```
-
-### Dependency Injection
-
-- **Tool injection**: Orchestrator accepts tools as parameters for testability
-  ```typescript
-  export interface RunSessionOptions {
-    tools?: Partial<OrchestratorTools>;
-  }
-  const tools: OrchestratorTools = { ...defaultTools, ...(options.tools ?? {}) };
-  ```
-
-### Event Emitter Pattern
-
-- **Streaming events**: Use callback-based emit for real-time progress
-  ```typescript
-  emit?: (event: string, data: unknown) => void;
-  emit?.('plan', plan);
-  emit?.('token', { content });
-  ```
-
-## Internal API Usage
-
-### Configuration Access
-
-- **Centralized config**: Always import from `config/app.ts`, never use `process.env` directly
-  ```typescript
-  import { config } from '../config/app.js';
-  if (config.ENABLE_LAZY_RETRIEVAL) { ... }
-  ```
-- **Zod validation**: All environment variables validated at startup with descriptive errors
-
-### OpenTelemetry Tracing
-
-- **Traced functions**: Wrap key operations with `traced` helper
-  ```typescript
-  const plan = await traced('agent.plan', async () => {
-    const result = await getPlan(messages, compacted);
-    const span = trace.getActiveSpan();
-    span?.setAttribute('agent.plan.confidence', result.confidence);
-    return result;
+```typescript
+// Prefer async/await over promises, handle errors explicitly
+try {
+  const result = await traced('agent.plan', async () => {
+    const plan = await getPlan(messages, compacted);
+    span?.setAttribute('agent.plan.confidence', plan.confidence);
+    return plan;
   });
-  ```
-- **Span attributes**: Add structured attributes for observability
-- **Context propagation**: Use `context.with()` to maintain trace context
+} catch (error) {
+  sessionSpan.recordException(error as Error);
+  throw error;
+}
+```
 
-### Error Handling
+#### OpenTelemetry Tracing
 
-- **Typed errors**: Cast errors to `Error` type when catching
-  ```typescript
-  } catch (error) {
-    sessionSpan.recordException(error as Error);
-    sessionSpan.setStatus({ code: SpanStatusCode.ERROR, message: (error as Error).message });
+```typescript
+// Wrap operations with traced() helper for observability
+const result = await traced('agent.tool.dispatch', async () => {
+  const dispatch = await dispatchTools({ plan, messages, tools });
+  const span = trace.getActiveSpan();
+  span?.setAttribute('retrieval.references', dispatch.references.length);
+  return dispatch;
+});
+```
+
+#### Type Guards and Validation
+
+```typescript
+// Use type guards for runtime safety
+const scoreValues = dispatch.references
+  .map((ref) => ref.score)
+  .filter((score): score is number => typeof score === 'number');
+```
+
+#### Functional Composition
+
+```typescript
+// Pure functions with explicit inputs/outputs
+function mergeSalienceForContext(existing: SalienceNote[], fresh: SalienceNote[]) {
+  const map = new Map<string, SalienceNote>();
+  for (const note of existing) {
+    map.set(note.fact, note);
   }
-  ```
-- **Graceful degradation**: Provide fallback values when optional features fail
-  ```typescript
-  try {
-    await trackCitationUsage(answer, references, question, sessionId);
-  } catch (error) {
-    console.warn('Citation tracking failed:', error);
+  for (const note of fresh) {
+    map.set(note.fact, note);
   }
-  ```
+  return [...map.values()].sort((a, b) => (b.lastSeenTurn ?? 0) - (a.lastSeenTurn ?? 0));
+}
+```
 
-### Azure Client Patterns
+#### Event Emission Pattern
 
-- **Token caching**: Cache authentication tokens with expiry checks
-  ```typescript
-  let cachedSearchToken: { token: string; expiresOnTimestamp: number } | null = null;
-  const now = Date.now();
-  if (cachedSearchToken && cachedSearchToken.expiresOnTimestamp - now > 120000) {
-    return { Authorization: `Bearer ${cachedSearchToken.token}` };
-  }
-  ```
-- **Managed Identity fallback**: Support both API key and Managed Identity auth
-  ```typescript
-  if (config.AZURE_SEARCH_API_KEY) {
-    return { 'api-key': config.AZURE_SEARCH_API_KEY };
-  }
-  const tokenResponse = await credential.getToken(scope);
-  ```
+```typescript
+// Optional emit callback for streaming events
+emit?.('status', { stage: 'generating' });
+emit?.('plan', plan);
+emit?.('critique', { ...criticResult, attempt });
+```
 
-### Response Streaming
+#### Feature Flag Resolution
 
-- **SSE format**: Use Server-Sent Events with typed event names
-  ```typescript
-  const handleLine = (rawLine: string) => {
-    const line = rawLine.trim();
-    if (!line.startsWith('data:')) return;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === '[DONE]') return;
-    const delta = JSON.parse(payload);
-  };
-  ```
-- **Buffer management**: Process streaming data with line-based buffering
-- **Completion detection**: Track completion state to stop reading
+```typescript
+// Centralized feature gate resolution with overrides
+const featureResolution = resolveFeatureToggles({
+  overrides: options.featureOverrides,
+  persisted: options.persistedFeatures,
+});
+const features = featureResolution.gates;
+```
+
+### Frontend Patterns
+
+#### React Hooks
+
+```typescript
+// Custom hooks for API interactions
+export function useChatStream() {
+  const [answer, setAnswer] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  const stream = useCallback(async (messages, sessionId, features) => {
+    // EventSource SSE handling
+  }, []);
+
+  return { answer, isStreaming, stream /* ... */ };
+}
+```
+
+#### State Management
+
+```typescript
+// TanStack Query for server state
+const chatMutation = useChat();
+const response = await chatMutation.mutateAsync({
+  messages: updated,
+  sessionId,
+  feature_overrides: featureSelections,
+});
+```
+
+#### Local Storage Persistence
+
+```typescript
+// Session and feature persistence
+const [sessionId] = useState<string>(() => {
+  const existing = window.localStorage.getItem(SESSION_STORAGE_KEY);
+  if (existing) return existing;
+
+  const next = crypto.randomUUID();
+  window.localStorage.setItem(SESSION_STORAGE_KEY, next);
+  return next;
+});
+```
+
+#### Conditional Rendering
+
+```typescript
+// Ternary operators for mode-based rendering
+const sidebar = useMemo(
+  () => ({
+    citations: mode === 'stream' ? stream.citations : (chatMutation.data?.citations ?? []),
+    activity: mode === 'stream' ? stream.activity : (chatMutation.data?.activity ?? []),
+  }),
+  [mode, stream, chatMutation.data],
+);
+```
+
+## Testing Standards
+
+### Test Structure
+
+```typescript
+describe('FeatureTogglePanel', () => {
+  it('invokes onToggle when a feature selection changes', () => {
+    const onToggle = vi.fn();
+    render(<FeatureTogglePanel selections={{}} onToggle={onToggle} />);
+
+    const checkbox = screen.getByLabelText(/Multi-index federation/i);
+    fireEvent.click(checkbox);
+
+    expect(onToggle).toHaveBeenCalledWith('ENABLE_MULTI_INDEX_FEDERATION', true);
+  });
+});
+```
+
+### Testing Library Usage
+
+- **Vitest**: Primary test framework with `describe`, `it`, `expect`, `vi` (mocking)
+- **@testing-library/react**: Component testing with `render`, `screen`, `fireEvent`
+- **@testing-library/jest-dom**: Matchers like `toBeDisabled()`, `toHaveBeenCalledWith()`
+- **User-Centric Queries**: `getByLabelText`, `getByRole` over `getByTestId`
+
+## API Design Patterns
+
+### Fastify Route Handlers
+
+```typescript
+export async function setupStreamRoute(app: FastifyInstance) {
+  app.post<{ Body: ChatRequestPayload }>('/chat/stream', async (request, reply) => {
+    const { messages, sessionId, feature_overrides } = request.body;
+
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return reply.code(400).send({ error: 'Messages array required.' });
+    }
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    const sendEvent = (event: string, data: any) => {
+      reply.raw.write(`event: ${event}\n`);
+      reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    await handleChatStream(messages, sendEvent, { sessionId, featureOverrides });
+    reply.raw.end();
+  });
+}
+```
+
+### Server-Sent Events (SSE)
+
+- **Event Types**: `route`, `plan`, `context`, `tool`, `token`, `critique`, `complete`, `telemetry`, `done`
+- **Format**: `event: <type>\ndata: <json>\n\n`
+- **Error Handling**: Emit `error` event before closing stream
 
 ## Common Code Idioms
 
-### Array Operations
+### Array Filtering with Type Guards
 
-- **Filter-map chains**: Chain operations for readability
-  ```typescript
-  const references: Reference[] = results
-    .filter(r => (r['@search.rerankerScore'] || 0) >= threshold)
-    .slice(0, config.RAG_TOP_K)
-    .map((result, idx) => ({ id: result.id || `result_${idx}`, ... }));
-  ```
-- **Spread for immutability**: Use spread operator for array/object copies
-  ```typescript
-  const lazyReferenceState: LazyReference[] = dispatch.lazyReferences.map((ref) => ({ ...ref }));
-  ```
+```typescript
+const validItems = items.filter((item): item is ValidType => item !== null && item !== undefined);
+```
 
-### Conditional Execution
+### Optional Chaining and Nullish Coalescing
 
-- **Feature flags**: Check config flags before executing optional features
-  ```typescript
-  if (config.ENABLE_SEMANTIC_MEMORY && question.trim()) {
-    recalledMemories = await semanticMemoryStore.recallMemories(question, { ... });
+```typescript
+const value = config.OPTIONAL_SETTING ?? defaultValue;
+const nested = object?.property?.nested ?? fallback;
+```
+
+### Destructuring with Defaults
+
+```typescript
+const { messages, sessionId, feature_overrides = {} } = request.body;
+```
+
+### Map-Based Deduplication
+
+```typescript
+const candidateMap = new Map<string, SummaryBullet>();
+for (const entry of memorySummary) {
+  const text = entry.text?.trim();
+  if (!text) continue;
+  candidateMap.set(text, { text, embedding: entry.embedding });
+}
+return Array.from(candidateMap.values());
+```
+
+### Streaming Text Extraction
+
+```typescript
+// Recursive extraction from nested response objects
+function extractStreamText(payload: unknown): string {
+  if (typeof payload === 'string') return payload;
+  if (Array.isArray(payload)) return payload.map(extractStreamText).join('');
+  if (typeof payload === 'object' && payload) {
+    const candidate = payload as Record<string, unknown>;
+    return candidate.text ?? candidate.delta ?? candidate.output_text ?? '';
   }
-  ```
-- **Optional chaining**: Use `?.` for safe property access
-  ```typescript
-  const firstToken = normalizedQuestion.split(/\s+/).find(Boolean);
-  span?.setAttribute('agent.plan.confidence', result.confidence);
-  ```
+  return '';
+}
+```
 
-### Object Construction
+### Retry Loops with Critic Feedback
 
-- **Conditional properties**: Use spread with conditional objects
-  ```typescript
-  return {
-    answer,
-    citations,
-    ...(config.ENABLE_RESPONSE_STORAGE && previousResponseId
-      ? { previous_response_id: previousResponseId }
-      : {}),
-  };
-  ```
-- **Undefined stripping**: Remove undefined values before returning
-  ```typescript
-  Object.keys(payload).forEach((key) => {
-    if (payload[key] === undefined) {
-      delete payload[key];
-    }
-  });
-  ```
+```typescript
+let attempt = 0;
+while (attempt <= config.CRITIC_MAX_RETRIES) {
+  const answer = await generateAnswer(/* ... */);
+  const critic = await tools.critic({ draft: answer, evidence, question });
 
-### Type Guards
-
-- **Runtime type checking**: Validate types at runtime for external data
-  ```typescript
-  if (typeof value === 'number' && !Number.isNaN(value)) {
-    return value >= 0.9 ? 5 : 4;
+  if (critic.action === 'accept' || critic.coverage >= threshold) {
+    break;
   }
-  ```
-- **Array checks**: Use `Array.isArray()` before array operations
-  ```typescript
-  if (Array.isArray(candidate.content)) {
-    return candidate.content.map((part) => extractText(part)).join('');
-  }
-  ```
 
-## Testing Patterns
+  attempt += 1;
+}
+```
 
-### Vitest Configuration
+## Environment and Configuration
 
-- **Mock modules**: Use `vi.mock()` at top level before imports
-  ```typescript
-  vi.mock('../tools/index.js', () => ({
-    retrieveTool: (args: any) => toolMocks.retrieve(args),
-    answerTool: (args: any) => toolMocks.answer(args),
-  }));
-  ```
-- **Mock reset**: Reset mocks in `beforeEach` for test isolation
-  ```typescript
-  beforeEach(() => {
-    plannerMock.mockReset();
-    toolMocks.retrieve.mockReset();
-  });
-  ```
+### Feature Flags
 
-### Integration Testing
+- **Default State**: Most features disabled by default (opt-in)
+- **Progressive Enablement**: Week-by-week rollout recommended
+- **Cost Awareness**: Flags like `ENABLE_LAZY_RETRIEVAL` reduce costs, `ENABLE_QUERY_DECOMPOSITION` increases costs
+- **Runtime Overrides**: Support client-side feature toggles via `feature_overrides` parameter
 
-- **Fastify injection**: Use `app.inject()` for route testing without HTTP server
-  ```typescript
-  const response = await app.inject({
-    method: 'POST',
-    url: '/chat',
-    payload: { messages: [{ role: 'user', content: 'test' }] },
-  });
-  expect(response.statusCode).toBe(200);
-  ```
-- **End-to-end scenarios**: Test complete workflows through public API
-- **Cleanup**: Always close Fastify app after tests
-  ```typescript
-  await app.close();
-  ```
+### Environment Variables
 
-### Assertion Patterns
+- **Validation**: All env vars validated with Zod schemas at startup
+- **Defaults**: Sensible defaults for development, explicit values required for production
+- **Secrets**: API keys via `.env` files, never committed to version control
+- **Type Safety**: Export typed `config` object from `config/app.ts`
 
-- **Structured assertions**: Check nested properties explicitly
-  ```typescript
-  expect(body.metadata?.plan?.confidence).toBeCloseTo(0.82);
-  expect(body.metadata?.evaluation?.summary.status).toBeDefined();
-  ```
-- **Mock verification**: Verify tool calls and arguments
-  ```typescript
-  expect(toolMocks.webSearch).not.toHaveBeenCalled();
-  expect(toolMocks.retrieve).toHaveBeenCalledTimes(1);
-  ```
+## Error Handling
 
-## Documentation Standards
+### Backend Error Patterns
 
-### JSDoc Comments
+```typescript
+try {
+  const result = await riskyOperation();
+} catch (error) {
+  console.warn('Operation failed, using fallback:', error);
+  return fallbackValue;
+}
+```
 
-- **Public APIs**: Document all exported functions with JSDoc
-  ```typescript
-  /**
-   * Hybrid Search with Semantic Ranking (Recommended)
-   * Combines vector similarity + keyword matching + L2 semantic reranking
-   */
-  export async function hybridSemanticSearch(query: string, options = {}) { ... }
-  ```
-- **Complex logic**: Add inline comments for non-obvious code
-- **File headers**: Include purpose and key features at top of file
+### Frontend Error Boundaries
 
-### Type Documentation
+```typescript
+// Use react-hot-toast for user-facing errors
+import { toast } from 'react-hot-toast';
 
-- **Interface comments**: Document complex interfaces and their fields
-  ```typescript
-  export interface SearchOptions {
-    // Query
-    query: string;
-    queryVector?: number[];
+try {
+  await apiCall();
+} catch (error) {
+  toast.error('Failed to load data');
+  console.error(error);
+}
+```
 
-    // Search modes
-    searchMode?: 'any' | 'all'; // For keyword search
-    queryType?: 'simple' | 'semantic' | 'vector' | 'hybrid';
-  }
-  ```
+## Performance Optimization
 
-## Performance Considerations
+### Token Budget Management
 
-### Token Optimization
+```typescript
+// Enforce token caps per context section
+const sections = budgetSections({
+  model: config.AZURE_OPENAI_GPT_MODEL_NAME,
+  sections: { history, summary, salience },
+  caps: {
+    history: config.CONTEXT_HISTORY_TOKEN_CAP,
+    summary: config.CONTEXT_SUMMARY_TOKEN_CAP,
+    salience: config.CONTEXT_SALIENCE_TOKEN_CAP,
+  },
+});
+```
 
-- **Lazy loading**: Load summaries first, full content only when needed
-- **Token budgeting**: Enforce caps per context section
-  ```typescript
-  const sections = budgetSections({
-    sections: { history, summary, salience },
-    caps: {
-      history: config.CONTEXT_HISTORY_TOKEN_CAP,
-      summary: config.CONTEXT_SUMMARY_TOKEN_CAP,
-      salience: config.CONTEXT_SALIENCE_TOKEN_CAP,
-    },
-  });
-  ```
+### Lazy Loading Pattern
 
-### Caching Strategies
+```typescript
+// Load summaries first, hydrate full content only when needed
+const lazyRefs = await lazyRetrieveTool({ query, topK });
+const answer = await generateAnswer(/* ... */, lazyRefs);
 
-- **Token caching**: Cache authentication tokens with 2-minute buffer
-- **Memory caching**: Use in-memory stores for session state
-- **Embedding caching**: Reuse embeddings when possible
+if (critic.coverage < threshold) {
+  const targets = identifyLoadCandidates(lazyRefs, critic.issues);
+  const fullContent = await loadFullContent(lazyRefs, targets);
+  // Regenerate with full content
+}
+```
 
-### Batch Operations
-
-- **Parallel execution**: Use `Promise.all()` for independent operations
-- **Streaming**: Stream large responses instead of buffering entirely
-
-## Security Best Practices
+## Security Practices
 
 ### Input Validation
 
-- **Zod schemas**: Validate all external input with Zod
-  ```typescript
-  const schema = z.object({
-    messages: z.array(
-      z.object({
-        role: z.enum(['user', 'assistant', 'system']),
-        content: z.string(),
-      }),
-    ),
-  });
-  ```
+```typescript
+if (!Array.isArray(messages) || messages.length === 0) {
+  return reply.code(400).send({ error: 'Messages array required.' });
+}
+```
 
-### Credential Management
+### Sanitization
 
-- **Environment variables**: Never hardcode credentials
-- **Token rotation**: Refresh tokens before expiry
-- **Scope limitation**: Use minimal required scopes for tokens
+```typescript
+// Sanitize user identifiers before sending to external APIs
+import { sanitizeUserField } from '../utils/session.js';
+const userId = sanitizeUserField(sessionId);
+```
 
-### Data Sanitization
+### CORS Configuration
 
-- **HTML sanitization**: Use DOMPurify on frontend for user content
-- **SQL injection prevention**: Use parameterized queries (SQLite prepared statements)
-- **XSS prevention**: Escape user content in responses
+```typescript
+// Whitelist specific origins
+CORS_ORIGIN: z.string().default('http://localhost:5173,http://localhost:5174');
+```
 
-## Observability Patterns
+## Git Workflow
 
-### Structured Logging
+### Commit Messages
 
-- **Pino logger**: Use structured JSON logging
-- **Log levels**: Use appropriate levels (debug, info, warn, error)
-- **Context enrichment**: Include trace IDs and session IDs
+- **Format**: Conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`)
+- **Validation**: commitlint enforces format via Husky pre-commit hook
+- **Scope**: Optional scope for clarity (`feat(orchestrator): add lazy retrieval`)
 
-### Metrics Collection
+### Pre-Commit Hooks
 
-- **Evaluation dimensions**: Track quality metrics per request
-  ```typescript
-  const evaluation: SessionEvaluation = buildSessionEvaluation({
-    question,
-    answer,
-    retrieval,
-    critic,
-    citations,
-  });
-  ```
-- **Performance tracking**: Record latency, token usage, retry counts
+- **Lint Staged**: ESLint auto-fix on staged TypeScript files
+- **Prettier**: Format markdown, JSON, YAML files
+- **Type Check**: Run `tsc --noEmit` before push
 
-### Telemetry Events
+## Monorepo Management
 
-- **Typed events**: Use strongly-typed event payloads
-- **Event ordering**: Emit events in logical sequence (route → plan → tool → critique → complete)
-- **Error events**: Always emit error events with context
+### Workspace Commands
+
+```bash
+pnpm -r <command>        # Run in all packages
+pnpm --filter backend <command>  # Run in specific package
+pnpm dev                 # Concurrent backend + frontend
+```
+
+### Shared Dependencies
+
+- **Shared Types**: `shared/types.ts` imported by both backend and frontend
+- **Version Alignment**: Keep TypeScript, ESLint versions consistent across packages
+- **Build Order**: Shared types compiled first, then backend/frontend
