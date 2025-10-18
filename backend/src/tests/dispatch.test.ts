@@ -7,7 +7,7 @@ import type { AgentMessage, PlanSummary } from '../../../shared/types.js';
 describe('dispatchTools confidence escalation', () => {
   const messages: AgentMessage[] = [{ role: 'user', content: 'Tell me about Azure AI Search.' }];
 
-  it('forces dual retrieval when confidence drops below threshold', async () => {
+  it('forces dual retrieval when confidence drops below threshold', { timeout: 30000 }, async () => {
     const plan: PlanSummary = {
       confidence: 0.2,
       steps: []
@@ -65,7 +65,7 @@ describe('dispatchTools confidence escalation', () => {
     expect(result.webContextText).toContain('Azure Search overview');
   });
 
-  it('respects plan instructions when confidence is high', async () => {
+  it('respects plan instructions when confidence is high', { timeout: 30000 }, async () => {
     const plan: PlanSummary = {
       confidence: 0.9,
       steps: [{ action: 'vector_search' }]

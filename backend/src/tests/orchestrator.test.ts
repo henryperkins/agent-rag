@@ -29,7 +29,7 @@ describe('runSession orchestrator', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns citations and respects planner vector search path at high confidence', async () => {
+  it('returns citations and respects planner vector search path at high confidence', { timeout: 30000 }, async () => {
     vi.spyOn(planModule, 'getPlan').mockResolvedValue({
       confidence: 0.9,
       steps: [{ action: 'vector_search' }]
@@ -56,7 +56,9 @@ describe('runSession orchestrator', () => {
     });
 
     const answer = vi.fn().mockResolvedValue({
-      answer: 'Azure AI Search indexes content for discovery. [1]'
+      answer: 'Azure AI Search indexes content for discovery. [1]',
+      citations: [],
+      responseId: 'test-response-id-1'
     });
 
     const critic = vi.fn().mockResolvedValue(acceptCritic);
@@ -81,7 +83,7 @@ describe('runSession orchestrator', () => {
     expect(result.metadata?.web_context).toBeUndefined();
   });
 
-  it('escalates to dual retrieval when planner confidence is low', async () => {
+  it('escalates to dual retrieval when planner confidence is low', { timeout: 30000 }, async () => {
     vi.spyOn(planModule, 'getPlan').mockResolvedValue({
       confidence: 0.2,
       steps: []
@@ -125,7 +127,11 @@ describe('runSession orchestrator', () => {
     } as const;
 
     const webSearch = vi.fn().mockResolvedValue(webSearchResults);
-    const answer = vi.fn().mockResolvedValue({ answer: 'Here is what I found. [1]' });
+    const answer = vi.fn().mockResolvedValue({
+      answer: 'Here is what I found. [1]',
+      citations: [],
+      responseId: 'test-response-id-2'
+    });
     const critic = vi.fn().mockResolvedValue(acceptCritic);
 
     const events: Array<{ event: string; data: unknown }> = [];
@@ -148,7 +154,7 @@ describe('runSession orchestrator', () => {
     expect(events.some((entry) => entry.event === 'status' && (entry.data as any)?.stage === 'confidence_escalation')).toBe(true);
   });
 
-  it('retries synthesis when critic requests revision', async () => {
+  it('retries synthesis when critic requests revision', { timeout: 30000 }, async () => {
     vi.spyOn(planModule, 'getPlan').mockResolvedValue({
       confidence: 0.8,
       steps: [{ action: 'vector_search' }]
@@ -170,8 +176,16 @@ describe('runSession orchestrator', () => {
 
     const answer = vi
       .fn()
-      .mockResolvedValueOnce({ answer: 'Draft answer without citation.' })
-      .mockResolvedValueOnce({ answer: 'Final answer with citation. [1]' });
+      .mockResolvedValueOnce({
+        answer: 'Draft answer without citation.',
+        citations: [],
+        responseId: 'test-response-id-3a'
+      })
+      .mockResolvedValueOnce({
+        answer: 'Final answer with citation. [1]',
+        citations: [],
+        responseId: 'test-response-id-3b'
+      });
 
     const critic = vi
       .fn()

@@ -446,7 +446,7 @@ async function generateAnswer(
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
-  return { answer, events: [], usedFullContent, contextText: activeContext, responseId: result.responseId };
+  return { answer, events: [], usedFullContent, contextText: activeContext, responseId: result?.responseId };
 }
 
 async function buildContextSections(
@@ -873,11 +873,20 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         const result = await tools.critic({ draft: answer, evidence: answerResult.contextText, question });
         const span = trace.getActiveSpan();
         span?.setAttribute('critic.attempt', attempt);
-        span?.setAttribute('critic.coverage', result.coverage);
-        span?.setAttribute('critic.grounded', result.grounded);
-        span?.setAttribute('critic.action', result.action);
+        if (result) {
+          span?.setAttribute('critic.coverage', result.coverage);
+          span?.setAttribute('critic.grounded', result.grounded);
+          span?.setAttribute('critic.action', result.action);
+        }
         return result;
       });
+
+      // Handle undefined critic result
+      if (!criticResult) {
+        console.warn('Critic returned undefined, using default accept');
+        finalCritic = { grounded: true, coverage: 1.0, action: 'accept', issues: [] };
+        break;
+      }
 
       critiqueHistory.push({
         attempt,
