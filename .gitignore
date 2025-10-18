@@ -40,6 +40,13 @@ build/
 # OS
 .DS_Store
 
+# Database files
+*.db
+*.db-shm
+*.db-wal
+semantic-memory.db*
+session-store.db*
+
 # Temporary and output files
 *.log
 error.log
