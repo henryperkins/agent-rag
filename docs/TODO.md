@@ -331,12 +331,14 @@ emit?.('summary_selection_stats', summaryStats);
 
 #### 9. Incremental Web Loading
 
-**Status**: `[ ]` Not started  
-**Priority**: Medium  
-**Effort**: 3-5 days  
-**Source**: [azure-component-enhancements.md:1483-1646](azure-component-enhancements.md:1483-1646)
+**Status**: `[ ]` Not started
+**Priority**: HIGH
+**Effort**: 3-5 days
+**Source**: [PHASE_2_IMPLEMENTATION_PLAN.md:Action_Item_5](PHASE_2_IMPLEMENTATION_PLAN.md), [azure-component-enhancements.md:1483-1646](azure-component-enhancements.md:1483-1646)
 
 **Scope**: Start with 3 results, add batches until coverage threshold met
+
+**Implementation Plan**: See [PHASE_2_IMPLEMENTATION_PLAN.md](PHASE_2_IMPLEMENTATION_PLAN.md#action-item-5-incremental-web-loading) for detailed technical approach, architecture, testing strategy, and 40-60% expected API call reduction.
 
 **Files to Create**:
 
@@ -359,12 +361,14 @@ emit?.('summary_selection_stats', summaryStats);
 
 #### 10. Multi-Stage Synthesis
 
-**Status**: `[ ]` Not started  
-**Priority**: Medium  
-**Effort**: 1 week  
-**Source**: [azure-component-enhancements.md:36-127](azure-component-enhancements.md:36-127)
+**Status**: `[ ]` Not started
+**Priority**: HIGH
+**Effort**: 5-7 days
+**Source**: [PHASE_2_IMPLEMENTATION_PLAN.md:Action_Item_6](PHASE_2_IMPLEMENTATION_PLAN.md), [azure-component-enhancements.md:36-127](azure-component-enhancements.md:36-127)
 
-**Scope**: Extract → Compress → Synthesize pipeline
+**Scope**: Extract → Compress → Synthesize → Refine pipeline (4 stages)
+
+**Implementation Plan**: See [PHASE_2_IMPLEMENTATION_PLAN.md](PHASE_2_IMPLEMENTATION_PLAN.md#action-item-6-multi-stage-synthesis) for detailed technical approach, architecture, testing strategy, and 30-40% expected token reduction with improved citation precision.
 
 **Files to Create**:
 
@@ -425,12 +429,14 @@ emit?.('summary_selection_stats', summaryStats);
 
 ### 12. Citation Export
 
-**Status**: `[ ]` Not started  
-**Priority**: Academic workflow  
-**Effort**: 1 week  
-**Source**: [enhancement-implementation-plan.md:375-523](enhancement-implementation-plan.md:375-523)
+**Status**: `[ ]` Not started
+**Priority**: MEDIUM
+**Effort**: 3-4 days
+**Source**: [PHASE_2_IMPLEMENTATION_PLAN.md:Action_Item_7](PHASE_2_IMPLEMENTATION_PLAN.md), [enhancement-implementation-plan.md:375-523](enhancement-implementation-plan.md:375-523)
 
-**Scope**: Format citations in APA, MLA, Chicago, BibTeX
+**Scope**: Format citations in APA 7th, MLA 9th, Chicago 17th, BibTeX
+
+**Implementation Plan**: See [PHASE_2_IMPLEMENTATION_PLAN.md](PHASE_2_IMPLEMENTATION_PLAN.md#action-item-7-citation-export) for detailed technical approach, backend/frontend implementation, testing strategy, and academic workflow enablement.
 
 **Files to Create**:
 

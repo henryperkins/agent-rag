@@ -108,12 +108,13 @@
 
 #### Enhancement Plans
 
-| Document                                                                           | Status | Description                                            | Scope                     |
-| ---------------------------------------------------------------------------------- | ------ | ------------------------------------------------------ | ------------------------- |
-| [enhancement-implementation-plan.md](enhancement-implementation-plan.md)           | 📋     | User-facing features (PDF upload, citations, sessions) | Liner-inspired features   |
-| [enhancement-implementation-guide.md](enhancement-implementation-guide.md)         | 📋     | Implementation patterns and blueprints                 | Code scaffolding guide    |
-| [azure-component-enhancements.md](azure-component-enhancements.md)                 | 📋     | Azure-specific optimizations                           | 1,973 lines, 3-phase plan |
-| [2025-agentic-rag-techniques-deepdive.md](2025-agentic-rag-techniques-deepdive.md) | 📋     | Research techniques (Self-RAG, CRAG, HyDE, RAPTOR)     | 1,655 lines, benchmarks   |
+| Document                                                                           | Status | Description                                            | Scope                                              |
+| ---------------------------------------------------------------------------------- | ------ | ------------------------------------------------------ | -------------------------------------------------- |
+| [PHASE_2_IMPLEMENTATION_PLAN.md](PHASE_2_IMPLEMENTATION_PLAN.md)                   | 📋     | **Phase 2 detailed implementation plan**               | **Action items 5-7, 2-3 weeks, $65-90/mo savings** |
+| [enhancement-implementation-plan.md](enhancement-implementation-plan.md)           | 📋     | User-facing features (PDF upload, citations, sessions) | Liner-inspired features                            |
+| [enhancement-implementation-guide.md](enhancement-implementation-guide.md)         | 📋     | Implementation patterns and blueprints                 | Code scaffolding guide                             |
+| [azure-component-enhancements.md](azure-component-enhancements.md)                 | 📋     | Azure-specific optimizations                           | 1,973 lines, 3-phase plan                          |
+| [2025-agentic-rag-techniques-deepdive.md](2025-agentic-rag-techniques-deepdive.md) | 📋     | Research techniques (Self-RAG, CRAG, HyDE, RAPTOR)     | 1,655 lines, benchmarks                            |
 
 #### Specialized Planning
 
