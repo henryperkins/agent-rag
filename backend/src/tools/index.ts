@@ -6,7 +6,14 @@ import { retrieveWithAdaptiveRefinement } from '../azure/adaptiveRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
-import type { AgentMessage, Reference, LazyReference, FeatureOverrideMap } from '../../../shared/types.js';
+import type {
+  ActivityStep,
+  AdaptiveRetrievalStats,
+  AgentMessage,
+  Reference,
+  LazyReference,
+  FeatureOverrideMap
+} from '../../../shared/types.js';
 import { extractOutputText } from '../utils/openai.js';
 import { sanitizeUserField } from '../utils/session.js';
 
@@ -77,193 +84,268 @@ export async function retrieveTool(args: {
   features?: FeatureOverrideMap;
 }) {
   const { query, filter, top, features } = args;
-  const enableFederation = (features?.ENABLE_MULTI_INDEX_FEDERATION ?? config.ENABLE_MULTI_INDEX_FEDERATION) === true;
+  const enableFederation =
+    (features?.ENABLE_MULTI_INDEX_FEDERATION ?? config.ENABLE_MULTI_INDEX_FEDERATION) === true;
+
+  const minDocs = config.RETRIEVAL_MIN_DOCS;
+  let fallbackAttempts = 0;
+  let fallbackTriggered = false;
+
+  const baseTop = top || config.RAG_TOP_K;
+  const searchFields = ['page_chunk'];
+  const selectFields = ['id', 'page_chunk', 'page_number'];
+
+  const withTimestamp = (step: ActivityStep): ActivityStep => ({
+    ...step,
+    timestamp: new Date().toISOString()
+  });
+
+  const finalize = (
+    references: Reference[],
+    activity: ActivityStep[],
+    extras: Partial<AgenticRetrievalResponse> = {}
+  ): AgenticRetrievalResponse => ({
+    response: '',
+    references,
+    activity,
+    fallbackAttempts,
+    minDocumentsRequired: minDocs,
+    fallbackTriggered,
+    ...extras
+  });
+
+  const runFallbackPipeline = async (
+    existingActivity: ActivityStep[]
+  ): Promise<{ references: Reference[]; activity: ActivityStep[] }> => {
+    fallbackTriggered = true;
+    const activity = [...existingActivity];
+
+    // Stage 1: lower reranker threshold
+    fallbackAttempts += 1;
+    const fallbackResult = await hybridSemanticSearch(query, {
+      top: baseTop,
+      filter,
+      rerankerThreshold: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
+      searchFields,
+      selectFields
+    });
+    activity.push(
+      withTimestamp({
+        type: 'fallback_search',
+        description: `Hybrid semantic fallback returned ${fallbackResult.references.length} result(s) (threshold: ${config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD}).`
+      })
+    );
+    if (fallbackResult.references.length >= minDocs) {
+      return { references: fallbackResult.references.slice(0, baseTop), activity };
+    }
+
+    // Stage 2: relax threshold and expand top-k
+    fallbackAttempts += 1;
+    const expandedTop = Math.max(baseTop * 2, baseTop);
+    const relaxedResult = await hybridSemanticSearch(query, {
+      top: expandedTop,
+      filter,
+      rerankerThreshold: 0,
+      searchFields,
+      selectFields
+    });
+    activity.push(
+      withTimestamp({
+        type: 'fallback_search',
+        description: `Hybrid semantic fallback (threshold 0, top=${expandedTop}) returned ${relaxedResult.references.length} result(s).`
+      })
+    );
+    if (relaxedResult.references.length >= minDocs) {
+      return { references: relaxedResult.references.slice(0, baseTop), activity };
+    }
+
+    // Stage 3: pure vector fallback
+    fallbackAttempts += 1;
+    const vectorResult = await vectorSearch(query, {
+      top: baseTop,
+      filter
+    });
+    activity.push(
+      withTimestamp({
+        type: 'fallback_search',
+        description: `Vector-only fallback returned ${vectorResult.references.length} result(s).`
+      })
+    );
+    return { references: vectorResult.references, activity };
+  };
 
   try {
     return await withRetry('direct-search', async () => {
       if (enableFederation) {
         try {
           const federated = await federatedSearch(query, {
-            top: top || config.RAG_TOP_K,
+            top: baseTop,
             filter
           });
 
           if (federated.references.length) {
-            const description = Object.entries(federated.indexBreakdown)
-              .map(([name, count]) => `${name}:${count}`)
-              .join(', ');
-
-            return {
-              response: '',
-              references: federated.references,
-              activity: [
-                {
-                  type: 'federated_search',
-                  description: `Federated search returned ${federated.references.length} results (${description})`
-                }
-              ]
-            };
+            const federatedActivity: ActivityStep[] = [
+              withTimestamp({
+                type: 'federated_search',
+                description: `Federated search returned ${federated.references.length} result(s).`
+              })
+            ];
+            return finalize(federated.references, federatedActivity);
           }
         } catch (federationError) {
           console.warn('Federated search failed, falling back to single-index retrieval:', federationError);
         }
       }
 
-      // Check if adaptive retrieval is enabled
-      const enableAdaptive = (features?.ENABLE_ADAPTIVE_RETRIEVAL ?? config.ENABLE_ADAPTIVE_RETRIEVAL) === true;
+      const enableAdaptive =
+        (features?.ENABLE_ADAPTIVE_RETRIEVAL ?? config.ENABLE_ADAPTIVE_RETRIEVAL) === true;
 
       if (enableAdaptive) {
-        // Use adaptive retrieval with quality assessment and query reformulation
         const adaptiveResult = await retrieveWithAdaptiveRefinement(
           query,
           {
-            top: top || config.RAG_TOP_K,
+            top: baseTop,
             filter,
             minCoverage: config.ADAPTIVE_MIN_COVERAGE,
             minDiversity: config.ADAPTIVE_MIN_DIVERSITY
           },
-          1, // attempt (starts at 1)
+          1,
           config.ADAPTIVE_MAX_ATTEMPTS
         );
+
         const attempts = adaptiveResult.attempts ?? [];
         const initial = adaptiveResult.initialQuality ?? adaptiveResult.quality;
-        const finalQ = adaptiveResult.quality;
-        const triggered = (attempts?.length ?? 1) > 1 || adaptiveResult.reformulations.length > 0;
-        const trigger_reason = initial.coverage < (config.ADAPTIVE_MIN_COVERAGE ?? 0.4)
-          && initial.diversity < (config.ADAPTIVE_MIN_DIVERSITY ?? 0.3)
-          ? 'both'
-          : initial.coverage < (config.ADAPTIVE_MIN_COVERAGE ?? 0.4)
-          ? 'coverage'
-          : initial.diversity < (config.ADAPTIVE_MIN_DIVERSITY ?? 0.3)
-          ? 'diversity'
-          : null;
-        const latency_ms_total = attempts.reduce((sum, a) => sum + (a.latency_ms ?? 0), 0);
+        const finalQuality = adaptiveResult.quality;
+        const triggered =
+          (attempts?.length ?? 1) > 1 || adaptiveResult.reformulations.length > 0;
+
         const redact = (s: string) => (s.length <= 60 ? s : `${s.slice(0, 30)} … ${s.slice(-20)}`);
-        const adaptiveStats = {
+
+        const adaptiveStats: AdaptiveRetrievalStats = {
           enabled: true,
           attempts: attempts.length || (triggered ? adaptiveResult.reformulations.length + 1 : 1),
           triggered,
-          trigger_reason,
-          thresholds: { coverage: config.ADAPTIVE_MIN_COVERAGE, diversity: config.ADAPTIVE_MIN_DIVERSITY },
+          trigger_reason:
+            initial.coverage < (config.ADAPTIVE_MIN_COVERAGE ?? 0.4) &&
+            initial.diversity < (config.ADAPTIVE_MIN_DIVERSITY ?? 0.3)
+              ? 'both'
+              : initial.coverage < (config.ADAPTIVE_MIN_COVERAGE ?? 0.4)
+              ? 'coverage'
+              : initial.diversity < (config.ADAPTIVE_MIN_DIVERSITY ?? 0.3)
+              ? 'diversity'
+              : null,
+          thresholds: {
+            coverage: config.ADAPTIVE_MIN_COVERAGE,
+            diversity: config.ADAPTIVE_MIN_DIVERSITY
+          },
           initial_quality: initial,
-          final_quality: finalQ,
+          final_quality: finalQuality,
           reformulations_count: adaptiveResult.reformulations.length,
           reformulations_sample: adaptiveResult.reformulations.slice(0, 2).map(redact),
-          latency_ms_total,
+          latency_ms_total: attempts.reduce((sum, a) => sum + (a.latency_ms ?? 0), 0),
           per_attempt: attempts.map((a) => ({
             attempt: a.attempt,
             query: redact(a.query),
             quality: a.quality,
             latency_ms: a.latency_ms
           }))
-        } as const;
-
-        return {
-          response: '',
-          references: adaptiveResult.references,
-          adaptiveStats: adaptiveStats as any,
-          activity: [
-            {
-              type: 'adaptive_search',
-              description: `Retrieved ${adaptiveResult.references.length} results (coverage: ${adaptiveResult.quality.coverage.toFixed(2)}, diversity: ${adaptiveResult.quality.diversity.toFixed(2)})${adaptiveResult.reformulations.length ? `, ${adaptiveResult.reformulations.length} reformulations` : ''}`
-            },
-            ...(adaptiveResult.reformulations.length
-              ? [
-                  {
-                    type: 'query_reformulation',
-                    description: `Reformulated: ${adaptiveResult.reformulations.join(' → ')}`
-                  }
-                ]
-              : [])
-          ]
         };
+
+        const adaptiveActivity: ActivityStep[] = [
+          withTimestamp({
+            type: 'adaptive_search',
+            description: `Adaptive retrieval returned ${adaptiveResult.references.length} result(s) (coverage=${adaptiveResult.quality.coverage.toFixed(
+              2
+            )}, diversity=${adaptiveResult.quality.diversity.toFixed(2)}).`
+          })
+        ];
+
+        if (adaptiveResult.reformulations.length) {
+          adaptiveActivity.push(
+            withTimestamp({
+              type: 'query_reformulation',
+              description: `Reformulations: ${adaptiveResult.reformulations.join(' → ')}`
+            })
+          );
+        }
+
+        if (adaptiveResult.references.length >= minDocs) {
+          return finalize(adaptiveResult.references, adaptiveActivity, {
+            adaptiveStats
+          });
+        }
+
+        const fallbackOutcome = await runFallbackPipeline(adaptiveActivity);
+        return finalize(fallbackOutcome.references, fallbackOutcome.activity, {
+          adaptiveStats
+        });
       }
 
-      try {
-        // Primary: Hybrid semantic search with high threshold
-        const result = await hybridSemanticSearch(query, {
-          top: top || config.RAG_TOP_K,
-          filter,
-          rerankerThreshold: config.RERANKER_THRESHOLD,
-          searchFields: ['page_chunk'],
-          selectFields: ['id', 'page_chunk', 'page_number']
-        });
-
-        // If we have good results, return them
-        const activity: any[] = [];
-        // Vector filter mode note (heuristic)
-        if (filter && isRestrictiveFilter(filter)) {
-          activity.push({
+      const activity: ActivityStep[] = [];
+      if (filter && isRestrictiveFilter(filter)) {
+        activity.push(
+          withTimestamp({
             type: 'vector_filter_mode',
             description: 'Using preFilter for vector search due to restrictive filter.'
-          });
-        }
-        // Coverage gate note
-        // Note: Azure returns @search.coverage as 0-100 percentage; normalize to 0-1 for comparison
-        if (typeof result.coverage === 'number' && (result.coverage / 100) < config.SEARCH_MIN_COVERAGE) {
-          activity.push({
-            type: 'low_coverage',
-            description: `Search coverage ${result.coverage.toFixed(0)}% below ${(config.SEARCH_MIN_COVERAGE * 100).toFixed(0)}% threshold.`
-          });
-        }
-
-        if (result.references.length >= config.RETRIEVAL_MIN_DOCS) {
-          return {
-            response: '', // Not needed for orchestrator pattern
-            references: result.references,
-            activity: [
-              {
-                type: 'search',
-                description: `Hybrid semantic search returned ${result.references.length} results (threshold: ${config.RERANKER_THRESHOLD})`
-              },
-              ...activity
-            ]
-          };
-        }
-
-        // Fallback: Lower threshold
-        console.log(`Insufficient results (${result.references.length}), retrying with lower threshold`);
-        const fallbackResult = await hybridSemanticSearch(query, {
-          top: top || config.RAG_TOP_K,
-          filter,
-          rerankerThreshold: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
-          searchFields: ['page_chunk'],
-          selectFields: ['id', 'page_chunk', 'page_number']
-        });
-
-        return {
-          response: '',
-          references: fallbackResult.references,
-          activity: [
-            {
-              type: 'search',
-              description: `Hybrid semantic search (fallback) returned ${fallbackResult.references.length} results (threshold: ${config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD})`
-            }
-          ]
-        };
-      } catch (semanticError) {
-        // Final fallback: Pure vector search (no semantic ranking dependency)
-        console.warn('Hybrid semantic search failed, falling back to pure vector search:', semanticError);
-        const vectorResult = await vectorSearch(query, {
-          top: top || config.RAG_TOP_K,
-          filter
-        });
-
-        return {
-          response: '',
-          references: vectorResult.references,
-          activity: [
-            {
-              type: 'fallback_search',
-              description: `Vector-only search returned ${vectorResult.references.length} results`
-            }
-          ]
-        };
+          })
+        );
       }
+
+      const result = await hybridSemanticSearch(query, {
+        top: baseTop,
+        filter,
+        rerankerThreshold: config.RERANKER_THRESHOLD,
+        searchFields,
+        selectFields
+      });
+
+      if (
+        typeof result.coverage === 'number' &&
+        result.coverage / 100 < config.SEARCH_MIN_COVERAGE
+      ) {
+        activity.push(
+          withTimestamp({
+            type: 'low_coverage',
+            description: `Search coverage ${result.coverage.toFixed(
+              0
+            )}% below ${(config.SEARCH_MIN_COVERAGE * 100).toFixed(0)}% threshold.`
+          })
+        );
+      }
+
+      const primaryActivity: ActivityStep[] = [
+        withTimestamp({
+          type: 'search',
+          description: `Hybrid semantic search returned ${result.references.length} result(s) (threshold: ${config.RERANKER_THRESHOLD}).`
+        }),
+        ...activity
+      ];
+
+      if (result.references.length >= minDocs) {
+        return finalize(result.references, primaryActivity);
+      }
+
+      console.log(
+        `Insufficient results (${result.references.length}); attempting fallback retrieval pipeline.`
+      );
+      const fallbackOutcome = await runFallbackPipeline(primaryActivity);
+      return finalize(fallbackOutcome.references, fallbackOutcome.activity);
     });
   } catch (error) {
-    console.error('All retrieval methods failed:', error);
-    throw new Error(`Retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    fallbackTriggered = true;
+    fallbackAttempts += 1;
+    console.warn('Hybrid semantic search failed, falling back to pure vector search:', error);
+    const vectorResult = await vectorSearch(query, {
+      top: baseTop,
+      filter
+    });
+    const fallbackActivity: ActivityStep[] = [
+      withTimestamp({
+        type: 'fallback_search',
+        description: `Vector-only fallback returned ${vectorResult.references.length} result(s).`
+      })
+    ];
+    return finalize(vectorResult.references, fallbackActivity);
   }
 }
 

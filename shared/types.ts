@@ -93,6 +93,7 @@ export interface CriticReport {
   coverage: number;
   issues?: string[];
   action: 'accept' | 'revise';
+  forced?: boolean;
 }
 
 export interface SummarySelectionStats {
@@ -179,6 +180,10 @@ export interface AgenticRetrievalResponse {
   summaryTokens?: number;
   mode?: 'direct' | 'lazy';
   fullContentAvailable?: boolean;
+  fallbackAttempts?: number;
+  minDocumentsRequired?: number;
+  fallbackTriggered?: boolean;
+  adaptiveStats?: AdaptiveRetrievalStats;
 }
 
 export interface WebResult {
@@ -236,6 +241,7 @@ export interface ChatResponse {
       action: 'accept' | 'revise';
       issues?: string[];
       usedFullContent?: boolean;
+      forced?: boolean;
     }>;
     summary_selection?: SummarySelectionStats;
     route?: RouteMetadata;
@@ -293,6 +299,9 @@ export interface RetrievalDiagnostics {
   mode?: 'direct' | 'lazy';
   summaryTokens?: number;
   highlightedDocuments?: number;
+  fallbackAttempts?: number;
+  minDocumentsRequired?: number;
+  fallbackTriggered?: boolean;
 }
 
 export interface SessionTrace {
@@ -324,6 +333,7 @@ export interface SessionTrace {
     action: 'accept' | 'revise';
     issues?: string[];
     usedFullContent?: boolean;
+    forced?: boolean;
   }>;
   responses?: Array<{ attempt: number; responseId?: string }>;
   webContext?: {

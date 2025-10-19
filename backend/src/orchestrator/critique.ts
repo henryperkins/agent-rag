@@ -57,11 +57,38 @@ Return ONLY valid JSON matching the schema. Be strict: prefer revise when uncert
     });
 
     const parsed = JSON.parse(extractOutputText(response) || '{}');
+    const grounded = Boolean(parsed.grounded);
+    let coverage =
+      typeof parsed.coverage === 'number' && Number.isFinite(parsed.coverage) ? parsed.coverage : 0;
+    coverage = Math.max(0, Math.min(1, coverage));
+
+    const issues = Array.isArray(parsed.issues) ? [...parsed.issues] : [];
+    const parsedAction = parsed.action === 'revise' ? 'revise' : 'accept';
+    const threshold = config.CRITIC_THRESHOLD;
+    const failedGrounding = !grounded;
+    const insufficientCoverage = coverage < threshold;
+
+    let action = parsedAction;
+    let forced = false;
+    if (parsedAction !== 'revise' && (failedGrounding || insufficientCoverage)) {
+      const reasons: string[] = [];
+      if (failedGrounding) {
+        reasons.push('grounding');
+      }
+      if (insufficientCoverage) {
+        reasons.push(`coverage ${coverage.toFixed(2)} < ${threshold}`);
+      }
+      issues.push(`Forced revision due to ${reasons.join(' & ')}.`);
+      action = 'revise';
+      forced = true;
+    }
+
     return {
-      grounded: Boolean(parsed.grounded),
-      coverage: typeof parsed.coverage === 'number' ? parsed.coverage : 0,
-      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
-      action: parsed.action === 'revise' ? 'revise' : 'accept'
+      grounded,
+      coverage,
+      issues,
+      action,
+      forced
     };
   } catch (error) {
     console.warn('Critic evaluation failed; defaulting to accept.', error);

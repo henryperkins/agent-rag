@@ -892,7 +892,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   let lazyLoadAttempts = 0;
   const MAX_LAZY_LOAD_ATTEMPTS = 2;
   let finalCritic: CriticReport | undefined;
-  const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[]; usedFullContent?: boolean }> = [];
+  const critiqueHistory: Array<{ attempt: number; grounded: boolean; coverage: number; action: 'accept' | 'revise'; issues?: string[]; usedFullContent?: boolean; forced?: boolean }> = [];
   const responseHistory: Array<{ attempt: number; responseId?: string }> = [];
   let previousResponseId: string | undefined;
 
@@ -952,7 +952,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         coverage: criticResult.coverage,
         action: criticResult.action,
         issues: criticResult.issues,
-        usedFullContent: answerResult.usedFullContent
+        usedFullContent: answerResult.usedFullContent,
+        forced: criticResult.forced
       });
 
       emit?.('critique', { ...criticResult, attempt });
