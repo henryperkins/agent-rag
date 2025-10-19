@@ -24,7 +24,8 @@ function ensureTracer() {
     provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
   }
 
-  if (process.env.ENABLE_CONSOLE_TRACING?.toLowerCase() === 'true' || !endpoint) {
+  // Only enable console tracing when explicitly requested
+  if (process.env.ENABLE_CONSOLE_TRACING?.toLowerCase() === 'true') {
     provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
   }
 

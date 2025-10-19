@@ -13,6 +13,9 @@ import { DefaultAzureCredential } from '@azure/identity';
 import type { Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 
+// Track reranker threshold warnings per session to avoid log spam
+const thresholdWarningCache = new Set<string>();
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -397,6 +400,7 @@ export async function hybridSemanticSearch(
     rerankerThreshold?: number;
     searchFields?: string[];
     selectFields?: string[];
+    sessionId?: string;
   } = {}
 ): Promise<DirectSearchResponse> {
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
@@ -435,6 +439,7 @@ export async function hybridSemanticSearch(
     results[0]?.['@search.rerankerScore'] !== undefined
   ) {
     const threshold = options.rerankerThreshold;
+    const scores = results.map((r) => r['@search.rerankerScore'] ?? 0);
     const filtered = results.filter(
       (r) => (r['@search.rerankerScore'] ?? 0) >= (threshold ?? 0)
     );
@@ -442,9 +447,20 @@ export async function hybridSemanticSearch(
     if (filtered.length > 0) {
       results = filtered;
     } else if (results.length > 0) {
-      console.warn(
-        `Hybrid search results below reranker threshold ${threshold}. Using unfiltered results.`
-      );
+      const maxScore = Math.max(...scores);
+      const minScore = Math.min(...scores);
+      const avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+
+      // Only log warning once per session to avoid spam
+      const sessionKey = options.sessionId || 'default';
+      if (!thresholdWarningCache.has(sessionKey)) {
+        thresholdWarningCache.add(sessionKey);
+        console.warn(
+          `[Session ${sessionKey}] Hybrid search results below reranker threshold ${threshold}. Using unfiltered results. ` +
+          `Score distribution: max=${maxScore.toFixed(2)}, avg=${avgScore.toFixed(2)}, min=${minScore.toFixed(2)}, ` +
+          `count=${scores.length}`
+        );
+      }
     }
   }
 
