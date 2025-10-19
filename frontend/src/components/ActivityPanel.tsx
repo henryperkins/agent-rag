@@ -4,9 +4,26 @@ interface ActivityPanelProps {
   activity: ActivityStep[];
   status: string;
   critique?: { score?: number; reasoning?: string; action?: string };
+  isStreaming?: boolean;
 }
 
-export function ActivityPanel({ activity, status, critique }: ActivityPanelProps) {
+function getStatusIcon(status: 'complete' | 'running' | 'waiting' | 'failed') {
+  switch (status) {
+    case 'complete':
+      return '✓';
+    case 'running':
+      return '⚙';
+    case 'waiting':
+      return '⏳';
+    case 'failed':
+      return '✗';
+    default:
+      return '•';
+  }
+}
+
+export function ActivityPanel({ activity, status, critique, isStreaming }: ActivityPanelProps) {
+  const items = activity;
   return (
     <section className="activity-panel">
       <header>
@@ -14,18 +31,25 @@ export function ActivityPanel({ activity, status, critique }: ActivityPanelProps
         <span className="status">Status: {status}</span>
       </header>
 
-      {activity.length === 0 ? (
+      {items.length === 0 ? (
         <p className="sidebar-empty">No retrieval activity yet.</p>
       ) : (
-        <ol className="activity-timeline">
-          {activity.map((step, index) => (
-            <li key={`${step.type}-${index}`}>
-              <div className="activity-type">{step.type}</div>
-              <div className="activity-description">{step.description}</div>
-              {step.timestamp && <div className="activity-time">{step.timestamp}</div>}
-            </li>
-          ))}
-        </ol>
+        <div className="timeline">
+          {items.map((step, idx) => {
+            const isLast = idx === items.length - 1;
+            const derivedStatus: 'complete' | 'running' | 'waiting' | 'failed' = isLast && (isStreaming || status === 'loading' || status === 'starting') ? 'running' : 'complete';
+            return (
+              <div className={`timeline-item status-${derivedStatus}`} key={`${step.type}-${idx}`}>
+                <div className="timeline-marker" aria-hidden>{getStatusIcon(derivedStatus)}</div>
+                <div className="timeline-content">
+                  <h4 style={{ margin: 0, fontSize: 13, textTransform: 'capitalize' }}>{step.type}</h4>
+                  <div className="activity-description">{step.description}</div>
+                  {step.timestamp && <div className="activity-time">{step.timestamp}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {critique && (

@@ -5,26 +5,54 @@ import { ChatInput } from './components/ChatInput';
 import { MessageList } from './components/MessageList';
 import { SourcesPanel } from './components/SourcesPanel';
 import { ActivityPanel } from './components/ActivityPanel';
-import { PlanPanel } from './components/PlanPanel';
+// PlanPanel deprecated; migrated to TelemetryDrawer
 import { AdminStatsCard } from './components/AdminStatsCard';
 import { DocumentUpload } from './components/DocumentUpload';
 import { FeatureTogglePanel } from './components/FeatureTogglePanel';
+import { SessionHealthDashboard } from './components/SessionHealthDashboard';
+import { TelemetryDrawer } from './components/TelemetryDrawer';
 import { useChat } from './hooks/useChat';
 import { useChatStream } from './hooks/useChatStream';
 import type {
   AgentMessage,
+  ChatMessage,
+  Citation,
+  CriticReport,
   FeatureFlag,
   FeatureOverrideMap,
   FeatureSelectionMetadata,
   FeatureSource
 } from './types';
 import './App.css';
+import './styles/design-system.css';
+import './styles/components.css';
 
 const SESSION_STORAGE_KEY = 'agent-rag:session-id';
 const FEATURE_STORAGE_PREFIX = 'agent-rag:feature-overrides:';
 const API_BASE = (import.meta.env.VITE_API_BASE ?? __API_BASE__) as string;
 
 const queryClient = new QueryClient();
+
+function createMessageId(): string {
+  const cryptoRef = typeof globalThis !== 'undefined' ? (globalThis.crypto as Crypto | undefined) : undefined;
+  if (cryptoRef && typeof cryptoRef.randomUUID === 'function') {
+    return cryptoRef.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function toChatMessage(message: AgentMessage, citations?: Citation[]): ChatMessage {
+  return {
+    id: createMessageId(),
+    role: message.role,
+    content: message.content,
+    citations
+  };
+}
+
+function toAgentMessages(messages: ChatMessage[]): AgentMessage[] {
+  return messages.map(({ role, content }) => ({ role, content }));
+}
 
 const FEATURE_FLAGS: FeatureFlag[] = [
   'ENABLE_MULTI_INDEX_FEDERATION',
@@ -95,7 +123,7 @@ function ChatApp() {
     return next;
   });
 
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mode, setMode] = useState<'sync' | 'stream'>('sync');
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [featureSelections, setFeatureSelections] = useState<FeatureOverrideMap>(() =>
@@ -168,9 +196,9 @@ function ChatApp() {
           throw new Error(`Failed to load session history (${response.status})`);
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as { messages?: AgentMessage[] };
         if (!cancelled && Array.isArray(data.messages)) {
-          setMessages(data.messages);
+          setMessages(data.messages.map((message) => toChatMessage(message)));
         }
       } catch (error) {
         if (!cancelled) {
@@ -201,21 +229,30 @@ function ChatApp() {
       return;
     }
 
-    const updated = [...messages, { role: 'user' as const, content }];
+    const userMessage = toChatMessage({ role: 'user', content });
+    const updated = [...messages, userMessage];
     setMessages(updated);
 
+    const agentHistory = toAgentMessages(updated);
+
     if (mode === 'stream') {
-      const answer = await stream.stream(updated, sessionId, featureSelections);
-      setMessages((prev) => [...prev, { role: 'assistant' as const, content: answer }]);
+      const { answer, citations } = await stream.stream(agentHistory, sessionId, featureSelections);
+      setMessages((prev) => [
+        ...prev,
+        toChatMessage({ role: 'assistant', content: answer }, citations)
+      ]);
       return;
     }
 
     const response = await chatMutation.mutateAsync({
-      messages: updated,
+      messages: agentHistory,
       sessionId,
       feature_overrides: featureSelections
     });
-    setMessages((prev) => [...prev, { role: 'assistant' as const, content: response.answer }]);
+    setMessages((prev) => [
+      ...prev,
+      toChatMessage({ role: 'assistant', content: response.answer }, response.citations)
+    ]);
     applyFeatureMetadata(response.metadata?.features);
   };
 
@@ -244,7 +281,6 @@ function ChatApp() {
     chatMutation.isPending || stream.isStreaming || sidebar.status === 'starting' || loadingHistory;
 
   const planDetails = mode === 'stream' ? stream.plan : chatMutation.data?.metadata?.plan;
-  const contextSnapshot = mode === 'stream' ? stream.contextSnapshot : undefined;
   const telemetryDetails = mode === 'stream'
     ? stream.telemetry
     : chatMutation.data?.metadata
@@ -254,7 +290,12 @@ function ChatApp() {
           critic: chatMutation.data.metadata.critic_report,
           webContext: chatMutation.data.metadata.web_context,
           summarySelection: chatMutation.data.metadata.summary_selection,
-          evaluation: chatMutation.data.metadata.evaluation
+          evaluation: chatMutation.data.metadata.evaluation,
+          // Preserve fields needed for SessionHealthDashboard metrics
+          retrieval_time_ms: chatMutation.data.metadata.retrieval_time_ms,
+          critic_iterations: chatMutation.data.metadata.critic_iterations,
+          context_budget: chatMutation.data.metadata.context_budget,
+          critic_report: chatMutation.data.metadata.critic_report
         }
       : undefined;
   const traceDetails = mode === 'stream' ? stream.trace : undefined;
@@ -263,12 +304,11 @@ function ChatApp() {
     ? stream.critiqueHistory
     : chatMutation.data?.metadata?.critique_history;
   const routeDetails = mode === 'stream' ? stream.route : chatMutation.data?.metadata?.route;
-  const retrievalMode = mode === 'stream' ? stream.retrievalMode : chatMutation.data?.metadata?.retrieval_mode;
-  const lazySummaryTokens = mode === 'stream' ? stream.lazySummaryTokens : chatMutation.data?.metadata?.lazy_summary_tokens;
-  const retrievalDetails = mode === 'stream' ? stream.retrieval : chatMutation.data?.metadata?.retrieval;
   const responsesDetails = mode === 'stream' ? stream.responses : chatMutation.data?.metadata?.responses;
   const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
   const featureMetadata = mode === 'stream' ? stream.features : chatMutation.data?.metadata?.features;
+
+  const [telemetryOpen, setTelemetryOpen] = useState(false);
 
   return (
     <div className="layout">
@@ -278,7 +318,16 @@ function ChatApp() {
           <p>Grounded answers with transparent citations powered by Azure AI Search.</p>
         </div>
         <div className="header-actions">
-          <DocumentUpload onUploaded={(message) => setMessages((prev) => [...prev, message])} />
+          <DocumentUpload
+            onUploaded={(message) => setMessages((prev) => [...prev, toChatMessage(message)])}
+          />
+          <button
+            onClick={() => setTelemetryOpen(true)}
+            aria-expanded={telemetryOpen}
+            className={"response-action-btn"}
+          >
+            Telemetry
+          </button>
           <div className="mode-toggle">
             <span>Mode:</span>
             <button
@@ -305,11 +354,18 @@ function ChatApp() {
             messages={messages}
             streamingAnswer={mode === 'stream' ? stream.answer : undefined}
             isStreaming={mode === 'stream' ? stream.isStreaming : chatMutation.isPending}
+            citations={sidebar.citations}
           />
           <ChatInput disabled={isBusy} onSend={handleSend} />
         </section>
 
         <section className="sidebar-panel">
+          <SessionHealthDashboard
+            metadata={telemetryDetails}
+            activity={sidebar.activity}
+            isStreaming={mode === 'stream' ? stream.isStreaming : false}
+            statusHistory={mode === 'stream' ? stream.statusHistory : undefined}
+          />
           <FeatureTogglePanel
             selections={featureSelections}
             sources={featureSources}
@@ -318,28 +374,15 @@ function ChatApp() {
           />
           <AdminStatsCard />
           <SourcesPanel
-            citations={sidebar.citations}
+            messages={messages}
             isStreaming={mode === 'stream' ? stream.isStreaming : chatMutation.isPending}
+            streamingCitations={mode === 'stream' ? stream.citations : undefined}
           />
           <ActivityPanel
             activity={sidebar.activity}
             status={sidebar.status}
             critique={sidebar.critique}
-          />
-          <PlanPanel
-            plan={planDetails}
-            context={contextSnapshot}
-            telemetry={telemetryDetails}
-            trace={traceDetails}
-            webContext={webContextDetails}
-            critiqueHistory={critiqueHistory}
-            route={routeDetails}
-            retrievalMode={retrievalMode}
-            lazySummaryTokens={lazySummaryTokens}
-            retrieval={retrievalDetails}
-            responses={responsesDetails}
-            evaluation={evaluationDetails}
-            features={featureMetadata}
+            isStreaming={mode === 'stream' ? stream.isStreaming : chatMutation.isPending}
           />
         </section>
       </main>
@@ -348,6 +391,27 @@ function ChatApp() {
         <span>Version {__APP_VERSION__}</span>
         <span>API: {(import.meta.env.VITE_API_BASE ?? __API_BASE__) as string}</span>
       </footer>
+
+      <TelemetryDrawer
+        open={telemetryOpen}
+        onClose={() => setTelemetryOpen(false)}
+        data={{
+          plan: planDetails,
+          contextBudget: telemetryDetails?.contextBudget as Record<string, number> | undefined,
+          critic: telemetryDetails?.critic as CriticReport | undefined,
+          summarySelection: telemetryDetails?.summarySelection,
+          route: routeDetails,
+          critiqueHistory: mode === 'stream' ? stream.critiqueHistory : critiqueHistory,
+          features: featureMetadata,
+          evaluation: evaluationDetails,
+          responses: responsesDetails,
+          traceId: typeof chatMutation.data?.metadata?.trace_id === 'string'
+            ? chatMutation.data.metadata.trace_id
+            : undefined,
+          trace: traceDetails,
+          webContext: webContextDetails
+        }}
+      />
     </div>
   );
 }

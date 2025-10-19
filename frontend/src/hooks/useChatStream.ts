@@ -11,7 +11,12 @@ import type {
   SummarySelectionStats
 } from '../types';
 
-interface CritiqueAttempt {
+export interface StatusHistoryItem {
+  stage: string;
+  ts: number;
+}
+
+export interface CritiqueAttempt {
   attempt: number;
   grounded: boolean;
   coverage: number;
@@ -29,6 +34,7 @@ interface StreamState {
   answer: string;
   citations: Citation[];
   activity: ActivityStep[];
+  statusHistory: StatusHistoryItem[];
   critique?: { score?: number; reasoning?: string; action?: string };
   critiqueHistory: CritiqueAttempt[];
   plan?: any;
@@ -112,6 +118,7 @@ export function useChatStream() {
     answer: '',
     citations: [],
     activity: [],
+    statusHistory: [],
     critiqueHistory: [],
     telemetry: {},
     evaluation: undefined
@@ -126,6 +133,7 @@ export function useChatStream() {
       answer: '',
       citations: [],
       activity: [],
+      statusHistory: [],
       critiqueHistory: [],
       telemetry: {},
       evaluation: undefined
@@ -138,9 +146,10 @@ export function useChatStream() {
     const controller = new AbortController();
     controllerRef.current = controller;
 
-    setState((prev) => ({ ...prev, isStreaming: true, status: 'starting', answer: '' }));
+    setState((prev) => ({ ...prev, isStreaming: true, status: 'starting', answer: '', statusHistory: [...prev.statusHistory, { stage: 'starting', ts: Date.now() }] }));
 
     let finalAnswer = '';
+    let finalCitations: Citation[] = [];
 
     try {
       const response = await fetch('/chat/stream', {
@@ -185,7 +194,11 @@ export function useChatStream() {
               }
               switch (eventType) {
                 case 'status':
-                  setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
+                  setState((prev) => ({
+                    ...prev,
+                    status: data.stage ?? prev.status,
+                    statusHistory: data.stage ? [...prev.statusHistory, { stage: String(data.stage), ts: Date.now() }] : prev.statusHistory
+                  }));
                   break;
                 case 'token': {
                   const rawContent = data.content ?? '';
@@ -195,7 +208,8 @@ export function useChatStream() {
                   break;
                 }
                 case 'citations':
-                  setState((prev) => ({ ...prev, citations: data.citations ?? [] }));
+                  finalCitations = data.citations ?? [];
+                  setState((prev) => ({ ...prev, citations: finalCitations }));
                   break;
                 case 'activity':
                   setState((prev) => ({ ...prev, activity: data.steps ?? [] }));
@@ -288,7 +302,7 @@ export function useChatStream() {
                   break;
                 }
                 case 'done':
-                  setState((prev) => ({ ...prev, status: 'complete' }));
+                  setState((prev) => ({ ...prev, status: 'complete', statusHistory: [...prev.statusHistory, { stage: 'complete', ts: Date.now() }] }));
                   break;
                 default:
                   break;
@@ -306,11 +320,11 @@ export function useChatStream() {
       } else {
         setState((prev) => ({ ...prev, isStreaming: false, status: 'error', error: error.message }));
       }
-      return finalAnswer;
+      return { answer: finalAnswer, citations: finalCitations };
     }
 
     setState((prev) => ({ ...prev, isStreaming: false }));
-    return finalAnswer;
+    return { answer: finalAnswer, citations: finalCitations };
   }, [reset]);
 
   return {

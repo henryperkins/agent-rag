@@ -1,4 +1,5 @@
-// Re-export all shared types
+import type { AgentMessage as SharedAgentMessage, Reference } from '../../shared/types.js';
+
 export type {
   Role,
   AgentMessage,
@@ -27,3 +28,8 @@ export type {
   FeatureSource,
   ChatRequestPayload
 } from '../../shared/types.js';
+
+export interface ChatMessage extends SharedAgentMessage {
+  id: string;
+  citations?: Reference[];
+}

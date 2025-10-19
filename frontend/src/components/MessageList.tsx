@@ -1,16 +1,27 @@
 import clsx from 'clsx';
-import type { AgentMessage } from '../types';
+import type { ChatMessage, Citation } from '../types';
+import { parseMessageWithCitations } from '../utils/citationParser';
 
 interface MessageListProps {
-  messages: AgentMessage[];
+  messages: ChatMessage[];
   streamingAnswer?: string;
   isStreaming?: boolean;
+  citations?: Citation[];
 }
 
-export function MessageList({ messages, streamingAnswer, isStreaming }: MessageListProps) {
-  const combined = isStreaming && streamingAnswer && streamingAnswer.length
-    ? [...messages, { role: 'assistant', content: streamingAnswer }]
-    : messages;
+export function MessageList({ messages, streamingAnswer, isStreaming, citations }: MessageListProps) {
+  const combined: ChatMessage[] =
+    isStreaming && streamingAnswer && streamingAnswer.length
+      ? [
+          ...messages,
+          {
+            id: 'streaming',
+            role: 'assistant',
+            content: streamingAnswer,
+            citations
+          }
+        ]
+      : messages;
 
   if (combined.length === 0) {
     return (
@@ -30,7 +41,7 @@ export function MessageList({ messages, streamingAnswer, isStreaming }: MessageL
     <div className="messages-container">
       {combined.map((message, index) => (
         <div
-          key={`${message.role}-${index}`}
+          key={message.id ?? `${message.role}-${index}`}
           className={clsx('message', `message-${message.role}`)}
         >
           <div className="message-avatar">
@@ -38,7 +49,13 @@ export function MessageList({ messages, streamingAnswer, isStreaming }: MessageL
           </div>
           <div className="message-body">
             <div className="message-role">{message.role}</div>
-            <div className="message-content">{message.content}</div>
+            <div className="message-content">
+              {parseMessageWithCitations(
+                message.content ?? '',
+                message.role === 'assistant' ? message.citations : undefined,
+                message.id
+              )}
+            </div>
             {isStreaming && index === combined.length - 1 && (
               <span className="typing-indicator">
                 <span />
