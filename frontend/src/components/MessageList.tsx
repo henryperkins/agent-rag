@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import type { ChatMessage, Citation } from '../types';
-import { parseMessageWithCitations } from '../utils/citationParser';
+import { RichMessageContent } from './RichMessageContent';
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -50,10 +50,14 @@ export function MessageList({ messages, streamingAnswer, isStreaming, citations 
           <div className="message-body">
             <div className="message-role">{message.role}</div>
             <div className="message-content">
-              {parseMessageWithCitations(
-                message.content ?? '',
-                message.role === 'assistant' ? message.citations : undefined,
-                message.id
+              {message.role === 'assistant' ? (
+                <RichMessageContent
+                  content={message.content ?? ''}
+                  citations={message.citations}
+                  messageId={message.id}
+                />
+              ) : (
+                message.content
               )}
             </div>
             {isStreaming && index === combined.length - 1 && (

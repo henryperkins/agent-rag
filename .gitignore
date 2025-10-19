@@ -66,3 +66,9 @@ BACKUP_*
 /*AUDIT*.md
 /*DOCUMENTATION*.md
 Thumbs.db
+
+# Screenshots and temp images (use docs/images/ for committed images)
+IMG_*.jpg
+IMG_*.JPG
+IMG_*.png
+AgenticAzureChat.jpeg.png

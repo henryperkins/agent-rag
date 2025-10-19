@@ -1,7 +1,8 @@
 import type { AgentMessage } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import { createResponse } from '../azure/openaiClient.js';
-import { extractOutputText } from '../utils/openai.js';
+import { getReasoningOptions } from '../config/reasoning.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 
 export interface RouteConfig {
   intent: string;
@@ -75,6 +76,7 @@ export async function classifyIntent(
   intent: string;
   confidence: number;
   reasoning: string;
+  summaries?: string[];
 }> {
   const isEnabled = options.enabled ?? config.ENABLE_INTENT_ROUTING;
 
@@ -82,7 +84,8 @@ export async function classifyIntent(
     return {
       intent: 'research',
       confidence: 1,
-      reasoning: 'Intent routing disabled'
+      reasoning: 'Intent routing disabled',
+      summaries: undefined
     };
   }
 
@@ -91,7 +94,8 @@ export async function classifyIntent(
     return {
       intent: 'conversational',
       confidence: 0.2,
-      reasoning: 'Empty question defaults to conversational'
+      reasoning: 'Empty question defaults to conversational',
+      summaries: undefined
     };
   }
 
@@ -116,6 +120,7 @@ Return strict JSON matching the provided schema.`;
       max_output_tokens: config.INTENT_CLASSIFIER_MAX_TOKENS,
       textFormat: INTENT_CLASSIFICATION_SCHEMA,
       parallel_tool_calls: false,
+      reasoning: getReasoningOptions('intent'),
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -132,13 +137,16 @@ Return strict JSON matching the provided schema.`;
     const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
     const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : 'No reasoning provided';
 
-    return { intent, confidence, reasoning };
+    const summaries = extractReasoningSummary(response);
+
+    return { intent, confidence, reasoning, summaries };
   } catch (error) {
     console.warn('Intent classification failed, defaulting to research intent', error);
     return {
       intent: 'research',
       confidence: 0.5,
-      reasoning: 'Classification error fallback'
+      reasoning: 'Classification error fallback',
+      summaries: undefined
     };
   }
 }

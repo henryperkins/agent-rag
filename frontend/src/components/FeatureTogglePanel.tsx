@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { FeatureFlag, FeatureOverrideMap, FeatureSource } from '../types';
 
 interface FeatureTogglePanelProps {
@@ -75,13 +76,29 @@ const SOURCE_LABEL: Record<FeatureSource, string> = {
 };
 
 export function FeatureTogglePanel({ selections, sources, disabled, onToggle }: FeatureTogglePanelProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const enabledCount = Object.values(selections).filter(Boolean).length;
+
   return (
-    <section className="feature-panel">
-      <header className="feature-panel__header">
-        <h3>Feature Toggles</h3>
-        <p>Enable additional retrieval and orchestration behaviors per session.</p>
+    <section className={`feature-panel${expanded ? ' feature-panel--expanded' : ''}`}>
+      <header
+        className="feature-panel__header"
+        onClick={() => setExpanded(!expanded)}
+        style={{ cursor: 'pointer' }}
+        role="button"
+        aria-expanded={expanded}
+        tabIndex={0}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setExpanded(!expanded)}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3>Feature Toggles</h3>
+          <span className="badge" style={{ fontSize: 11 }}>{enabledCount}/10</span>
+          <span style={{ marginLeft: 'auto', fontSize: 14 }}>{expanded ? '▼' : '▶'}</span>
+        </div>
       </header>
-      <ul className="feature-panel__list">
+      {expanded && (
+        <ul className="feature-panel__list">
         {FEATURE_TOGGLES.map((toggle) => {
           const currentValue = Boolean(selections?.[toggle.flag]);
           const dependencyMet = toggle.dependsOn ? Boolean(selections?.[toggle.dependsOn]) : true;
@@ -99,7 +116,9 @@ export function FeatureTogglePanel({ selections, sources, disabled, onToggle }: 
                 />
                 <div className="feature-panel__label-text">
                   <span>{toggle.label}</span>
-                  {source && <span className={`feature-source feature-source-${source}`}>{SOURCE_LABEL[source]}</span>}
+                  {source && source !== 'config' && (
+                    <span className={`feature-source feature-source-${source}`}>{SOURCE_LABEL[source]}</span>
+                  )}
                 </div>
               </label>
               <p className="feature-panel__description">{toggle.description}</p>
@@ -111,7 +130,8 @@ export function FeatureTogglePanel({ selections, sources, disabled, onToggle }: 
             </li>
           );
         })}
-      </ul>
+        </ul>
+      )}
     </section>
   );
 }

@@ -6,6 +6,7 @@ import { retrieveWithAdaptiveRefinement } from '../azure/adaptiveRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
+import { getReasoningOptions } from '../config/reasoning.js';
 import type {
   ActivityStep,
   AdaptiveRetrievalStats,
@@ -14,7 +15,7 @@ import type {
   LazyReference,
   FeatureOverrideMap
 } from '../../../shared/types.js';
-import { extractOutputText } from '../utils/openai.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 import { sanitizeUserField } from '../utils/session.js';
 
 export const toolSchemas = {
@@ -436,6 +437,7 @@ export async function answerTool(args: {
     parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
     truncation: 'auto',
     store: enableResponseStorage,
+    reasoning: getReasoningOptions('synthesis'),
     metadata: {
       sessionId: args.sessionId ?? '',
       userId: args.userId ?? args.sessionId ?? '',
@@ -452,6 +454,7 @@ export async function answerTool(args: {
   }
 
   const responseId = (response as { id?: string } | undefined)?.id;
+  const reasoningSummary = extractReasoningSummary(response);
 
-  return { answer, citations: args.citations ?? [], responseId };
+  return { answer, citations: args.citations ?? [], responseId, reasoningSummary: reasoningSummary?.join(' ') };
 }

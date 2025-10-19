@@ -26,6 +26,7 @@ import type {
 import './App.css';
 import './styles/design-system.css';
 import './styles/components.css';
+import './styles/markdown.css';
 
 const SESSION_STORAGE_KEY = 'agent-rag:session-id';
 const FEATURE_STORAGE_PREFIX = 'agent-rag:feature-overrides:';

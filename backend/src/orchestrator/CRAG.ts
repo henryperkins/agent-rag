@@ -1,8 +1,9 @@
 import { createResponse } from '../azure/openaiClient.js';
-import { extractOutputText } from '../utils/openai.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 import { CRAGEvaluationSchema } from './schemas.js';
 import { config } from '../config/app.js';
 import type { Reference, ActivityStep } from '../../../shared/types.js';
+import { getReasoningOptions } from '../config/reasoning.js';
 
 // ============================================================================
 // Types
@@ -17,6 +18,7 @@ export interface CRAGEvaluation {
     score: number;
     relevantSentences?: string[];
   }>;
+  reasoningSummary?: string;
 }
 
 export interface CRAGResult {
@@ -94,12 +96,28 @@ For each document, assign a relevance score (0-1) and optionally identify releva
       ],
       textFormat: CRAGEvaluationSchema,
       temperature: 0.0,
-      max_output_tokens: 1500, // Increased from 500 for detailed grading rationale (GPT-5: 128K output)
-      model: config.AZURE_OPENAI_GPT_DEPLOYMENT
+      max_output_tokens: 3000, // GPT-5 uses ~600-1000 reasoning tokens before JSON payload
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+      reasoning: getReasoningOptions('crag')
     });
 
     const evaluationText = extractOutputText(response);
-    const evaluation = evaluationText as unknown as CRAGEvaluation;
+    if (!evaluationText || typeof evaluationText !== 'string') {
+      throw new Error('Empty evaluation payload');
+    }
+
+    let evaluation: CRAGEvaluation;
+    try {
+      evaluation = JSON.parse(evaluationText) as CRAGEvaluation;
+    } catch (parseError: any) {
+      throw new Error(`Invalid evaluation JSON: ${parseError?.message ?? String(parseError)}`);
+    }
+
+    const reasoningSummary = extractReasoningSummary(response);
+    if (reasoningSummary) {
+      evaluation.reasoningSummary = reasoningSummary.join(' ');
+    }
+
     return evaluation;
   } catch (error: any) {
     console.error('CRAG evaluation error:', error.message);
@@ -237,6 +255,7 @@ export async function applyCRAG(query: string, documents: Reference[]): Promise<
     evaluation,
     refinedDocuments,
     activity,
-    shouldTriggerWebSearch
+    shouldTriggerWebSearch,
+    reasoningSummary: evaluation.reasoningSummary
   };
 }

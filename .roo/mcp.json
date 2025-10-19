@@ -5,6 +5,13 @@
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/azureuser/agent-rag"],
       "transport": "stdio",
       "alwaysAllow": ["read_file", "read_text_file", "read_media_file", "read_multiple_files"]
+    },
+    "hyperbrowser": {
+      "command": "npx",
+      "args": ["-y", "hyperbrowser-mcp"],
+      "env": {
+        "HYPERBROWSER_API_KEY": "hb_bc99b6bfa2b1eef45dc9e890ee6a"
+      }
     }
   }
 }

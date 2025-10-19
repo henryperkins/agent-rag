@@ -31,6 +31,16 @@
   color: var(--color-gray-600);
 }
 
+.metric-card--critical {
+  background: #fef2f2;
+  border-left: 4px solid var(--color-error);
+}
+
+.metric-card--warning {
+  background: #fffbeb;
+  border-left: 4px solid var(--color-warning);
+}
+
 .metric-details {
   border-top: 1px solid #e5e7eb;
   margin-top: var(--space-2);
@@ -50,6 +60,7 @@
 .progress-bar__fill {
   height: 100%;
   width: 0%;
+  min-width: 0;
   background: var(--color-primary);
   transition: width 160ms ease;
 }
@@ -124,6 +135,34 @@
 .status-running .timeline-marker { background: var(--color-primary); }
 .status-waiting .timeline-marker { background: var(--color-warning); }
 .status-failed .timeline-marker { background: var(--color-error); }
+
+.timeline-item-insight {
+  background: rgba(79, 70, 229, 0.12);
+  border-radius: 12px;
+  padding: 10px;
+  border-left: 3px solid #4f46e5;
+}
+
+.timeline-item-insight .timeline-marker {
+  background: #4f46e5;
+  color: #fff;
+  width: 22px;
+  height: 22px;
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.timeline-item-insight h4 {
+  color: #3730a3;
+}
+
+.activity-description-insight {
+  font-style: italic;
+  color: #312e81;
+}
 
 .citation-pill {
   display: inline-flex;
@@ -234,6 +273,14 @@
 .plan-web_search { border-left: 3px solid #16a34a; }
 .plan-both { border-left: 3px solid #f59e0b; }
 .plan-answer { border-left: 3px solid #6b7280; }
+
+.plan-insight-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+  font-size: 12px;
+  color: #4b5563;
+  list-style: disc;
+}
 
 @media (max-width: 1080px) {
   .health-dashboard {

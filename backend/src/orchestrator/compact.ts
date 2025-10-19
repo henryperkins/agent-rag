@@ -1,7 +1,8 @@
 import type { AgentMessage } from '../../../shared/types.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
-import { extractOutputText } from '../utils/openai.js';
+import { getReasoningOptions } from '../config/reasoning.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 
 interface SummaryResult {
   bullets: string[];
@@ -21,6 +22,7 @@ export interface CompactedContext {
   latest: AgentMessage[];
   summary: string[];
   salience: SalienceNote[];
+  insights?: string[];
 }
 
 const SUMMARY_SCHEMA = {
@@ -85,6 +87,7 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
 
   let summary: string[] = [];
   let salience: SalienceNote[] = [];
+  const insights: string[] = [];
 
   try {
     const summaryResp = await createResponse({
@@ -99,12 +102,17 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
       textFormat: SUMMARY_SCHEMA,
       parallel_tool_calls: false,
       temperature: 0.2,
-      max_output_tokens: 1500, // Increased from 300 for richer summaries (GPT-5: 128K output)
-      model: config.AZURE_OPENAI_GPT_DEPLOYMENT
+      max_output_tokens: 3000, // GPT-5 uses ~600-1000 reasoning tokens before JSON payload
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+      reasoning: getReasoningOptions('compaction')
     });
 
     const parsed: SummaryResult = JSON.parse(extractOutputText(summaryResp) || '{}');
     summary = parsed?.bullets?.filter(Boolean) ?? [];
+    const reasoningSummary = extractReasoningSummary(summaryResp);
+    if (reasoningSummary) {
+      insights.push(...reasoningSummary);
+    }
   } catch (error) {
     summary = [];
     console.warn('Summary generation failed:', error);
@@ -123,8 +131,9 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
       textFormat: SALIENCE_SCHEMA,
       parallel_tool_calls: false,
       temperature: 0.2,
-      max_output_tokens: 1000, // Increased from 400 for more salient details (GPT-5: 128K output)
-      model: config.AZURE_OPENAI_GPT_DEPLOYMENT
+      max_output_tokens: 2500, // GPT-5 uses ~500-800 reasoning tokens before JSON payload
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+      reasoning: getReasoningOptions('compaction')
     });
 
     const parsed: SalienceResult = JSON.parse(extractOutputText(salienceResp) || '{}');
@@ -133,6 +142,10 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
       topic: note.topic,
       lastSeenTurn: older.length
     }));
+    const reasoningSummary = extractReasoningSummary(salienceResp);
+    if (reasoningSummary) {
+      insights.push(...reasoningSummary);
+    }
   } catch (error) {
     salience = [];
     console.warn('Salience extraction failed:', error);
@@ -141,6 +154,7 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
   return {
     latest: recent,
     summary,
-    salience
+    salience,
+    insights: insights.length ? insights : undefined
   };
 }

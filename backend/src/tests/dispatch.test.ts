@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { dispatchTools } from '../orchestrator/dispatch.js';
 import { resolveFeatureToggles } from '../config/features.js';
 import type { AgentMessage, PlanSummary } from '../../../shared/types.js';
+import { config } from '../config/app.js';
 
 describe('dispatchTools confidence escalation', () => {
   const messages: AgentMessage[] = [{ role: 'user', content: 'Tell me about Azure AI Search.' }];
@@ -70,6 +71,8 @@ describe('dispatchTools confidence escalation', () => {
       confidence: 0.9,
       steps: [{ action: 'vector_search' }]
     };
+    const originalCrag = config.ENABLE_CRAG;
+    config.ENABLE_CRAG = false;
 
     const retrieve = vi.fn().mockResolvedValue({
       response: 'Knowledge snippet',
@@ -99,23 +102,27 @@ describe('dispatchTools confidence escalation', () => {
     const events: Array<{ event: string; data: unknown }> = [];
     const { gates, resolved } = resolveFeatureToggles();
 
-    const result = await dispatchTools({
-      plan,
-      messages,
-      salience: [],
-      emit: (event, data) => {
-        events.push({ event, data });
-      },
-      tools: { retrieve, lazyRetrieve, webSearch },
-      features: gates,
-      featureStates: resolved
-    });
+    try {
+      const result = await dispatchTools({
+        plan,
+        messages,
+        salience: [],
+        emit: (event, data) => {
+          events.push({ event, data });
+        },
+        tools: { retrieve, lazyRetrieve, webSearch },
+        features: gates,
+        featureStates: resolved
+      });
 
-    // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
-    expect(retrieve.mock.calls.length + lazyRetrieve.mock.calls.length).toBeGreaterThanOrEqual(1);
-    expect(webSearch).not.toHaveBeenCalled();
-    expect(result.escalated).toBe(false);
-    expect(events.every((entry) => (entry.data as any)?.stage !== 'confidence_escalation')).toBe(true);
-    expect(result.activity.some((step) => step.type === 'confidence_escalation')).toBe(false);
+      // Either retrieve or lazyRetrieve should be called, depending on ENABLE_LAZY_RETRIEVAL config
+      expect(retrieve.mock.calls.length + lazyRetrieve.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect(webSearch).not.toHaveBeenCalled();
+      expect(result.escalated).toBe(false);
+      expect(events.every((entry) => (entry.data as any)?.stage !== 'confidence_escalation')).toBe(true);
+      expect(result.activity.some((step) => step.type === 'confidence_escalation')).toBe(false);
+    } finally {
+      config.ENABLE_CRAG = originalCrag;
+    }
   });
 });

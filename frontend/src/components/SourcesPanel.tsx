@@ -129,14 +129,16 @@ export function SourcesPanel({ messages, isStreaming, streamingCitations }: Sour
                     <span className="source-index">[{index + 1}]</span>
                     <h4 className="source-title">{citation.title ?? `Reference ${index + 1}`}</h4>
                   </div>
-                  {normalizedScore !== undefined && rawScore !== undefined && (
-                    <div className="source-score" style={{ minWidth: 120 }}>
+                  <div className="source-score" style={{ minWidth: 120 }}>
+                    {normalizedScore !== undefined && rawScore !== undefined ? (
                       <ProgressBar
                         value={normalizedScore}
                         ariaLabel={`Relevance score ${rawScore.toFixed(3)} (${normalizedScore}% of max)`}
                       />
-                    </div>
-                  )}
+                    ) : (
+                      <span style={{ fontSize: 12, color: '#9ca3af' }}>No score</span>
+                    )}
+                  </div>
                 </div>
                 <div className="source-meta">
                   {(citation.pageNumber ?? citation.page_number) && (

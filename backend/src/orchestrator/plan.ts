@@ -3,7 +3,8 @@ import { config } from '../config/app.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { PlanSchema } from './schemas.js';
 import type { CompactedContext } from './compact.js';
-import { extractOutputText } from '../utils/openai.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
+import { getReasoningOptions } from '../config/reasoning.js';
 
 function formatContext(compacted: CompactedContext, latestUser: AgentMessage | undefined) {
   const lines: string[] = [];
@@ -47,14 +48,17 @@ export async function getPlan(messages: AgentMessage[], context: CompactedContex
       textFormat: PlanSchema,
       parallel_tool_calls: false,
       temperature: 0.2,
-      max_output_tokens: 2000, // Increased from 400 for complex query planning (GPT-5: 128K output)
-      model: config.AZURE_OPENAI_GPT_DEPLOYMENT
+      max_output_tokens: 4000, // GPT-5 uses ~2000 reasoning tokens before JSON payload
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+      reasoning: getReasoningOptions('planner')
     });
 
     const plan = JSON.parse(extractOutputText(response) || '{}');
+    const reasoningSummary = extractReasoningSummary(response);
     return {
       confidence: typeof plan.confidence === 'number' ? plan.confidence : 0.5,
-      steps: Array.isArray(plan.steps) ? plan.steps : [{ action: 'vector_search' }]
+      steps: Array.isArray(plan.steps) ? plan.steps : [{ action: 'vector_search' }],
+      reasoningSummary: reasoningSummary?.join(' ')
     };
   } catch (error) {
     console.warn('Structured planner failed, falling back to heuristic.', error);

@@ -248,6 +248,13 @@ export async function dispatchTools({
 
       // Add CRAG activity steps
       activity.push(...cragResult.activity);
+      if (cragResult.reasoningSummary) {
+        activity.push({
+          type: 'insight',
+          description: `[CRAG] ${cragResult.reasoningSummary}`,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       // Handle CRAG corrective actions
       if (cragResult.refinedDocuments && cragResult.refinedDocuments.length > 0) {

@@ -5,7 +5,8 @@ vi.mock('../azure/openaiClient.js', () => ({
 }));
 
 vi.mock('../utils/openai.js', () => ({
-  extractOutputText: (response: any) => response.output_text ?? ''
+  extractOutputText: (response: any) => response.output_text ?? '',
+  extractReasoningSummary: () => undefined
 }));
 
 const { createResponse } = await import('../azure/openaiClient.js');

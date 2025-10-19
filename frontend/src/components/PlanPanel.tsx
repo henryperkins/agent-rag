@@ -292,6 +292,16 @@ export function PlanPanel({
               <StatBlock label="Max Tokens" value={route.maxTokens.toString()} />
             </div>
           )}
+          {route?.insights && route.insights.length > 0 && (
+            <div className="plan-routing-meta">
+              <strong>Classifier Insight:</strong>
+              <ul className="plan-insight-list">
+                {route.insights.map((insight, idx) => (
+                  <li key={`${insight}-${idx}`}>{insight}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {retrievalMode && (
             <div className="plan-routing-meta">Retrieval Mode: {retrievalMode === 'lazy' ? 'Lazy (summaries first)' : 'Direct'}</div>
           )}

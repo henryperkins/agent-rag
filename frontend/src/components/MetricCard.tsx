@@ -5,12 +5,13 @@ interface MetricCardProps {
   value?: string | number;
   subtitle?: string;
   expandableContent?: React.ReactNode;
+  className?: string;
 }
 
-export function MetricCard({ title, value, subtitle, expandableContent, children }: PropsWithChildren<MetricCardProps>) {
+export function MetricCard({ title, value, subtitle, expandableContent, className, children }: PropsWithChildren<MetricCardProps>) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="metric-card">
+    <div className={`metric-card${className ? ` ${className}` : ''}`}>
       <h4>{title}</h4>
       {value !== undefined && <div className="metric-value">{value}</div>}
       {subtitle && <div className="metric-subtitle">{subtitle}</div>}

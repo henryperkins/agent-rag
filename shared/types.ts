@@ -77,12 +77,14 @@ export interface PlanStep {
 export interface PlanSummary {
   confidence: number;
   steps: PlanStep[];
+  reasoningSummary?: string;
 }
 
 export interface RouteMetadata {
   intent: string;
   confidence: number;
   reasoning: string;
+  insights?: string[];
   model: string;
   retrieverStrategy: string;
   maxTokens: number;
@@ -94,6 +96,7 @@ export interface CriticReport {
   issues?: string[];
   action: 'accept' | 'revise';
   forced?: boolean;
+  reasoningSummary?: string;
 }
 
 export interface SummarySelectionStats {
@@ -325,6 +328,7 @@ export interface SessionTrace {
     action: string;
     iterations: number;
     issues?: string[];
+    reasoningSummary?: string;
   };
   critiqueHistory?: Array<{
     attempt: number;

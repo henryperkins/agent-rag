@@ -66,7 +66,7 @@ const envSchema = z.object({
   ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
   ENABLE_INTENT_ROUTING: z.coerce.boolean().default(true), // 20-30% cost savings via model selection
   INTENT_CLASSIFIER_MODEL: z.string().default('gpt-5'),
-  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(500), // Increased from 100 (GPT-5: 128K output)
+  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(2000), // GPT-5 uses 400-700 reasoning tokens before JSON payload
   MODEL_FAQ: z.string().default('gpt-5'),
   MODEL_RESEARCH: z.string().default('gpt-5'),
   MODEL_FACTUAL: z.string().default('gpt-5'),
@@ -75,6 +75,24 @@ const envSchema = z.object({
   MAX_TOKENS_RESEARCH: z.coerce.number().default(16000), // Increased from 2000 for comprehensive research
   MAX_TOKENS_FACTUAL: z.coerce.number().default(3000), // Increased from 600
   MAX_TOKENS_CONVERSATIONAL: z.coerce.number().default(1500), // Increased from 400
+  REASONING_DEFAULT_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
+  REASONING_DEFAULT_SUMMARY: z.enum(['auto', 'concise', 'detailed']).default('auto'),
+  REASONING_INTENT_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_INTENT_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_PLANNER_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_PLANNER_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_DECOMPOSITION_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_DECOMPOSITION_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_COMPACTION_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_COMPACTION_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_CRITIC_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_CRITIC_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_CRAG_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_CRAG_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_ADAPTIVE_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_ADAPTIVE_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
+  REASONING_SYNTHESIS_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
+  REASONING_SYNTHESIS_SUMMARY: z.enum(['auto', 'concise', 'detailed']).optional(),
 
   SEMANTIC_MEMORY_DB_PATH: z.string().default('./data/semantic-memory.db'),
   ENABLE_SEMANTIC_MEMORY: z.coerce.boolean().default(false),

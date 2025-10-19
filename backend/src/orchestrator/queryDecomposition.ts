@@ -1,6 +1,7 @@
 import { createResponse } from '../azure/openaiClient.js';
-import { extractOutputText } from '../utils/openai.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 import { config } from '../config/app.js';
+import { getReasoningOptions } from '../config/reasoning.js';
 import type { Reference, WebResult } from '../../../shared/types.js';
 
 export interface SubQuery {
@@ -14,11 +15,13 @@ export interface ComplexityAssessment {
   complexity: number;
   needsDecomposition: boolean;
   reasoning: string;
+  reasoningSummary?: string;
 }
 
 export interface DecomposedQuery {
   subQueries: SubQuery[];
   synthesisPrompt: string;
+  reasoningSummary?: string;
 }
 
 const COMPLEXITY_SCHEMA = {
@@ -77,9 +80,10 @@ export async function assessComplexity(question: string): Promise<ComplexityAsse
     const response = await createResponse({
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.1,
-      max_output_tokens: 500, // Increased from 150 for better complexity analysis (GPT-5: 128K output)
+      max_output_tokens: 1500, // GPT-5 uses ~300-500 reasoning tokens before JSON payload
       textFormat: COMPLEXITY_SCHEMA,
       parallel_tool_calls: false,
+      reasoning: getReasoningOptions('decomposition'),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Question: ${question}` }
@@ -87,10 +91,13 @@ export async function assessComplexity(question: string): Promise<ComplexityAsse
     });
 
     const parsed = JSON.parse(extractOutputText(response) || '{}');
+    const reasoningSummary = extractReasoningSummary(response);
+
     return {
       complexity: typeof parsed.complexity === 'number' ? parsed.complexity : 0.3,
       needsDecomposition: Boolean(parsed.needsDecomposition),
-      reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Assessment unavailable'
+      reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Assessment unavailable',
+      reasoningSummary: reasoningSummary?.join(' ')
     };
   } catch (error) {
     console.warn('Complexity assessment failed:', error);
@@ -118,13 +125,16 @@ Rules:
       max_output_tokens: 2000, // Increased from 800 for more sub-queries (GPT-5: 128K output)
       textFormat: DECOMPOSITION_SCHEMA,
       parallel_tool_calls: false,
+      reasoning: getReasoningOptions('decomposition'),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Decompose this question:\n${question}` }
       ]
     });
 
-    const parsed = JSON.parse(extractOutputText(response) || '{}');
+    const outputText = extractOutputText(response);
+    const parsed = JSON.parse(outputText || '{}');
+    const reasoningSummary = extractReasoningSummary(response);
     const subQueries: SubQuery[] = Array.isArray(parsed.subQueries)
       ? parsed.subQueries.map((item: any, idx: number) => ({
           id: typeof item.id === 'number' ? item.id : idx,
@@ -142,7 +152,8 @@ Rules:
         : [{ id: 0, query: question, dependencies: [], reasoning: 'Fallback to original question' }],
       synthesisPrompt: typeof parsed.synthesisPrompt === 'string'
         ? parsed.synthesisPrompt
-        : 'Synthesize the sub-query results into a coherent answer.'
+        : 'Synthesize the sub-query results into a coherent answer.',
+      reasoningSummary: reasoningSummary?.join(' ')
     };
   } catch (error) {
     console.error('Query decomposition failed:', error);

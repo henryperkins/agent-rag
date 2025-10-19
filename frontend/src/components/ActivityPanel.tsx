@@ -38,12 +38,15 @@ export function ActivityPanel({ activity, status, critique, isStreaming }: Activ
           {items.map((step, idx) => {
             const isLast = idx === items.length - 1;
             const derivedStatus: 'complete' | 'running' | 'waiting' | 'failed' = isLast && (isStreaming || status === 'loading' || status === 'starting') ? 'running' : 'complete';
+            const isInsight = step.type === 'insight';
+            const marker = isInsight ? '💭' : getStatusIcon(derivedStatus);
+            const headingLabel = isInsight ? 'Thought' : step.type.replace(/_/g, ' ');
             return (
-              <div className={`timeline-item status-${derivedStatus}`} key={`${step.type}-${idx}`}>
-                <div className="timeline-marker" aria-hidden>{getStatusIcon(derivedStatus)}</div>
+              <div className={`timeline-item status-${derivedStatus}${isInsight ? ' timeline-item-insight' : ''}`} key={`${step.type}-${idx}`}>
+                <div className="timeline-marker" aria-hidden>{marker}</div>
                 <div className="timeline-content">
-                  <h4 style={{ margin: 0, fontSize: 13, textTransform: 'capitalize' }}>{step.type}</h4>
-                  <div className="activity-description">{step.description}</div>
+                  <h4 style={{ margin: 0, fontSize: 13, textTransform: isInsight ? 'none' : 'capitalize' }}>{headingLabel}</h4>
+                  <div className={`activity-description${isInsight ? ' activity-description-insight' : ''}`}>{step.description}</div>
                   {step.timestamp && <div className="activity-time">{step.timestamp}</div>}
                 </div>
               </div>

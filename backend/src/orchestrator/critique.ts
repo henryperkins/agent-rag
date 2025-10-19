@@ -2,7 +2,8 @@ import type { CriticReport } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { CriticSchema } from './schemas.js';
-import { extractOutputText } from '../utils/openai.js';
+import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
+import { getReasoningOptions } from '../config/reasoning.js';
 
 export interface CritiqueOptions {
   draft: string;
@@ -52,11 +53,13 @@ Return ONLY valid JSON matching the schema. Be strict: prefer revise when uncert
       textFormat: CriticSchema,
       parallel_tool_calls: false,
       temperature: 0,
-      max_output_tokens: 1500, // Increased from 300 for thorough critique (GPT-5: 128K output)
-      model: config.AZURE_OPENAI_GPT_DEPLOYMENT
+      max_output_tokens: 3000, // GPT-5 uses ~600-1000 reasoning tokens before JSON payload
+      model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+      reasoning: getReasoningOptions('critic')
     });
 
     const parsed = JSON.parse(extractOutputText(response) || '{}');
+    const reasoningSummary = extractReasoningSummary(response);
     const grounded = Boolean(parsed.grounded);
     let coverage =
       typeof parsed.coverage === 'number' && Number.isFinite(parsed.coverage) ? parsed.coverage : 0;
@@ -88,7 +91,8 @@ Return ONLY valid JSON matching the schema. Be strict: prefer revise when uncert
       coverage,
       issues,
       action,
-      forced
+      forced,
+      reasoningSummary: reasoningSummary?.join(' ')
     };
   } catch (error) {
     console.warn('Critic evaluation failed; defaulting to accept.', error);

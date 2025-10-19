@@ -8,6 +8,10 @@ describe('FeatureTogglePanel', () => {
     const onToggle = vi.fn();
     render(<FeatureTogglePanel selections={{}} onToggle={onToggle} />);
 
+    // Expand the panel first (it's collapsed by default)
+    const header = screen.getByRole('button', { name: /feature toggles/i });
+    fireEvent.click(header);
+
     const checkbox = screen.getByLabelText(/Multi-index federation/i);
     fireEvent.click(checkbox);
 
@@ -17,6 +21,10 @@ describe('FeatureTogglePanel', () => {
   it('disables dependent toggles when prerequisites are off', () => {
     const onToggle = vi.fn();
     render(<FeatureTogglePanel selections={{}} onToggle={onToggle} />);
+
+    // Expand the panel first (it's collapsed by default)
+    const header = screen.getByRole('button', { name: /feature toggles/i });
+    fireEvent.click(header);
 
     const boostToggle = screen.getByLabelText(/Semantic boost/i);
     expect(boostToggle).toBeDisabled();
@@ -30,6 +38,10 @@ describe('FeatureTogglePanel', () => {
         onToggle={onToggle}
       />
     );
+
+    // Expand the panel first (it's collapsed by default)
+    const header = screen.getByRole('button', { name: /feature toggles/i });
+    fireEvent.click(header);
 
     const boostToggle = screen.getByLabelText(/Semantic boost/i);
     expect(boostToggle).not.toBeDisabled();

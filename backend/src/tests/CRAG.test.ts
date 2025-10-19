@@ -9,17 +9,21 @@ vi.mock('../azure/openaiClient.js', () => ({
 }));
 
 vi.mock('../utils/openai.js', () => ({
-  extractOutputText: vi.fn()
+  extractOutputText: vi.fn(),
+  extractReasoningSummary: vi.fn()
 }));
 
 describe('CRAG Retrieval Evaluator', () => {
   let mockCreateResponse: MockInstance;
   let mockExtractOutputText: MockInstance;
+  let mockExtractReasoningSummary: MockInstance;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateResponse = vi.mocked(openaiClient.createResponse);
     mockExtractOutputText = vi.mocked(openaiUtils.extractOutputText);
+    mockExtractReasoningSummary = vi.mocked(openaiUtils.extractReasoningSummary);
+    mockExtractReasoningSummary.mockReturnValue(undefined);
   });
 
   describe('evaluateRetrieval', () => {
@@ -48,7 +52,7 @@ describe('CRAG Retrieval Evaluator', () => {
       };
 
       mockCreateResponse.mockResolvedValue({ id: 'resp-1' });
-      mockExtractOutputText.mockReturnValue(mockEvaluation);
+      mockExtractOutputText.mockReturnValue(JSON.stringify(mockEvaluation));
 
       const result = await evaluateRetrieval(query, documents);
 
@@ -57,7 +61,8 @@ describe('CRAG Retrieval Evaluator', () => {
       expect(mockCreateResponse).toHaveBeenCalledWith(
         expect.objectContaining({
           temperature: 0.0,
-          max_output_tokens: 1500
+          max_output_tokens: 3000,
+          reasoning: expect.anything()
         })
       );
     });
@@ -80,7 +85,7 @@ describe('CRAG Retrieval Evaluator', () => {
       };
 
       mockCreateResponse.mockResolvedValue({ id: 'resp-2' });
-      mockExtractOutputText.mockReturnValue(mockEvaluation);
+      mockExtractOutputText.mockReturnValue(JSON.stringify(mockEvaluation));
 
       const result = await evaluateRetrieval(query, documents);
 
@@ -103,7 +108,7 @@ describe('CRAG Retrieval Evaluator', () => {
       };
 
       mockCreateResponse.mockResolvedValue({ id: 'resp-3' });
-      mockExtractOutputText.mockReturnValue(mockEvaluation);
+      mockExtractOutputText.mockReturnValue(JSON.stringify(mockEvaluation));
 
       const result = await evaluateRetrieval(query, documents);
 
@@ -238,7 +243,7 @@ describe('CRAG Retrieval Evaluator', () => {
       };
 
       mockCreateResponse.mockResolvedValue({ id: 'resp-1' });
-      mockExtractOutputText.mockReturnValue(mockEvaluation);
+      mockExtractOutputText.mockReturnValue(JSON.stringify(mockEvaluation));
 
       const result = await applyCRAG(query, documents);
 
@@ -269,7 +274,7 @@ describe('CRAG Retrieval Evaluator', () => {
       };
 
       mockCreateResponse.mockResolvedValue({ id: 'resp-2' });
-      mockExtractOutputText.mockReturnValue(mockEvaluation);
+      mockExtractOutputText.mockReturnValue(JSON.stringify(mockEvaluation));
 
       const result = await applyCRAG(query, documents);
 
@@ -293,7 +298,7 @@ describe('CRAG Retrieval Evaluator', () => {
       };
 
       mockCreateResponse.mockResolvedValue({ id: 'resp-3' });
-      mockExtractOutputText.mockReturnValue(mockEvaluation);
+      mockExtractOutputText.mockReturnValue(JSON.stringify(mockEvaluation));
 
       const result = await applyCRAG(query, documents);
 

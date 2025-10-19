@@ -321,9 +321,11 @@ export class SearchQueryBuilder {
         exhaustive: false
       }];
 
-      if (this.options.vectorFilterMode) {
-        payload.vectorQueries[0].filterMode = this.options.vectorFilterMode;
-      }
+      // filterMode is only available in preview API versions (2024-11-01-preview+)
+      // Skip for stable versions like 2025-09-01 to avoid 400 errors
+      // if (this.options.vectorFilterMode) {
+      //   payload.vectorQueries[0].filterMode = this.options.vectorFilterMode;
+      // }
     }
 
     // Remove undefined values

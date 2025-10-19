@@ -132,6 +132,11 @@ export type ResponseTextFormat =
       strict?: boolean; // default: false
     };
 
+export interface ReasoningConfig {
+  effort?: 'low' | 'medium' | 'high';
+  summary?: 'auto' | 'concise' | 'detailed';
+}
+
 // Spec-compliant includable values from OpenAI.Includable enum
 export type Includable =
   | 'code_interpreter_call.outputs'
@@ -263,9 +268,7 @@ export interface ResponsePayload {
 
   // Advanced parameters
   top_logprobs?: number; // 0-20, int32
-  reasoning?: {
-    effort?: 'low' | 'medium' | 'high';
-  } | null;
+  reasoning?: ReasoningConfig | ReasoningConfig[] | null;
   prompt?: Record<string, unknown> | null; // OpenAI.Prompt object
 
   // Metadata and tracking

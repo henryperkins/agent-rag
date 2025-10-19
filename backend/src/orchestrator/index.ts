@@ -37,6 +37,7 @@ import { loadFullContent, identifyLoadCandidates } from '../azure/lazyRetrieval.
 import { trackCitationUsage } from './citationTracker.js';
 import { resolveFeatureToggles, type FeatureGates } from '../config/features.js';
 import { sanitizeUserField } from '../utils/session.js';
+import { getReasoningOptions } from '../config/reasoning.js';
 
 type ExecMode = 'sync' | 'stream';
 
@@ -118,6 +119,7 @@ interface GenerateAnswerResult {
   usedFullContent: boolean;
   contextText: string;
   responseId?: string;
+  reasoningSummary?: string;
 }
 
 function mergeSalienceForContext(existing: SalienceNote[], fresh: SalienceNote[]) {
@@ -218,7 +220,7 @@ async function generateAnswer(
     if (mode === 'stream') {
       emit?.('token', { content: fallbackAnswer });
     }
-    return { answer: fallbackAnswer, events: [], usedFullContent, contextText: activeContext };
+    return { answer: fallbackAnswer, events: [], usedFullContent, contextText: activeContext, reasoningSummary: undefined };
   }
 
   const stage = hasLazyReferences
@@ -310,6 +312,7 @@ async function generateAnswer(
       model: modelDeployment,
       max_output_tokens: routeConfig.maxTokens,
       parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
+      reasoning: getReasoningOptions('synthesis'),
       // NOTE: Azure OpenAI doesn't support stream_options.include_usage yet
       // stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
       textFormat: { type: 'text' },
@@ -483,7 +486,7 @@ async function generateAnswer(
       throw new Error('Streaming failed: no valid chunks received');
     }
 
-    return { answer, events: [], usedFullContent, contextText: activeContext, responseId };
+    return { answer, events: [], usedFullContent, contextText: activeContext, responseId, reasoningSummary: undefined };
   }
 
   emit?.('status', { stage });
@@ -503,7 +506,14 @@ async function generateAnswer(
   });
 
   const answer = result?.answer?.trim() ? result.answer : 'I do not know.';
-  return { answer, events: [], usedFullContent, contextText: activeContext, responseId: result?.responseId };
+  return {
+    answer,
+    events: [],
+    usedFullContent,
+    contextText: activeContext,
+    responseId: result?.responseId,
+    reasoningSummary: result?.reasoningSummary
+  };
 }
 
 async function buildContextSections(
@@ -582,6 +592,37 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     persisted: featureResolution.persisted
   });
 
+  const stageInsights: ActivityStep[] = [];
+  const seenInsights = new Set<string>();
+  const pushInsight = (stage: string, details?: string | string[]) => {
+    if (!details) {
+      return;
+    }
+    const items = Array.isArray(details) ? details : [details];
+    for (const item of items) {
+      if (!item) {
+        continue;
+      }
+      const text = typeof item === 'string' ? item.trim() : String(item).trim();
+      if (!text) {
+        continue;
+      }
+      const key = `${stage}:${text}`;
+      if (seenInsights.has(key)) {
+        continue;
+      }
+      seenInsights.add(key);
+      const label = stage.replace(/_/g, ' ');
+      const step: ActivityStep = {
+        type: 'insight',
+        description: `[${label.charAt(0).toUpperCase()}${label.slice(1)}] ${text}`,
+        timestamp: new Date().toISOString()
+      };
+      stageInsights.push(step);
+      emit?.('activity', { steps: [step] });
+    }
+  };
+
   const startedAt = Date.now();
 
   const tracer = getTracer();
@@ -603,14 +644,17 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         : {
             intent: 'research',
             confidence: 1,
-            reasoning: 'Intent routing disabled'
+            reasoning: 'Intent routing disabled',
+            summaries: undefined
           };
-      const { intent, confidence: intentConfidence, reasoning: intentReasoning } = intentResult;
+      const { intent, confidence: intentConfidence, reasoning: intentReasoning, summaries: intentSummaries } = intentResult;
+      pushInsight('intent', [intentReasoning, ...(intentSummaries ?? [])]);
       const routeConfig = getRouteConfig(intent);
       const routeMetadata: RouteMetadata = {
         intent,
         confidence: intentConfidence,
         reasoning: intentReasoning,
+        insights: intentSummaries,
         model: routeConfig.model,
         retrieverStrategy: routeConfig.retrieverStrategy,
         maxTokens: routeConfig.maxTokens
@@ -624,6 +668,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       emit?.('status', { stage: 'context' });
 
       const compacted = await traced('agent.state.compaction', () => compactHistory(messages));
+      if (compacted.insights?.length) {
+        pushInsight('context', compacted.insights);
+      }
       const memorySnapshot = loadMemory(options.sessionId);
       const { historyText, summaryText, salienceText, summaryCandidates, summaryStats } = await buildContextSections(
         compacted,
@@ -650,7 +697,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
 
         if (recalledMemories && recalledMemories.length) {
           memoryContextBlock = recalledMemories
-            .map((memory, idx) => `[Memory ${idx + 1}] ${memory.text}`)
+            .map((memory, idx) => `Memory ${idx + 1}: ${memory.text}`)
             .join('\n');
           memoryContextAugmented = `Relevant memories:\n${memoryContextBlock}`;
 
@@ -714,75 +761,82 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         return result;
       });
       emit?.('plan', plan);
+      const planMessages = [
+        plan.reasoningSummary,
+        `Planner confidence ${plan.confidence.toFixed(2)} with ${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'}.`
+      ].filter(Boolean) as string[];
+      pushInsight('planning', planMessages);
 
       if (features.queryDecomposition && question.trim()) {
         emit?.('status', { stage: 'complexity_assessment' });
         complexityAssessment = await assessComplexity(question);
+        pushInsight('complexity', [complexityAssessment.reasoning, complexityAssessment.reasoningSummary]);
         emit?.('complexity', {
           score: complexityAssessment.complexity,
           needsDecomposition: complexityAssessment.needsDecomposition,
-      reasoning: complexityAssessment.reasoning
-    });
-
-    const eligible =
-      complexityAssessment.needsDecomposition &&
-      complexityAssessment.complexity >= config.DECOMPOSITION_COMPLEXITY_THRESHOLD;
-
-    if (eligible) {
-      emit?.('status', { stage: 'query_decomposition' });
-      const candidate = await decomposeQuery(question);
-      const validSubQueries = candidate.subQueries.filter((item) => item.query.trim().length > 0);
-
-      if (validSubQueries.length > 1 && validSubQueries.length <= config.DECOMPOSITION_MAX_SUBQUERIES) {
-        decompositionResult = { ...candidate, subQueries: validSubQueries };
-        emit?.('decomposition', {
-          subQueries: validSubQueries.map((item) => ({
-            id: item.id,
-            query: item.query,
-            dependencies: item.dependencies
-          })),
-          synthesisPrompt: candidate.synthesisPrompt
+          reasoning: complexityAssessment.reasoning
         });
 
-        emit?.('status', { stage: 'executing_subqueries' });
-        const subqueryResults = await executeSubQueries(validSubQueries, {
-          retrieve: (args) => tools.retrieve(args),
-          webSearch: (args) => tools.webSearch(args)
-        });
+        const eligible =
+          complexityAssessment.needsDecomposition &&
+          complexityAssessment.complexity >= config.DECOMPOSITION_COMPLEXITY_THRESHOLD;
 
-        const aggregatedReferences: Reference[] = [];
-        const aggregatedWebResults: WebResult[] = [];
+        if (eligible) {
+          emit?.('status', { stage: 'query_decomposition' });
+          const candidate = await decomposeQuery(question);
+          pushInsight('query_decomposition', candidate.reasoningSummary);
+          const validSubQueries = candidate.subQueries.filter((item) => item.query.trim().length > 0);
 
-        for (const [, result] of subqueryResults.entries()) {
-          if (Array.isArray(result.references)) {
-            aggregatedReferences.push(...result.references);
+          if (validSubQueries.length > 1 && validSubQueries.length <= config.DECOMPOSITION_MAX_SUBQUERIES) {
+            decompositionResult = { ...candidate, subQueries: validSubQueries };
+            emit?.('decomposition', {
+              subQueries: validSubQueries.map((item) => ({
+                id: item.id,
+                query: item.query,
+                dependencies: item.dependencies
+              })),
+              synthesisPrompt: candidate.synthesisPrompt
+            });
+
+            emit?.('status', { stage: 'executing_subqueries' });
+            const subqueryResults = await executeSubQueries(validSubQueries, {
+              retrieve: (args) => tools.retrieve(args),
+              webSearch: (args) => tools.webSearch(args)
+            });
+
+            const aggregatedReferences: Reference[] = [];
+            const aggregatedWebResults: WebResult[] = [];
+
+            for (const [, result] of subqueryResults.entries()) {
+              if (Array.isArray(result.references)) {
+                aggregatedReferences.push(...result.references);
+              }
+              if (Array.isArray(result.webResults)) {
+                aggregatedWebResults.push(...result.webResults);
+              }
+            }
+
+            decompositionContextText = aggregatedReferences
+              .map((reference, index) => {
+                const body = reference.content ?? reference.chunk ?? '';
+                return body ? `[SubQuery ${index + 1}] ${body}` : '';
+              })
+              .filter((segment) => segment.length > 0)
+              .join('\n\n');
+
+            decompositionReferences = aggregatedReferences;
+            decompositionWebResults = aggregatedWebResults;
+
+            if (decompositionContextText) {
+              decompositionApplied = true;
+              decompositionActivity.push({
+                type: 'query_decomposition',
+                description: `Executed ${validSubQueries.length} sub-queries via decomposition pipeline.`
+              });
+            }
           }
-          if (Array.isArray(result.webResults)) {
-            aggregatedWebResults.push(...result.webResults);
-          }
-        }
-
-        decompositionContextText = aggregatedReferences
-          .map((reference, index) => {
-            const body = reference.content ?? reference.chunk ?? '';
-            return body ? `[SubQuery ${index + 1}] ${body}` : '';
-          })
-          .filter((segment) => segment.length > 0)
-          .join('\n\n');
-
-        decompositionReferences = aggregatedReferences;
-        decompositionWebResults = aggregatedWebResults;
-
-        if (decompositionContextText) {
-          decompositionApplied = true;
-          decompositionActivity.push({
-            type: 'query_decomposition',
-            description: `Executed ${validSubQueries.length} sub-queries via decomposition pipeline.`
-          });
         }
       }
-    }
-  }
 
       const dispatch = await traced('agent.tool.dispatch', async () => {
         if (decompositionApplied) {
@@ -825,6 +879,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   });
   emit?.('citations', { citations: combinedCitations });
   emit?.('activity', { steps: dispatch.activity });
+  const combinedActivity = [...stageInsights, ...dispatch.activity];
 
   if (dispatch.webContextText) {
     contextBudget.web_tokens = dispatch.webContextTokens;
@@ -921,6 +976,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       );
       answer = answerResult.answer;
       combinedContext = answerResult.contextText;
+      pushInsight('synthesis', answerResult.reasoningSummary);
       if (answerResult.responseId) {
         previousResponseId = answerResult.responseId;
       }
@@ -957,6 +1013,10 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       });
 
       emit?.('critique', { ...criticResult, attempt });
+      pushInsight('quality_review', [
+        criticResult.reasoningSummary,
+        ...(criticResult.issues ?? [])
+      ]);
 
       if (criticResult.action === 'accept' || criticResult.coverage >= config.CRITIC_THRESHOLD) {
         finalCritic = criticResult;
@@ -1031,6 +1091,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     );
     answer = answerResult.answer;
     combinedContext = answerResult.contextText;
+    pushInsight('synthesis', answerResult.reasoningSummary);
     if (answerResult.responseId) {
       previousResponseId = answerResult.responseId;
     }
@@ -1061,7 +1122,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     lazySummaryTokens: dispatch.summaryTokens,
     criticIterations: attempt + 1,
     finalCriticAction: critic.action,
-    activity: dispatch.activity
+    activity: combinedActivity
   });
 
   const semanticMemorySummary = recalledMemories && recalledMemories.length
@@ -1130,7 +1191,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const response: ChatResponse = {
     answer,
     citations: combinedCitations,
-    activity: dispatch.activity,
+    activity: combinedActivity,
     metadata: {
       features: featureMetadata,
       retrieval_time_ms: undefined,
@@ -1167,7 +1228,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     coverage: critic.coverage,
     action: critic.action,
     iterations: attempt + 1,
-    issues: critic.issues
+    issues: critic.issues,
+    reasoningSummary: critic.reasoningSummary
   };
 
   emit?.('complete', { answer });
