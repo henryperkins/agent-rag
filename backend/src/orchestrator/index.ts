@@ -144,10 +144,10 @@ function max(values: number[]) {
 }
 
 const DEFAULT_INTENT_MODELS: Record<string, string> = {
-  faq: 'gpt-4o-mini',
-  research: 'gpt-4o',
-  factual_lookup: 'gpt-4o-mini',
-  conversational: 'gpt-4o-mini'
+  faq: 'gpt-5',
+  research: 'gpt-5',
+  factual_lookup: 'gpt-5',
+  conversational: 'gpt-5'
 };
 
 const INTENT_MODEL_ENV_VARS: Record<string, string | undefined> = {
@@ -313,9 +313,9 @@ async function generateAnswer(
       truncation: 'auto',
       store: config.ENABLE_RESPONSE_STORAGE,
       metadata: {
-        sessionId,
-        intent: intentHint,
-        routeModel: routeConfig.model
+        sessionId: sessionId ?? '',
+        intent: intentHint ?? '',
+        routeModel: routeConfig.model ?? ''
       },
       user: sanitizeUserField(sessionId ?? 'unknown'),
       // Only send previous_response_id when storage is enabled

@@ -73,6 +73,7 @@ async function assessCoverage(results: Reference[], query: string): Promise<numb
       temperature: 0,
       textFormat: {
         type: 'json_schema',
+        name: 'quality_assessment',
         schema: {
           type: 'object',
           properties: {

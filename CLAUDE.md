@@ -329,9 +329,9 @@ Reference these files for architectural context:
    # ⚠️  IMPORTANT: Use DEPLOYMENT NAMES (not model names)
    AZURE_OPENAI_ENDPOINT=<your-openai-endpoint>
    AZURE_OPENAI_API_KEY=<your-key>
-   AZURE_OPENAI_GPT_DEPLOYMENT=<your-deployment-name>  # e.g., "gpt-5" (NOT "gpt-4o")
+   AZURE_OPENAI_GPT_DEPLOYMENT=<your-deployment-name>  # e.g., "gpt-5"
    AZURE_OPENAI_EMBEDDING_DEPLOYMENT=<embedding-deployment-name>
-   AZURE_OPENAI_GPT_MODEL_NAME=<gpt-4o-2024-08-06>  # Model name for reference
+   AZURE_OPENAI_GPT_MODEL_NAME=<gpt-5>  # Model name for reference
    AZURE_OPENAI_EMBEDDING_MODEL_NAME=<text-embedding-3-large>
 
    # Intent Routing (use deployment name, not model name)
@@ -351,7 +351,7 @@ Reference these files for architectural context:
      - Text fields for keyword search (e.g., `page_chunk`)
      - Semantic ranking configuration enabled
      - **Note**: Query your actual index schema to verify field names match code expectations
-   - **OpenAI deployment** with GPT model (gpt-4o or gpt-4) and embedding model (text-embedding-3-large)
+   - **OpenAI deployment** with GPT model (gpt-5) and embedding model (text-embedding-3-large)
      - List deployments: `az cognitiveservices account deployment list`
    - **(Optional)** Google Custom Search API key for web search
 

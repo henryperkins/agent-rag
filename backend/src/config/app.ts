@@ -21,8 +21,8 @@ const envSchema = z.object({
   AZURE_OPENAI_API_VERSION: z.string().default('v1').transform(() => 'v1'),
   // Query string appended to all OpenAI requests, defaults to v1 preview
   AZURE_OPENAI_API_QUERY: z.string().default('api-version=preview'),
-  AZURE_OPENAI_GPT_DEPLOYMENT: z.string().default('gpt-4o'),
-  AZURE_OPENAI_GPT_MODEL_NAME: z.string().default('gpt-4o-2024-08-06'),
+  AZURE_OPENAI_GPT_DEPLOYMENT: z.string().default('gpt-5'),
+  AZURE_OPENAI_GPT_MODEL_NAME: z.string().default('gpt-5'),
   AZURE_OPENAI_EMBEDDING_DEPLOYMENT: z.string().default('text-embedding-3-large'),
   AZURE_OPENAI_EMBEDDING_MODEL_NAME: z.string().default('text-embedding-3-large'),
   AZURE_OPENAI_API_KEY: z.string().optional(),
@@ -38,22 +38,22 @@ const envSchema = z.object({
 
   RAG_TOP_K: z.coerce.number().default(5),
   ENABLE_LAZY_RETRIEVAL: z.coerce.boolean().default(true), // 40-50% token savings
-  LAZY_SUMMARY_MAX_CHARS: z.coerce.number().default(300),
-  LAZY_PREFETCH_COUNT: z.coerce.number().default(10),
+  LAZY_SUMMARY_MAX_CHARS: z.coerce.number().default(1000), // Increased from 300
+  LAZY_PREFETCH_COUNT: z.coerce.number().default(20), // Increased from 10
   LAZY_LOAD_THRESHOLD: z.coerce.number().default(0.5),
   RERANKER_THRESHOLD: z.coerce.number().default(2.5),
   TARGET_INDEX_MAX_DOCUMENTS: z.coerce.number().default(100),
 
-  WEB_CONTEXT_MAX_TOKENS: z.coerce.number().default(8000),
-  WEB_RESULTS_MAX: z.coerce.number().default(6),
+  WEB_CONTEXT_MAX_TOKENS: z.coerce.number().default(30000), // Increased from 8000 (GPT-5: 272K input)
+  WEB_RESULTS_MAX: z.coerce.number().default(15), // Increased from 6
   WEB_SEARCH_MODE: z.enum(['summary', 'full']).default('full'),
 
-  CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(1800),
-  CONTEXT_SUMMARY_TOKEN_CAP: z.coerce.number().default(600),
-  CONTEXT_SALIENCE_TOKEN_CAP: z.coerce.number().default(400),
-  CONTEXT_MAX_RECENT_TURNS: z.coerce.number().default(12),
-  CONTEXT_MAX_SUMMARY_ITEMS: z.coerce.number().default(6),
-  CONTEXT_MAX_SALIENCE_ITEMS: z.coerce.number().default(6),
+  CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(40000), // Increased from 1800 (GPT-5: 272K input)
+  CONTEXT_SUMMARY_TOKEN_CAP: z.coerce.number().default(10000), // Increased from 600
+  CONTEXT_SALIENCE_TOKEN_CAP: z.coerce.number().default(5000), // Increased from 400
+  CONTEXT_MAX_RECENT_TURNS: z.coerce.number().default(50), // Increased from 12
+  CONTEXT_MAX_SUMMARY_ITEMS: z.coerce.number().default(20), // Increased from 6
+  CONTEXT_MAX_SALIENCE_ITEMS: z.coerce.number().default(15), // Increased from 6
 
   PLANNER_CONFIDENCE_DUAL_RETRIEVAL: z.coerce.number().default(0.45),
   RETRIEVAL_MIN_DOCS: z.coerce.number().default(3),
@@ -65,16 +65,16 @@ const envSchema = z.object({
   SEARCH_MIN_COVERAGE: z.coerce.number().default(0.8),
   ENABLE_SEMANTIC_SUMMARY: z.coerce.boolean().default(false),
   ENABLE_INTENT_ROUTING: z.coerce.boolean().default(true), // 20-30% cost savings via model selection
-  INTENT_CLASSIFIER_MODEL: z.string().default('gpt-4o-mini'),
-  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(100),
-  MODEL_FAQ: z.string().default('gpt-4o-mini'),
-  MODEL_RESEARCH: z.string().default('gpt-4o'),
-  MODEL_FACTUAL: z.string().default('gpt-4o-mini'),
-  MODEL_CONVERSATIONAL: z.string().default('gpt-4o-mini'),
-  MAX_TOKENS_FAQ: z.coerce.number().default(500),
-  MAX_TOKENS_RESEARCH: z.coerce.number().default(2000),
-  MAX_TOKENS_FACTUAL: z.coerce.number().default(600),
-  MAX_TOKENS_CONVERSATIONAL: z.coerce.number().default(400),
+  INTENT_CLASSIFIER_MODEL: z.string().default('gpt-5'),
+  INTENT_CLASSIFIER_MAX_TOKENS: z.coerce.number().default(500), // Increased from 100 (GPT-5: 128K output)
+  MODEL_FAQ: z.string().default('gpt-5'),
+  MODEL_RESEARCH: z.string().default('gpt-5'),
+  MODEL_FACTUAL: z.string().default('gpt-5'),
+  MODEL_CONVERSATIONAL: z.string().default('gpt-5'),
+  MAX_TOKENS_FAQ: z.coerce.number().default(2000), // Increased from 500 (GPT-5: 128K output)
+  MAX_TOKENS_RESEARCH: z.coerce.number().default(16000), // Increased from 2000 for comprehensive research
+  MAX_TOKENS_FACTUAL: z.coerce.number().default(3000), // Increased from 600
+  MAX_TOKENS_CONVERSATIONAL: z.coerce.number().default(1500), // Increased from 400
 
   SEMANTIC_MEMORY_DB_PATH: z.string().default('./data/semantic-memory.db'),
   ENABLE_SEMANTIC_MEMORY: z.coerce.boolean().default(false),

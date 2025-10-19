@@ -355,9 +355,9 @@ export async function answerTool(args: {
     truncation: 'auto',
     store: enableResponseStorage,
     metadata: {
-      sessionId: args.sessionId,
-      userId: args.userId ?? args.sessionId,
-      intent: args.intent
+      sessionId: args.sessionId ?? '',
+      userId: args.userId ?? args.sessionId ?? '',
+      intent: args.intent ?? ''
     },
     user: sanitizeUserField(args.userId ?? args.sessionId ?? 'unknown'),
     // Only send previous_response_id when storage is enabled

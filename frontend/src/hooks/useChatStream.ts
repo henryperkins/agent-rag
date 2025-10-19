@@ -158,136 +158,147 @@ export function useChatStream() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
 
-        let eventType: string | null = null;
-        for (const line of lines) {
-          if (!line.trim()) continue;
+          let eventType: string | null = null;
+          for (const line of lines) {
+            if (!line.trim()) continue;
 
-          if (line.startsWith('event:')) {
-            eventType = line.replace('event:', '').trim();
-            continue;
-          }
+            if (line.startsWith('event:')) {
+              eventType = line.replace('event:', '').trim();
+              continue;
+            }
 
-          if (line.startsWith('data:')) {
-            const data = JSON.parse(line.replace('data:', '').trim());
-            switch (eventType) {
-              case 'status':
-                setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
-                break;
-              case 'token': {
-                const rawContent = data.content ?? '';
-                const tokenSegment = typeof rawContent === 'string' ? rawContent : String(rawContent);
-                finalAnswer += tokenSegment;
-                setState((prev) => ({ ...prev, answer: prev.answer + tokenSegment }));
-                break;
+            if (line.startsWith('data:')) {
+              let data: any;
+              try {
+                data = JSON.parse(line.replace('data:', '').trim());
+              } catch (parseError) {
+                console.error('Failed to parse SSE data:', line, parseError);
+                continue; // Skip malformed event
               }
-              case 'citations':
-                setState((prev) => ({ ...prev, citations: data.citations ?? [] }));
-                break;
-              case 'activity':
-                setState((prev) => ({ ...prev, activity: data.steps ?? [] }));
-                break;
-              case 'critique':
-                setState((prev) => ({
-                  ...prev,
-                  critique: data,
-                  critiqueHistory: [...prev.critiqueHistory, {
-                    attempt: data.attempt ?? prev.critiqueHistory.length,
-                    grounded: data.grounded ?? false,
-                    coverage: data.coverage ?? 0,
-                    action: data.action ?? 'accept',
-                    issues: data.issues
-                  }]
-                }));
-                break;
-              case 'plan':
-                setState((prev) => ({ ...prev, plan: data }));
-                break;
-              case 'context':
-                setState((prev) => ({ ...prev, context: data }));
-                break;
-              case 'route':
-                setState((prev) => ({ ...prev, route: data as RouteMetadata }));
-                break;
-              case 'telemetry':
-                setState((prev) => {
-                  const normalized = normalizeTelemetryEvent(data) as TelemetryState & {
-                    route?: RouteMetadata;
-                    retrievalMode?: string;
-                    lazySummaryTokens?: number;
-                    retrieval?: RetrievalDiagnostics;
-                    responses?: Array<{ attempt: number; responseId?: string }>;
-                    evaluation?: SessionEvaluation;
-                  };
-                  const {
-                    route: nextRoute,
-                    retrievalMode: nextRetrievalMode,
-                    lazySummaryTokens: nextLazyTokens,
-                    retrieval: nextRetrieval,
-                    responses: nextResponses,
-                    evaluation: nextEvaluation,
-                    ...rest
-                  } = normalized;
-                  return {
-                    ...prev,
-                    telemetry: { ...(prev.telemetry ?? {}), ...rest },
-                    route: nextRoute ?? prev.route,
-                    retrievalMode: nextRetrievalMode ?? prev.retrievalMode,
-                    lazySummaryTokens: nextLazyTokens ?? prev.lazySummaryTokens,
-                    retrieval: nextRetrieval ?? prev.retrieval,
-                    responses: nextResponses ?? prev.responses,
-                    evaluation: nextEvaluation ?? prev.evaluation
-                  };
-                });
-                break;
-              case 'web_context':
-                setState((prev) => ({
-                  ...prev,
-                  webContext: {
-                    text: data.text,
-                    tokens: data.tokens,
-                    trimmed: data.trimmed,
-                    results: data.results
-                  }
-                }));
-                break;
-              case 'features':
-                setState((prev) => ({
-                  ...prev,
-                  features: data as FeatureSelectionMetadata
-                }));
-                break;
-              case 'trace':
-                setState((prev) => ({ ...prev, trace: data }));
-                break;
-              case 'error':
-                setState((prev) => ({ ...prev, error: data.message, status: 'error' }));
-                break;
-              case 'complete': {
-                const answerValue = data.answer;
-                setState((prev) => ({
-                  ...prev,
-                  answer: typeof answerValue === 'string' ? answerValue : prev.answer
-                }));
-                if (typeof answerValue === 'string') {
-                  finalAnswer = answerValue;
+              switch (eventType) {
+                case 'status':
+                  setState((prev) => ({ ...prev, status: data.stage ?? prev.status }));
+                  break;
+                case 'token': {
+                  const rawContent = data.content ?? '';
+                  const tokenSegment = typeof rawContent === 'string' ? rawContent : String(rawContent);
+                  finalAnswer += tokenSegment;
+                  setState((prev) => ({ ...prev, answer: prev.answer + tokenSegment }));
+                  break;
                 }
-                break;
+                case 'citations':
+                  setState((prev) => ({ ...prev, citations: data.citations ?? [] }));
+                  break;
+                case 'activity':
+                  setState((prev) => ({ ...prev, activity: data.steps ?? [] }));
+                  break;
+                case 'critique':
+                  setState((prev) => ({
+                    ...prev,
+                    critique: data,
+                    critiqueHistory: [...prev.critiqueHistory, {
+                      attempt: data.attempt ?? prev.critiqueHistory.length,
+                      grounded: data.grounded ?? false,
+                      coverage: data.coverage ?? 0,
+                      action: data.action ?? 'accept',
+                      issues: data.issues
+                    }]
+                  }));
+                  break;
+                case 'plan':
+                  setState((prev) => ({ ...prev, plan: data }));
+                  break;
+                case 'context':
+                  setState((prev) => ({ ...prev, context: data }));
+                  break;
+                case 'route':
+                  setState((prev) => ({ ...prev, route: data as RouteMetadata }));
+                  break;
+                case 'telemetry':
+                  setState((prev) => {
+                    const normalized = normalizeTelemetryEvent(data) as TelemetryState & {
+                      route?: RouteMetadata;
+                      retrievalMode?: string;
+                      lazySummaryTokens?: number;
+                      retrieval?: RetrievalDiagnostics;
+                      responses?: Array<{ attempt: number; responseId?: string }>;
+                      evaluation?: SessionEvaluation;
+                    };
+                    const {
+                      route: nextRoute,
+                      retrievalMode: nextRetrievalMode,
+                      lazySummaryTokens: nextLazyTokens,
+                      retrieval: nextRetrieval,
+                      responses: nextResponses,
+                      evaluation: nextEvaluation,
+                      ...rest
+                    } = normalized;
+                    return {
+                      ...prev,
+                      telemetry: { ...(prev.telemetry ?? {}), ...rest },
+                      route: nextRoute ?? prev.route,
+                      retrievalMode: nextRetrievalMode ?? prev.retrievalMode,
+                      lazySummaryTokens: nextLazyTokens ?? prev.lazySummaryTokens,
+                      retrieval: nextRetrieval ?? prev.retrieval,
+                      responses: nextResponses ?? prev.responses,
+                      evaluation: nextEvaluation ?? prev.evaluation
+                    };
+                  });
+                  break;
+                case 'web_context':
+                  setState((prev) => ({
+                    ...prev,
+                    webContext: {
+                      text: data.text,
+                      tokens: data.tokens,
+                      trimmed: data.trimmed,
+                      results: data.results
+                    }
+                  }));
+                  break;
+                case 'features':
+                  setState((prev) => ({
+                    ...prev,
+                    features: data as FeatureSelectionMetadata
+                  }));
+                  break;
+                case 'trace':
+                  setState((prev) => ({ ...prev, trace: data }));
+                  break;
+                case 'error':
+                  setState((prev) => ({ ...prev, error: data.message, status: 'error' }));
+                  break;
+                case 'complete': {
+                  const answerValue = data.answer;
+                  setState((prev) => ({
+                    ...prev,
+                    answer: typeof answerValue === 'string' ? answerValue : prev.answer
+                  }));
+                  if (typeof answerValue === 'string') {
+                    finalAnswer = answerValue;
+                  }
+                  break;
+                }
+                case 'done':
+                  setState((prev) => ({ ...prev, status: 'complete' }));
+                  break;
+                default:
+                  break;
               }
-              case 'done':
-                setState((prev) => ({ ...prev, status: 'complete' }));
-                break;
-              default:
-                break;
             }
           }
         }
+      } finally {
+        // Always release the reader lock to prevent memory leaks
+        reader.releaseLock();
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {

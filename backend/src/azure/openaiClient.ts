@@ -1,7 +1,18 @@
 import { DefaultAzureCredential } from '@azure/identity';
-import { config } from '../config/app.js';
+import { config, isDevelopment } from '../config/app.js';
 
 const credential = new DefaultAzureCredential();
+
+/**
+ * Sanitize Azure error messages to prevent information disclosure in production
+ */
+function sanitizeAzureError(status: number, statusText: string, body: string): string {
+  if (isDevelopment) {
+    return `${status} ${statusText} - ${body}`;
+  }
+  // In production, only expose status code and generic message
+  return `${status} ${statusText}`;
+}
 const scope = 'https://cognitiveservices.azure.com/.default';
 const baseUrl = `${config.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '')}/openai/${config.AZURE_OPENAI_API_VERSION}`;
 const query = config.AZURE_OPENAI_API_QUERY.startsWith('?')
@@ -76,48 +87,180 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Azure OpenAI request failed: ${response.status} ${response.statusText} - ${text}`);
+    const sanitizedError = sanitizeAzureError(response.status, response.statusText, text);
+    throw new Error(`Azure OpenAI request failed: ${sanitizedError}`);
   }
 
   return response.json() as Promise<T>;
 }
 
-export interface ResponseTextFormat {
-  type: 'text' | 'json_schema' | 'json_object';
-  name?: string;
-  schema?: Record<string, unknown>;
-  strict?: boolean;
-  description?: string;
+// Discriminated union matching OpenAI.ResponseTextFormatConfiguration
+export type ResponseTextFormat =
+  | { type: 'text' }
+  | { type: 'json_object' }
+  | {
+      type: 'json_schema';
+      name: string; // Required for json_schema
+      schema: Record<string, unknown>; // Required for json_schema
+      description?: string;
+      strict?: boolean; // default: false
+    };
+
+// Spec-compliant includable values from OpenAI.Includable enum
+export type Includable =
+  | 'code_interpreter_call.outputs'
+  | 'computer_call_output.output.image_url'
+  | 'file_search_call.results'
+  | 'message.input_image.image_url'
+  | 'message.output_text.logprobs'
+  | 'reasoning.encrypted_content';
+
+// Response interfaces matching #/components/schemas/AzureResponse
+export interface ResponseUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  input_tokens_details: {
+    cached_tokens: number;
+  };
+  output_tokens_details: {
+    reasoning_tokens: number;
+  };
+}
+
+export interface ResponseError {
+  code: string;
+  message: string;
+  param?: string;
+  type?: string;
+  inner_error?: unknown;
+}
+
+export interface IncompleteDetails {
+  reason: 'max_output_tokens' | 'content_filter';
+}
+
+export interface OutputItem {
+  type: string;
+  role?: string;
+  content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+  [key: string]: unknown; // Allow additional properties for different item types
+}
+
+export interface AzureResponseOutput {
+  // Identity and status
+  id: string;
+  object: 'response';
+  status: 'completed' | 'failed' | 'in_progress' | 'cancelled' | 'queued' | 'incomplete';
+  created_at: number; // Unix timestamp
+
+  // Model and output
+  model: string;
+  output: OutputItem[];
+  output_text?: string | null; // SDK convenience property
+
+  // Usage tracking (critical for cost monitoring)
+  usage?: ResponseUsage;
+
+  // Error handling (required per spec)
+  error: ResponseError | null;
+  incomplete_details: IncompleteDetails | null;
+
+  // Request parameters echoed back (required per spec)
+  metadata: Record<string, string> | null;
+  temperature: number | null;
+  top_p: number | null;
+  user: string | null;
+  instructions: string | Array<Record<string, unknown>> | null;
+  parallel_tool_calls: boolean | null;
+
+  // Optional echoed parameters
+  top_logprobs?: number | null;
+  previous_response_id?: string | null;
+  reasoning?: Record<string, unknown> | null;
+  background?: boolean | null;
+  max_output_tokens?: number | null;
+  max_tool_calls?: number | null;
+  text?: {
+    format?: ResponseTextFormat;
+  };
+  tools?: Array<Record<string, unknown>>;
+  tool_choice?: 'auto' | 'required' | 'none' | Record<string, unknown>;
+  prompt?: Record<string, unknown> | null;
+  truncation?: 'auto' | 'disabled' | null;
+}
+
+export interface EmbeddingsResponse {
+  object: 'list';
+  data: Array<{
+    object: 'embedding';
+    embedding: number[];
+    index: number;
+  }>;
+  model: string;
+  usage: {
+    prompt_tokens: number;
+    total_tokens: number;
+  };
 }
 
 export interface ResponsePayload {
-  messages: Array<{ role: 'system' | 'user' | 'assistant' | 'developer'; content: string }>;
-  temperature?: number;
-  max_output_tokens?: number;
+  // Model (optional with default from config)
   model?: string;
-  textFormat?: ResponseTextFormat;
-  tools?: Array<Record<string, unknown>>;
-  tool_choice?: Record<string, unknown> | 'none';
-  parallel_tool_calls?: boolean;
-  previous_response_id?: string;
-  store?: boolean;
-  background?: boolean;
-  include?: string[];
-  truncation?: 'auto' | 'none';
-  // Correlation fields for auditability
-  metadata?: Record<string, unknown>;
-  user?: string;
-  // Advanced streaming options pass-through
-  stream_options?: { include_usage?: boolean };
-  // Optional raw fields for direct mapping
-  instructions?: string | Array<Record<string, unknown>>;
-  input?: Array<Record<string, unknown>>;
+
+  // Core generation parameters
+  temperature?: number; // 0-2, default: 1
+  top_p?: number; // 0-1, nucleus sampling, default: 1
+  max_output_tokens?: number; // int32, nullable
+
+  // Text format configuration
+  text?: {
+    format?: ResponseTextFormat;
+  };
+
+  // Tool configuration
+  tools?: Array<Record<string, unknown>>; // Should be OpenAI.Tool but kept flexible for now
+  tool_choice?: 'auto' | 'required' | 'none' | Record<string, unknown>; // Supports literals + custom object
+  parallel_tool_calls?: boolean; // default: true
+  max_tool_calls?: number; // int32, limit tool call iterations
+
+  // Conversation state
+  previous_response_id?: string | null;
+  instructions?: string | null; // System/developer message
+  input?: string | Array<Record<string, unknown>>; // Text or structured items
+
+  // Response configuration
+  truncation?: 'auto' | 'disabled'; // Fixed: was 'none', spec only allows 'disabled'
+  include?: Includable[]; // Fixed: was string[], now spec-compliant enum
+  store?: boolean; // default: true
+  background?: boolean; // default: false
+
+  // Advanced parameters
+  top_logprobs?: number; // 0-20, int32
+  reasoning?: {
+    effort?: 'low' | 'medium' | 'high';
+  } | null;
+  prompt?: Record<string, unknown> | null; // OpenAI.Prompt object
+
+  // Metadata and tracking
+  metadata?: Record<string, string>; // Fixed: values must be strings per spec
+  user?: string; // End-user identifier
+
+  // Internal/deprecated (kept for backwards compatibility)
+  messages?: Array<{ role: 'system' | 'user' | 'assistant' | 'developer'; content: string }>;
+  textFormat?: ResponseTextFormat; // Deprecated: use text.format instead
 }
 
-export async function createResponse(payload: ResponsePayload) {
+export async function createResponse(payload: ResponsePayload): Promise<AzureResponseOutput> {
   const request = sanitizeRequest({
     model: payload.model ?? config.AZURE_OPENAI_GPT_DEPLOYMENT,
+    temperature: payload.temperature,
+    top_p: payload.top_p,
     max_output_tokens: payload.max_output_tokens,
+    top_logprobs: payload.top_logprobs,
+    reasoning: payload.reasoning,
+    max_tool_calls: payload.max_tool_calls,
+    prompt: payload.prompt,
     tools: payload.tools,
     tool_choice: payload.tool_choice,
     parallel_tool_calls: payload.parallel_tool_calls,
@@ -129,32 +272,38 @@ export async function createResponse(payload: ResponsePayload) {
     metadata: payload.metadata,
     user: payload.user,
     input:
-      payload.input ?? payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
+      payload.input ?? (payload.messages ? payload.messages.map((msg) => buildMessage(msg.role, msg.content)) : undefined),
     instructions: payload.instructions,
     text:
-      payload.textFormat !== undefined
+      payload.text?.format !== undefined
+        ? {
+            format: sanitizeRequest(payload.text.format)
+          }
+        : payload.textFormat !== undefined
         ? {
             format: sanitizeRequest(payload.textFormat)
           }
         : undefined
   });
 
-  return postJson<{
-    output_text?: string;
-    output?: Array<{ type: string; role?: string; content?: Array<{ type: string; text?: string }> }>;
-  }>('/responses', request);
+  return postJson<AzureResponseOutput>('/responses', request);
 }
 
 export async function createResponseStream(payload: ResponsePayload) {
   const headers = await authHeaders();
   const body = sanitizeRequest({
     model: payload.model ?? config.AZURE_OPENAI_GPT_DEPLOYMENT,
+    temperature: payload.temperature,
+    top_p: payload.top_p,
     max_output_tokens: payload.max_output_tokens,
+    top_logprobs: payload.top_logprobs,
+    reasoning: payload.reasoning,
+    max_tool_calls: payload.max_tool_calls,
+    prompt: payload.prompt,
     tools: payload.tools,
     tool_choice: payload.tool_choice,
     parallel_tool_calls: payload.parallel_tool_calls,
     stream: true,
-    stream_options: payload.stream_options,
     previous_response_id: payload.previous_response_id,
     store: payload.store,
     background: payload.background,
@@ -163,10 +312,14 @@ export async function createResponseStream(payload: ResponsePayload) {
     metadata: payload.metadata,
     user: payload.user,
     input:
-      payload.input ?? payload.messages.map((msg) => buildMessage(msg.role, msg.content)),
+      payload.input ?? (payload.messages ? payload.messages.map((msg) => buildMessage(msg.role, msg.content)) : undefined),
     instructions: payload.instructions,
     text:
-      payload.textFormat !== undefined
+      payload.text?.format !== undefined
+        ? {
+            format: sanitizeRequest(payload.text.format)
+          }
+        : payload.textFormat !== undefined
         ? {
             format: sanitizeRequest(payload.textFormat)
           }
@@ -185,7 +338,8 @@ export async function createResponseStream(payload: ResponsePayload) {
 
   if (!response.ok || !response.body) {
     const text = await response.text();
-    throw new Error(`Azure OpenAI streaming failed: ${response.status} ${response.statusText} - ${text}`);
+    const sanitizedError = sanitizeAzureError(response.status, response.statusText, text);
+    throw new Error(`Azure OpenAI streaming failed: ${sanitizedError}`);
   }
 
   return response.body.getReader();
@@ -225,16 +379,15 @@ export async function createEmbeddings(inputs: string[] | string, model?: string
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Azure OpenAI request failed: ${response.status} ${response.statusText} - ${text}`);
+    const sanitizedError = sanitizeAzureError(response.status, response.statusText, text);
+    throw new Error(`Azure OpenAI embeddings failed: ${sanitizedError}`);
   }
 
-  return response.json() as Promise<{
-    data: Array<{ embedding: number[] }>;
-  }>;
+  return response.json() as Promise<EmbeddingsResponse>;
 }
 
 // Helpers for stateful operations
-export async function retrieveResponse(responseId: string, include?: string[]) {
+export async function retrieveResponse(responseId: string, include?: string[]): Promise<AzureResponseOutput> {
   const headers = await authHeaders();
   const includeQuery = include?.length
     ? `?${include.map((i) => `include[]=${encodeURIComponent(i)}`).join('&')}`
@@ -243,9 +396,10 @@ export async function retrieveResponse(responseId: string, include?: string[]) {
   const res = await fetch(url, { headers });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Azure OpenAI retrieve failed: ${res.status} ${res.statusText} - ${text}`);
+    const sanitizedError = sanitizeAzureError(res.status, res.statusText, text);
+    throw new Error(`Azure OpenAI retrieve failed: ${sanitizedError}`);
   }
-  return res.json();
+  return res.json() as Promise<AzureResponseOutput>;
 }
 
 export async function deleteResponse(responseId: string) {
@@ -256,7 +410,8 @@ export async function deleteResponse(responseId: string) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Azure OpenAI delete failed: ${res.status} ${res.statusText} - ${text}`);
+    const sanitizedError = sanitizeAzureError(res.status, res.statusText, text);
+    throw new Error(`Azure OpenAI delete failed: ${sanitizedError}`);
   }
   return res.json().catch(() => ({}));
 }
@@ -268,7 +423,8 @@ export async function listInputItems(responseId: string) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Azure OpenAI input items failed: ${res.status} ${res.statusText} - ${text}`);
+    const sanitizedError = sanitizeAzureError(res.status, res.statusText, text);
+    throw new Error(`Azure OpenAI input items failed: ${sanitizedError}`);
   }
   return res.json();
 }

@@ -48,7 +48,9 @@ export async function registerRoutes(app: FastifyInstance) {
       return response;
     } catch (error: any) {
       request.log.error(error);
-      return reply.code(500).send({ error: 'Internal server error', message: error.message });
+      // Sanitize error message to prevent information disclosure
+      const sanitizedMessage = isDevelopment ? error.message : 'An unexpected error occurred';
+      return reply.code(500).send({ error: 'Internal server error', message: sanitizedMessage });
     }
   });
 

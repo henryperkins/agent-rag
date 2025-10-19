@@ -64,7 +64,9 @@ app.addHook('onRequest', async (request, reply) => {
   }
 
   const timer = setTimeout(() => {
-    reply.code(408).send({ error: 'Request timeout' });
+    if (!reply.sent) {
+      reply.code(408).send({ error: 'Request timeout' });
+    }
   }, config.REQUEST_TIMEOUT_MS);
 
   reply.raw.on('close', () => clearTimeout(timer));
