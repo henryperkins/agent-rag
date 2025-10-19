@@ -40,6 +40,60 @@ import { sanitizeUserField } from '../utils/session.js';
 
 type ExecMode = 'sync' | 'stream';
 
+function mergeCitations(references: Reference[], webResults: WebResult[]): Reference[] {
+  if (!webResults.length) {
+    return [...references];
+  }
+
+  const merged: Reference[] = [...references];
+  const seen = new Set(
+    merged
+      .map((ref) => ref.id || ref.url)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+  );
+
+  const sortedWeb = [...webResults].sort(
+    (a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER)
+  );
+
+  for (const result of sortedWeb) {
+    const identifier = result.id || result.url;
+    if (identifier && seen.has(identifier)) {
+      continue;
+    }
+
+    merged.push({
+      id: identifier,
+      title: result.title,
+      content: result.body ?? result.snippet,
+      url: result.url,
+      sourceType: 'web',
+      score: result.relevance,
+      metadata: {
+        snippet: result.snippet,
+        fetchedAt: result.fetchedAt,
+        rank: result.rank,
+        source: result.source,
+        authors: result.authors,
+        publishedDate: result.publishedDate,
+        citationCount: result.citationCount,
+        influentialCitationCount: result.influentialCitationCount,
+        authorityScore: result.authorityScore,
+        isOpenAccess: result.isOpenAccess,
+        pdfUrl: result.pdfUrl,
+        venue: result.venue,
+        category: result.category
+      }
+    });
+
+    if (identifier) {
+      seen.add(identifier);
+    }
+  }
+
+  return merged;
+}
+
 export interface RunSessionOptions {
   messages: AgentMessage[];
   mode: ExecMode;
@@ -761,11 +815,12 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         span?.setAttribute('retrieval.escalated', result.escalated);
         return result;
       });
+  const combinedCitations = mergeCitations(dispatch.references, dispatch.webResults);
   emit?.('tool', {
     references: dispatch.references.length,
     webResults: dispatch.webResults.length
   });
-  emit?.('citations', { citations: dispatch.references });
+  emit?.('citations', { citations: combinedCitations });
   emit?.('activity', { steps: dispatch.activity });
 
   if (dispatch.webContextText) {
@@ -992,7 +1047,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     answer,
     retrieval: retrievalDiagnostics,
     critic,
-    citations: dispatch.references,
+    citations: combinedCitations,
     summarySelection: summaryStats,
     plan,
     route: routeMetadata,
@@ -1070,7 +1125,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
 
   const response: ChatResponse = {
     answer,
-    citations: dispatch.references,
+    citations: combinedCitations,
     activity: dispatch.activity,
     metadata: {
       features: featureMetadata,
@@ -1144,7 +1199,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
 
   if (config.ENABLE_CITATION_TRACKING && features.semanticMemory && !answer.startsWith('I do not know')) {
     try {
-      await trackCitationUsage(answer, dispatch.references, question, options.sessionId);
+      await trackCitationUsage(answer, combinedCitations, question, options.sessionId);
     } catch (error) {
       console.warn('Citation tracking failed:', error);
     }
