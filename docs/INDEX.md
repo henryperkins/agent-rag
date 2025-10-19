@@ -1,8 +1,9 @@
 # Documentation Index
 
 **Last Updated**: October 18, 2025
-**Total Documents**: 27 (+ 13 archived)
+**Total Documents**: 29 (+ 13 archived)
 **Repository**: Agent-RAG
+**Recent Additions**: UNIFIED_ROADMAP_2025.md + SUMMARY - Merges TODO Phase 2 + MCP integration priorities
 **Recent Cleanup**: Archived 13 outdated/redundant documents to `docs/archive/`
 
 ---
@@ -21,15 +22,17 @@
 ### Essential Reading
 
 1. [README.md](../README.md) - Quick start and feature overview
-2. [ROADMAP.md](ROADMAP.md) - Consolidated development roadmap
-3. [CHANGELOG.md](../CHANGELOG.md) - Version history and changes
-4. [backend/.env.example](../backend/.env.example) - Configuration template
+2. **[UNIFIED_ROADMAP_2025.md](UNIFIED_ROADMAP_2025.md)** ⭐ - **Unified development plan (TODO + MCP)**
+3. [ROADMAP.md](ROADMAP.md) - Consolidated development roadmap
+4. [CHANGELOG.md](../CHANGELOG.md) - Version history and changes
+5. [backend/.env.example](../backend/.env.example) - Configuration template
 
 ### For Developers
 
 - [CLAUDE.md](../CLAUDE.md) - Developer guide for AI assistants
 - [architecture-map.md](architecture-map.md) - System architecture overview
 - [unified-orchestrator-context-pipeline.md](unified-orchestrator-context-pipeline.md) - Core design
+- **[AZURE_FOUNDRY_MCP_INTEGRATION.md](AZURE_FOUNDRY_MCP_INTEGRATION.md)** - Azure AI Foundry MCP integration ⭐ NEW
 
 ### For Operations
 
@@ -101,10 +104,13 @@
 
 #### Strategic Planning
 
-| Document                                                 | Status | Description                        | Key Content                    |
-| -------------------------------------------------------- | ------ | ---------------------------------- | ------------------------------ |
-| [ROADMAP.md](ROADMAP.md)                                 | ✅     | Consolidated development roadmap   | Priorities, timeline, tracking |
-| [PRIORITIZED_ACTION_PLAN.md](PRIORITIZED_ACTION_PLAN.md) | ✅     | Immediate action items (weeks 1-4) | 968 lines, detailed timeline   |
+| Document                                                        | Status | Description                                          | Key Content                             |
+| --------------------------------------------------------------- | ------ | ---------------------------------------------------- | --------------------------------------- |
+| **[UNIFIED_ROADMAP_2025.md](UNIFIED_ROADMAP_2025.md)** ⭐       | 📋     | **Unified roadmap merging TODO + MCP priorities**    | **Phase 2-4, $70-150/mo savings plan**  |
+| **[UNIFIED_ROADMAP_SUMMARY.md](UNIFIED_ROADMAP_SUMMARY.md)** 📄 | 📋     | **Executive summary of unified roadmap**             | **Key decisions, ROI, trade-offs**      |
+| [ROADMAP.md](ROADMAP.md)                                        | ✅     | Consolidated development roadmap (general reference) | Priorities, timeline, tracking          |
+| [PRIORITIZED_ACTION_PLAN.md](PRIORITIZED_ACTION_PLAN.md)        | ✅     | Immediate action items (weeks 1-4)                   | 968 lines, detailed timeline            |
+| [TODO.md](TODO.md)                                              | 🔄     | Implementation task tracking (Phase 1 complete)      | 885 lines, 99/99 tests, action items 9+ |
 
 #### Enhancement Plans
 
@@ -118,11 +124,12 @@
 
 #### Specialized Planning
 
-| Document                                                         | Status | Description                                | Purpose                                 |
-| ---------------------------------------------------------------- | ------ | ------------------------------------------ | --------------------------------------- |
-| [semantic-summary-plan.md](semantic-summary-plan.md)             | ✅     | Semantic summary selection design          | Implementation complete, telemetry TODO |
-| [semantic-summary-evaluation.md](semantic-summary-evaluation.md) | ✅     | Validation playbook for semantic selection | Testing strategy                        |
-| [quickstart-pdf-upload.md](quickstart-pdf-upload.md)             | ✅     | PDF upload pipeline walkthrough            | 788 lines, implemented reference        |
+| Document                                                                    | Status | Description                                | Purpose                                   |
+| --------------------------------------------------------------------------- | ------ | ------------------------------------------ | ----------------------------------------- |
+| [semantic-summary-plan.md](semantic-summary-plan.md)                        | ✅     | Semantic summary selection design          | Implementation complete, telemetry TODO   |
+| [semantic-summary-evaluation.md](semantic-summary-evaluation.md)            | ✅     | Validation playbook for semantic selection | Testing strategy                          |
+| [quickstart-pdf-upload.md](quickstart-pdf-upload.md)                        | ✅     | PDF upload pipeline walkthrough            | 788 lines, implemented reference          |
+| **[AZURE_FOUNDRY_MCP_INTEGRATION.md](AZURE_FOUNDRY_MCP_INTEGRATION.md)** ⭐ | 📋     | Azure AI Foundry MCP 48-tool integration   | Evaluation, models, knowledge, finetuning |
 
 ---
 
@@ -203,12 +210,12 @@ These were referenced in older versions but have been **consolidated** into exis
 
 ### Coverage Statistics
 
-- **Active Documents**: 27
+- **Active Documents**: 29
 - **Archived Documents**: 13 (outdated/redundant)
-- **Fully Implemented**: 20 (74%)
-- **Planning/Design**: 7 (26%)
+- **Fully Implemented**: 20 (69%)
+- **Planning/Design**: 9 (31%)
 - **Outdated/Broken**: 0 (0% - all archived)
-- **Recent Additions**: audit-report-corrected.md (Oct 18, 2025)
+- **Recent Additions**: UNIFIED_ROADMAP_2025.md + SUMMARY (Oct 18, 2025), audit-report-corrected.md (Oct 18, 2025)
 - **Recent Cleanup**: Oct 18, 2025 - Archived 13 redundant documents
 
 ### Quality Indicators
@@ -446,6 +453,6 @@ Configuration-specific docs:
 
 ---
 
-**Maintained by**: Development Team  
-**Review Cycle**: Monthly or after major updates  
+**Maintained by**: Development Team
+**Review Cycle**: Monthly or after major updates
 **Next Review**: November 2025

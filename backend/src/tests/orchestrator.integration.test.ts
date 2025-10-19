@@ -286,7 +286,10 @@ describe('orchestrator integration via /chat route', () => {
     expect(toolMocks.webSearch).toHaveBeenCalledTimes(1);
     // Token count is calculated by buildWebContext based on actual content, not the mock value
     expect(body.metadata?.web_context?.tokens).toBeGreaterThan(0);
-    expect(body.citations[0].id).toBe('doc-combined');
+    // Citations may be in any order when combining sources
+    const citationIds = body.citations.map((c: any) => c.id);
+    expect(citationIds).toContain('doc-combined');
+    expect(citationIds).toContain('web-2');
   });
 
   it('streams events with low-confidence escalation and token emission', async () => {
