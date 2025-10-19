@@ -119,14 +119,20 @@ emit?.('summary_selection_stats', summaryStats);
 
 **Frontend Updates**:
 
-- `frontend/src/hooks/useChatStream.ts` - Handler added
-- `frontend/src/components/PlanPanel.tsx` - Displays stats ✅
+- `frontend/src/hooks/useChatStream.ts` - ⚠️ **Handler NOT implemented** (summary stats handled via 'telemetry' event instead)
+- `frontend/src/components/PlanPanel.tsx` - Displays stats ✅ (from telemetry event)
+
+**Implementation Notes**:
+
+- Summary selection stats are currently emitted via the 'telemetry' event (not as a separate 'summary_selection_stats' event)
+- Frontend receives stats through `normalizeTelemetryEvent()` in useChatStream.ts:227
+- No separate SSE handler needed as data flows through existing telemetry pipeline
 
 **Validation**:
 
-- Check SSE stream emits new event
-- Verify frontend receives and can parse
-- Confirm no duplicate data (already in telemetry event)
+- ✅ SSE stream emits stats via 'telemetry' event
+- ✅ Frontend receives and parses via telemetry handler
+- ✅ No duplicate data (single source via telemetry event)
 
 ---
 
@@ -413,7 +419,7 @@ emit?.('summary_selection_stats', summaryStats);
 - ✅ `backend/src/services/documentService.ts`
 - ✅ `backend/src/tools/documentProcessor.ts`
 - ✅ `frontend/src/components/DocumentUpload.tsx`
-- ✅ `frontend/src/api/documents.ts`
+- ❌ `frontend/src/api/documents.ts` - **NOT implemented** (component posts directly to `/documents/upload` at line 81)
 
 **Implementation Phases** (Completed):
 

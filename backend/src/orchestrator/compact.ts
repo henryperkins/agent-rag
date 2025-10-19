@@ -99,7 +99,7 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
       textFormat: SUMMARY_SCHEMA,
       parallel_tool_calls: false,
       temperature: 0.2,
-      max_output_tokens: 300,
+      max_output_tokens: 1500, // Increased from 300 for richer summaries (GPT-5: 128K output)
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 
@@ -123,7 +123,7 @@ export async function compactHistory(messages: AgentMessage[]): Promise<Compacte
       textFormat: SALIENCE_SCHEMA,
       parallel_tool_calls: false,
       temperature: 0.2,
-      max_output_tokens: 400,
+      max_output_tokens: 1000, // Increased from 400 for more salient details (GPT-5: 128K output)
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 

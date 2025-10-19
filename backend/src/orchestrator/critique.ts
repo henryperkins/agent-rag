@@ -52,7 +52,7 @@ Return ONLY valid JSON matching the schema. Be strict: prefer revise when uncert
       textFormat: CriticSchema,
       parallel_tool_calls: false,
       temperature: 0,
-      max_output_tokens: 300,
+      max_output_tokens: 1500, // Increased from 300 for thorough critique (GPT-5: 128K output)
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 

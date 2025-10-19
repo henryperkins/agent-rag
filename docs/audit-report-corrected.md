@@ -119,29 +119,31 @@
 
 **Priority: HIGH**
 
-- **Incorporate vector compression** during index creation to improve scaling for larger corpora. `backend/src/azure/indexSetup.ts:60`, `searchservice-preview.json:6970`
-  - **Effort**: 3-5 hours (index rebuild required)
-  - **Benefit**: 50-75% storage reduction, 20-30% query latency improvement
-  - **Implementation**:
+- ✅ **Vector compression** - **IMPLEMENTED** (Oct 18, 2025)
+  - **Location**: `backend/src/azure/indexSetup.ts:78-100`
+  - **Implementation**: Scalar quantization with int8 compression, rescoring enabled
+  - **Benefits**: 50-75% storage reduction, 20-30% query latency improvement
+  - **Details**:
     ```typescript
-    // Add to vectorSearch.algorithms
-    {
-      name: 'hnsw_compressed',
-      kind: 'hnsw',
-      hnswParameters: { ... },
-      compressionConfiguration: {
+    compressions: [
+      {
+        name: 'sq_config',
         kind: 'scalarQuantization',
-        scalarQuantizationParameters: {
-          quantizedDataType: 'int8'
-        }
-      }
-    }
+        rerankWithOriginalVectors: true,
+        rescoringOptions: {
+          enableRescoring: true,
+          defaultOversampling: 2,
+          rescoreStorageMethod: 'preserveOriginals',
+        },
+        scalarQuantizationParameters: { quantizedDataType: 'int8' },
+      },
+    ];
     ```
 
 **Priority: MEDIUM**
 
-- **Supply source-level controls** when registering knowledge sources to balance recall vs. latency. `backend/src/azure/indexSetup.ts:272`, `searchservice-preview.json:2574`
-  - **Effort**: 1-2 hours
+- ✅ **Knowledge agent source-level controls** - **IMPLEMENTED** (Oct 18, 2025)
+  - **Location**: `backend/src/azure/indexSetup.ts:295-297`
   - **Implementation**:
     ```typescript
     knowledgeSources: [
@@ -149,8 +151,8 @@
         name: knowledgeSourceName,
         includeReferences: true,
         includeReferenceSourceData: true,
-        maxSubQueries: 3, // ADD
-        alwaysQuerySource: false, // ADD
+        maxSubQueries: 3, // IMPLEMENTED
+        alwaysQuerySource: false, // IMPLEMENTED
       },
     ];
     ```

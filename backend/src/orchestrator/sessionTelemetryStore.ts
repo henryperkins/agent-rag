@@ -163,7 +163,8 @@ function sanitizeEventPayload(event: string, data: unknown): unknown {
       return { ...payload, answer: redactSensitive(payload.answer) };
     }
   }
-  if (event === 'tokens' && data && typeof data === 'object') {
+  // Sanitize both 'tokens' (plural) and 'token' (singular) events for PII protection
+  if ((event === 'tokens' || event === 'token') && data && typeof data === 'object') {
     const payload = data as { content?: string };
     if (typeof payload.content === 'string') {
       return { ...payload, content: redactSensitive(payload.content) };

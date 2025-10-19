@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/azureuser/agent-rag"],
+      "transport": "stdio",
+      "alwaysAllow": ["read_file", "read_text_file", "read_media_file", "read_multiple_files"]
+    }
+  }
+}

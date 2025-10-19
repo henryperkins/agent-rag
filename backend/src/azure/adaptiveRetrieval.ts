@@ -69,7 +69,7 @@ async function assessCoverage(results: Reference[], query: string): Promise<numb
           content: `Question: ${query}\n\nDocuments:\n${documentsPreview}`,
         },
       ],
-      max_output_tokens: 50,
+      max_output_tokens: 300, // Increased from 50 for detailed coverage analysis (GPT-5: 128K output)
       temperature: 0,
       textFormat: {
         type: 'json_schema',
@@ -176,7 +176,7 @@ export async function retrieveWithAdaptiveRefinement(
           content: `Original query: ${query}\n\nCurrent retrieval:\n- Coverage: ${quality.coverage.toFixed(2)} (target: >=${coverageThreshold})\n- Diversity: ${quality.diversity.toFixed(2)} (target: >=${diversityThreshold})\n- Documents retrieved: ${results.references.length}\n\nReformulate to improve retrieval quality.`,
         },
       ],
-      max_output_tokens: 100,
+      max_output_tokens: 500, // Increased from 100 for better query reformulations (GPT-5: 128K output)
       temperature: 0.3,
     });
 

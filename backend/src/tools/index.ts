@@ -348,7 +348,7 @@ export async function answerTool(args: {
       }
     ],
     temperature: rest.temperature ?? 0.3,
-    max_output_tokens: rest.maxTokens ?? 600,
+    max_output_tokens: rest.maxTokens ?? 3000, // Increased from 600 for richer answers (GPT-5: 128K output)
     model: rest.model,
     textFormat: { type: 'text' },
     parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,

@@ -1,7 +1,7 @@
 # Unified Development Roadmap 2025
 
 **Last Updated**: October 18, 2025
-**Current Version**: 2.0.3
+**Current Version**: 2.0.0
 **Status**: Production-Ready with Phase 1 Complete (100%)
 **Next Focus**: Phase 2 Optimizations + MCP Operational Tools
 
@@ -11,7 +11,7 @@
 
 This unified roadmap merges **TODO Phase 2 priorities** with **Azure AI Foundry MCP integration** to maximize ROI while maintaining production stability.
 
-### Current State (v2.0.3)
+### Current State (v2.0.0)
 
 **Production Metrics**:
 
@@ -543,7 +543,7 @@ backend/src/config/app.ts                          (add config flags)
 
 ## Cost Projection Summary
 
-### Current State (v2.0.3)
+### Current State (v2.0.0)
 
 - **Monthly cost**: $150-180 @ 10K requests
 - **Baseline (no optimizations)**: $490/month

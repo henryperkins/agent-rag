@@ -94,7 +94,7 @@ For each document, assign a relevance score (0-1) and optionally identify releva
       ],
       textFormat: CRAGEvaluationSchema,
       temperature: 0.0,
-      max_output_tokens: 500,
+      max_output_tokens: 1500, // Increased from 500 for detailed grading rationale (GPT-5: 128K output)
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 

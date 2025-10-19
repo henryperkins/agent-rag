@@ -162,14 +162,17 @@ function resolveModelDeployment(intent: string, routeConfig: RouteConfig) {
   const envOverride = INTENT_MODEL_ENV_VARS[intent];
   const candidate = routeConfig.model?.trim();
 
+  // Apply env override if present (highest priority)
   if (envOverride && envOverride.trim()) {
-    return candidate || config.AZURE_OPENAI_GPT_DEPLOYMENT;
+    return envOverride.trim();
   }
 
+  // Use route-suggested model if different from default
   if (candidate && candidate !== defaultModel) {
     return candidate;
   }
 
+  // Fallback to default deployment
   return config.AZURE_OPENAI_GPT_DEPLOYMENT;
 }
 
@@ -311,15 +314,15 @@ async function generateAnswer(
       // stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
       textFormat: { type: 'text' },
       truncation: 'auto',
-      store: config.ENABLE_RESPONSE_STORAGE,
+      store: featureStates.ENABLE_RESPONSE_STORAGE ?? config.ENABLE_RESPONSE_STORAGE,
       metadata: {
         sessionId: sessionId ?? '',
         intent: intentHint ?? '',
         routeModel: routeConfig.model ?? ''
       },
       user: sanitizeUserField(sessionId ?? 'unknown'),
-      // Only send previous_response_id when storage is enabled
-      ...(config.ENABLE_RESPONSE_STORAGE && previousResponseId ? { previous_response_id: previousResponseId } : {})
+      // Only send previous_response_id when storage is enabled, using resolved feature flag
+      ...((featureStates.ENABLE_RESPONSE_STORAGE ?? config.ENABLE_RESPONSE_STORAGE) && previousResponseId ? { previous_response_id: previousResponseId } : {})
     });
 
     let answer = '';

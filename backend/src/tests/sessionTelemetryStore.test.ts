@@ -82,6 +82,48 @@ describe('sessionTelemetryStore redaction', () => {
     });
   });
 
+  it('redacts sensitive data in singular token events (SSE streaming)', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-token-singular',
+      mode: 'stream',
+      question: 'How to reach us?'
+    });
+
+    // SSE streaming emits 'token' (singular) events
+    recorder.emit('token', {
+      content: 'Email admin@company.com for'
+    });
+
+    recorder.emit('token', {
+      content: ' billing at 5555-6666-7777-8888'
+    });
+
+    recorder.emit('token', {
+      content: ' or SSN 111-22-3333.'
+    });
+
+    recorder.complete({
+      answer: 'Complete',
+      metadata: {}
+    } as any);
+
+    const [entry] = getSessionTelemetry();
+    const tokenEvents = entry.events.filter((event) => event.event === 'token');
+
+    expect(tokenEvents).toHaveLength(3);
+    expect((tokenEvents[0]?.data as any)?.content).toBe('Email [EMAIL] for');
+    expect((tokenEvents[1]?.data as any)?.content).toBe(' billing at [CARD]');
+    expect((tokenEvents[2]?.data as any)?.content).toBe(' or SSN [SSN].');
+
+    // Verify PII is fully redacted
+    tokenEvents.forEach((evt) => {
+      const content = (evt.data as any)?.content ?? '';
+      expect(content).not.toContain('admin@company.com');
+      expect(content).not.toContain('5555-6666-7777-8888');
+      expect(content).not.toContain('111-22-3333');
+    });
+  });
+
   it('redacts sensitive data in context payloads', () => {
     const recorder = createSessionRecorder({
       sessionId: 'session-3',

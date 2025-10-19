@@ -74,6 +74,32 @@ function sanitizeRequest<T extends Record<string, any>>(body: T) {
   return clone as T;
 }
 
+const TEMPERATURE_UNSUPPORTED_PREFIXES = ['gpt-5', 'o1', 'o3', 'o4'];
+
+function temperatureSupported(model: string | undefined, hasReasoningConfig: boolean) {
+  if (hasReasoningConfig) {
+    return false;
+  }
+  if (!model) {
+    return true;
+  }
+
+  const candidates = new Set<string>();
+  candidates.add(model);
+  if (model === config.AZURE_OPENAI_GPT_DEPLOYMENT) {
+    candidates.add(config.AZURE_OPENAI_GPT_MODEL_NAME);
+  }
+
+  for (const candidate of candidates) {
+    const normalized = candidate.trim().toLowerCase();
+    if (TEMPERATURE_UNSUPPORTED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const headers = await authHeaders();
   const response = await fetch(withQuery(path), {
@@ -252,9 +278,12 @@ export interface ResponsePayload {
 }
 
 export async function createResponse(payload: ResponsePayload): Promise<AzureResponseOutput> {
+  const model = payload.model ?? config.AZURE_OPENAI_GPT_DEPLOYMENT;
+  const temperature = temperatureSupported(model, Boolean(payload.reasoning)) ? payload.temperature : undefined;
+
   const request = sanitizeRequest({
-    model: payload.model ?? config.AZURE_OPENAI_GPT_DEPLOYMENT,
-    temperature: payload.temperature,
+    model,
+    temperature,
     top_p: payload.top_p,
     max_output_tokens: payload.max_output_tokens,
     top_logprobs: payload.top_logprobs,
@@ -291,9 +320,12 @@ export async function createResponse(payload: ResponsePayload): Promise<AzureRes
 
 export async function createResponseStream(payload: ResponsePayload) {
   const headers = await authHeaders();
+  const model = payload.model ?? config.AZURE_OPENAI_GPT_DEPLOYMENT;
+  const temperature = temperatureSupported(model, Boolean(payload.reasoning)) ? payload.temperature : undefined;
+
   const body = sanitizeRequest({
-    model: payload.model ?? config.AZURE_OPENAI_GPT_DEPLOYMENT,
-    temperature: payload.temperature,
+    model,
+    temperature,
     top_p: payload.top_p,
     max_output_tokens: payload.max_output_tokens,
     top_logprobs: payload.top_logprobs,

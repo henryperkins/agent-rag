@@ -20,7 +20,7 @@ export async function critiqueDraft(draft: string, context: string, question: st
       }
     ],
     temperature: 0.0,
-    max_output_tokens: 300,
+    max_output_tokens: 1500, // Increased from 300 for thorough critique reasoning (GPT-5: 128K output)
     textFormat: {
       type: 'json_schema',
       name: 'legacy_critic',

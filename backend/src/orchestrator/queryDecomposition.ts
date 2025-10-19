@@ -77,7 +77,7 @@ export async function assessComplexity(question: string): Promise<ComplexityAsse
     const response = await createResponse({
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.1,
-      max_output_tokens: 150,
+      max_output_tokens: 500, // Increased from 150 for better complexity analysis (GPT-5: 128K output)
       textFormat: COMPLEXITY_SCHEMA,
       parallel_tool_calls: false,
       messages: [
@@ -115,7 +115,7 @@ Rules:
     const response = await createResponse({
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.2,
-      max_output_tokens: 800,
+      max_output_tokens: 2000, // Increased from 800 for more sub-queries (GPT-5: 128K output)
       textFormat: DECOMPOSITION_SCHEMA,
       parallel_tool_calls: false,
       messages: [

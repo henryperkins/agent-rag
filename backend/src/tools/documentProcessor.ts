@@ -2,6 +2,7 @@ import { PDFParse } from 'pdf-parse';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage } from '../../../shared/types.js';
 import { createEmbeddings } from '../azure/openaiClient.js';
+import { getSearchAuthHeaders } from '../azure/directSearch.js';
 import { config } from '../config/app.js';
 
 const CHUNK_SIZE = 1000;
@@ -147,13 +148,11 @@ export async function uploadDocumentsToIndex(documents: Array<Record<string, unk
   }
 
   const endpoint = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/docs/index?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const authHeaders = await getSearchAuthHeaders();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    ...authHeaders
   };
-
-  if (config.AZURE_SEARCH_API_KEY) {
-    headers['api-key'] = config.AZURE_SEARCH_API_KEY;
-  }
 
   const payload = {
     value: documents.map((doc) => ({

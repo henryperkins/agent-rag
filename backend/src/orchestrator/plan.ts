@@ -47,7 +47,7 @@ export async function getPlan(messages: AgentMessage[], context: CompactedContex
       textFormat: PlanSchema,
       parallel_tool_calls: false,
       temperature: 0.2,
-      max_output_tokens: 400,
+      max_output_tokens: 2000, // Increased from 400 for complex query planning (GPT-5: 128K output)
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT
     });
 

@@ -1,7 +1,7 @@
 # Agent-RAG Development Roadmap
 
 **Last Updated**: October 18, 2025
-**Current Version**: 2.0.3
+**Current Version**: 2.0.0
 **Status**: Production-Ready with Phase 1 Complete
 
 ---
@@ -297,9 +297,9 @@ This roadmap consolidates planning information across multiple strategy document
 
 ## Implementation Tracking
 
-### Completed Features (v1.0.0 - v2.0.3)
+### Completed Features (v1.0.0 - v2.0.0)
 
-**v2.0.3** (October 17, 2025):
+**v2.0.0** (October 17, 2025):
 
 - ✅ Phase 1 complete (5 major enhancements)
 - ✅ Adaptive Query Reformulation enabled by default
