@@ -1,8 +1,9 @@
 import type { AppConfig } from './app.js';
 import { config } from './app.js';
+import type { ReasoningConfig } from '../azure/openaiClient.js';
 
 export type ReasoningEffort = 'low' | 'medium' | 'high';
-export type ReasoningSummary = 'auto' | 'concise' | 'detailed';
+export type ReasoningSummary = 'none' | 'auto' | 'concise' | 'detailed';
 
 export interface ReasoningOptions {
   effort?: ReasoningEffort;
@@ -57,7 +58,7 @@ const stageConfigKeys: Record<
   }
 };
 
-export function getReasoningOptions(stage: ReasoningStage): ReasoningOptions | undefined {
+export function getReasoningOptions(stage: ReasoningStage): ReasoningConfig | undefined {
   const keys = stageConfigKeys[stage];
   if (!keys) {
     return undefined;
@@ -69,7 +70,13 @@ export function getReasoningOptions(stage: ReasoningStage): ReasoningOptions | u
   const resolvedEffort = effort ?? config.REASONING_DEFAULT_EFFORT;
   const resolvedSummary = summary ?? config.REASONING_DEFAULT_SUMMARY;
 
-  const options: ReasoningOptions = {};
+  // If summary is explicitly set to 'none', disable reasoning entirely for this stage
+  // This prevents Azure from generating any reasoning output
+  if (resolvedSummary === 'none') {
+    return undefined;
+  }
+
+  const options: ReasoningConfig = {};
   if (resolvedEffort) {
     options.effort = resolvedEffort;
   }

@@ -32,4 +32,5 @@ export type {
 export interface ChatMessage extends SharedAgentMessage {
   id: string;
   citations?: Reference[];
+  kind?: 'thought';
 }

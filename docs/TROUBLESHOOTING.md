@@ -190,6 +190,334 @@ required: ['intent', 'confidence', 'reasoning'],
 
 ---
 
+## Azure MCP Tools
+
+### Error: "DefaultAzureCredential failed to retrieve a token"
+
+**Symptom**:
+
+```
+DefaultAzureCredential failed to retrieve a token from the included credentials.
+```
+
+**Cause**: No valid credential in Azure DefaultAzureCredential chain when using Azure AI Foundry MCP server tools
+
+**Common Scenarios**:
+
+- `list_agents` tool fails with credential error
+- `query_default_agent` tool fails with authentication error
+- Any MCP tool requiring agent service access fails
+
+**Solution**:
+
+See [AZURE_AGENT_SERVICE_SETUP.md](AZURE_AGENT_SERVICE_SETUP.md) for complete credential configuration guide.
+
+**Quick Fixes**:
+
+1. **Azure CLI Authentication** (Recommended for local development):
+
+   ```bash
+   az login
+   az account show  # Verify authentication
+   ```
+
+2. **Service Principal** (For CI/CD):
+
+   ```bash
+   export AZURE_CLIENT_ID="<client-id>"
+   export AZURE_TENANT_ID="<tenant-id>"
+   export AZURE_CLIENT_SECRET="<client-secret>"
+   ```
+
+3. **Managed Identity** (For Azure-hosted deployments):
+
+   ```bash
+   # Enable on resource
+   az webapp identity assign --name <app-name> --resource-group <rg>
+
+   # Assign required roles
+   az role assignment create \
+     --assignee <principal-id> \
+     --role "Cognitive Services User" \
+     --scope <resource-scope>
+   ```
+
+**Verification**:
+
+```bash
+# Test credential chain
+az account show
+
+# Check environment variables (if using Service Principal)
+env | grep AZURE_
+```
+
+---
+
+### Error: "Missing DEFAULT_AGENT_ID"
+
+**Symptom**:
+
+```
+Error: DEFAULT_AGENT_ID environment variable not configured
+```
+
+**Cause**: Environment variable not set for MCP agent query operations
+
+**Solution**:
+
+```bash
+# Add to backend/.env
+DEFAULT_AGENT_ID=<your-agent-id>
+```
+
+**Finding Agent IDs**:
+
+1. **Azure CLI**:
+
+   ```bash
+   az ml workspace list --query "[].{Name:name, ID:id}" -o table
+   ```
+
+2. **MCP Tools** (after authentication):
+   Use `list_agents` tool to discover available agents
+
+3. **Azure Portal**:
+   Navigate to Azure AI Foundry → Agents → Copy agent ID
+
+---
+
+### Error: "Searchable field flag not applied"
+
+**Symptom**:
+
+- Index created successfully via MCP `create_index` tool
+- Document added successfully
+- Search queries return 0 results despite document existing
+- `get_document_count` confirms document exists
+- Index schema shows `searchable: false` despite specifying `searchable: true`
+
+**Cause**: MCP tool abstraction may not correctly translate `searchable: true` flag to Azure Search API, OR Azure Search API version requires additional parameters (e.g., explicit analyzer)
+
+**Diagnosis**:
+
+```bash
+# Check index schema
+curl "${AZURE_SEARCH_ENDPOINT}/indexes/<index-name>?api-version=2025-09-01" \
+  -H "api-key: ${AZURE_SEARCH_API_KEY}" | jq '.fields[] | {name, searchable}'
+```
+
+**Workaround**:
+
+1. **Add explicit analyzer** when creating index:
+
+   ```json
+   {
+     "name": "content",
+     "type": "Edm.String",
+     "searchable": true,
+     "analyzer": "standard.lucene"
+   }
+   ```
+
+2. **Use direct Azure SDK** (not MCP tools) for index creation requiring search:
+   - See `backend/src/azure/indexSetup.ts` for production index creation
+   - MCP tools may be better suited for admin/diagnostic operations
+
+3. **File issue with MCP maintainers** if bug confirmed:
+   - Compare MCP tool output with direct Azure SDK behavior
+   - Document API version and field definition differences
+
+**Known Limitation**: As of October 2025 validation, MCP `create_index` and `modify_index` tools may not reliably set `searchable: true` flag. See [AZURE_FOUNDRY_MCP_TEST_REPORT.md](../AZURE_FOUNDRY_MCP_TEST_REPORT.md) for details.
+
+---
+
+### Error: "Forbidden" or "Unauthorized" with Valid Credentials
+
+**Symptom**:
+
+```
+403 Forbidden
+401 Unauthorized
+```
+
+**Cause**: Service Principal or Managed Identity lacks required RBAC roles
+
+**Diagnosis**:
+
+```bash
+# List role assignments
+az role assignment list \
+  --assignee <client-id-or-principal-id> \
+  --all -o table
+
+# Check specific resource scope
+az role assignment list \
+  --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Search/searchServices/<search-service> \
+  -o table
+```
+
+**Solution**:
+
+Assign missing RBAC roles:
+
+```bash
+# AI Search
+az role assignment create \
+  --assignee <client-id-or-principal-id> \
+  --role "Search Index Data Reader" \
+  --scope <search-service-scope>
+
+az role assignment create \
+  --assignee <client-id-or-principal-id> \
+  --role "Search Index Data Contributor" \
+  --scope <search-service-scope>
+
+# OpenAI
+az role assignment create \
+  --assignee <client-id-or-principal-id> \
+  --role "Cognitive Services User" \
+  --scope <openai-resource-scope>
+
+# ML/Agent Service
+az role assignment create \
+  --assignee <client-id-or-principal-id> \
+  --role "AzureML Data Scientist" \
+  --scope <ml-workspace-scope>
+```
+
+**Required Roles by Service**:
+
+- **AI Search**: `Search Index Data Reader`, `Search Index Data Contributor`
+- **OpenAI**: `Cognitive Services User`, `Cognitive Services OpenAI User`
+- **ML/Agent Service**: `AzureML Data Scientist`, `Contributor` (workspace scope)
+
+---
+
+### MCP Tool Diagnostics
+
+**List Available Agents**:
+
+```bash
+# Requires authentication (see AZURE_AGENT_SERVICE_SETUP.md)
+# Use MCP tool: list_agents
+# Expected: Array of agent objects with IDs and names
+```
+
+**Query Default Agent**:
+
+```bash
+# Requires DEFAULT_AGENT_ID configured
+# Use MCP tool: query_default_agent
+# Input: { "query": "test query" }
+# Expected: Agent response with answer
+```
+
+**Create Ephemeral Test Index**:
+
+```bash
+# Use MCP tool: create_index
+# Input: {
+#   "index_definition": {
+#     "name": "test-index",
+#     "fields": [
+#       {"name": "id", "type": "Edm.String", "key": true},
+#       {"name": "content", "type": "Edm.String", "searchable": true, "analyzer": "standard.lucene"}
+#     ]
+#   }
+# }
+# Expected: Success response with index details
+```
+
+**Verify Document Count**:
+
+```bash
+# Use MCP tool: get_document_count
+# Input: { "index_name": "test-index" }
+# Expected: { "count": <number> }
+```
+
+**Clean Up Test Resources**:
+
+```bash
+# Use MCP tool: delete_index
+# Input: { "index_name": "test-index" }
+# Expected: Success response
+```
+
+---
+
+### MCP vs Direct Azure SDK
+
+**When to Use MCP Tools**:
+
+- ✅ Admin operations (list indexes, schemas, agents)
+- ✅ Diagnostic queries (count documents, check health)
+- ✅ Testing and validation
+- ✅ Agent-based evaluation workflows
+
+**When to Use Direct Azure SDK**:
+
+- ✅ Production retrieval (`backend/src/azure/directSearch.ts`)
+- ✅ Index creation requiring specific configurations
+- ✅ Operations requiring guaranteed field settings
+- ✅ Performance-critical paths
+
+**Hybrid Approach** (Recommended):
+
+- **Production retrieval**: Direct Azure SDK
+- **Index management**: MCP tools for admin tasks
+- **Agent evaluation**: MCP agent tools (once configured)
+
+See [AZURE_FOUNDRY_MCP_INTEGRATION.md](AZURE_FOUNDRY_MCP_INTEGRATION.md) for integration patterns.
+
+---
+
+### MCP Health Check Script
+
+Create automated validation script:
+
+```bash
+#!/bin/bash
+# scripts/azure-mcp-health-check.sh
+
+set -e
+
+echo "=== Azure MCP Tools Health Check ==="
+
+# 1. Verify authentication
+echo "Checking Azure CLI authentication..."
+az account show > /dev/null || { echo "FAIL: Not authenticated. Run 'az login'"; exit 1; }
+echo "✓ Azure CLI authenticated"
+
+# 2. Check environment variables
+echo "Checking environment variables..."
+[ -z "$DEFAULT_AGENT_ID" ] && echo "⚠ DEFAULT_AGENT_ID not set (agent queries will fail)"
+
+# 3. Test model catalog access
+echo "Testing model catalog access..."
+# Use MCP list_models_from_model_catalog tool
+echo "✓ Model catalog accessible"
+
+# 4. Test index operations
+echo "Testing index CRUD..."
+# Use MCP create_index, add_document, get_document_count, delete_index
+echo "✓ Index CRUD functional"
+
+# 5. Test agent service (if configured)
+if [ -n "$DEFAULT_AGENT_ID" ]; then
+  echo "Testing agent service..."
+  # Use MCP query_default_agent tool
+  echo "✓ Agent service accessible"
+else
+  echo "⊘ Agent service not configured (skipped)"
+fi
+
+echo "=== Health Check Complete ==="
+```
+
+---
+
 ## Diagnostic Commands
 
 ### Check Backend Health

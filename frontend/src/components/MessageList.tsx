@@ -42,13 +42,23 @@ export function MessageList({ messages, streamingAnswer, isStreaming, citations 
       {combined.map((message, index) => (
         <div
           key={message.id ?? `${message.role}-${index}`}
-          className={clsx('message', `message-${message.role}`)}
+          className={clsx('message', `message-${message.role}`, {
+            'message-thought': message.kind === 'thought'
+          })}
         >
           <div className="message-avatar">
-            {message.role === 'assistant' ? '🤖' : message.role === 'user' ? '👤' : '🛠️'}
+            {message.kind === 'thought'
+              ? '💭'
+              : message.role === 'assistant'
+                ? '🤖'
+                : message.role === 'user'
+                  ? '👤'
+                  : '🛠️'}
           </div>
           <div className="message-body">
-            <div className="message-role">{message.role}</div>
+            <div className="message-role">
+              {message.kind === 'thought' ? 'Thought' : message.role}
+            </div>
             <div className="message-content">
               {message.role === 'assistant' ? (
                 <RichMessageContent

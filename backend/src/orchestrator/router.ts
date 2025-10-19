@@ -114,13 +114,14 @@ export async function classifyIntent(
 Return strict JSON matching the provided schema.`;
 
   try {
+    const reasoningConfig = getReasoningOptions('intent');
     const response = await createResponse({
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       temperature: 0.1,
       max_output_tokens: config.INTENT_CLASSIFIER_MAX_TOKENS,
       textFormat: INTENT_CLASSIFICATION_SCHEMA,
       parallel_tool_calls: false,
-      reasoning: getReasoningOptions('intent'),
+      reasoning: reasoningConfig,
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -137,7 +138,8 @@ Return strict JSON matching the provided schema.`;
     const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
     const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : 'No reasoning provided';
 
-    const summaries = extractReasoningSummary(response);
+    // Only extract reasoning summaries if reasoning config is enabled
+    const summaries = reasoningConfig ? extractReasoningSummary(response) : undefined;
 
     return { intent, confidence, reasoning, summaries };
   } catch (error) {

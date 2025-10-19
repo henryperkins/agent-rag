@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { ChatInput } from './components/ChatInput';
@@ -14,6 +14,7 @@ import { TelemetryDrawer } from './components/TelemetryDrawer';
 import { useChat } from './hooks/useChat';
 import { useChatStream } from './hooks/useChatStream';
 import type {
+  ActivityStep,
   AgentMessage,
   ChatMessage,
   Citation,
@@ -53,6 +54,21 @@ function toChatMessage(message: AgentMessage, citations?: Citation[]): ChatMessa
 
 function toAgentMessages(messages: ChatMessage[]): AgentMessage[] {
   return messages.map(({ role, content }) => ({ role, content }));
+}
+
+function activityStepKey(step: ActivityStep): string {
+  return `${step.type}:${step.timestamp ?? step.description}`;
+}
+
+function toThoughtMessage(step: ActivityStep): ChatMessage {
+  const text = (step.description ?? '').trim();
+  const content = text.startsWith('💭') ? text : `💭 ${text}`;
+  return {
+    id: createMessageId(),
+    role: 'assistant',
+    content,
+    kind: 'thought'
+  };
 }
 
 const FEATURE_FLAGS: FeatureFlag[] = [
@@ -131,6 +147,7 @@ function ChatApp() {
     loadStoredFeatureSelections(sessionId)
   );
   const [featureSources, setFeatureSources] = useState<Partial<Record<FeatureFlag, FeatureSource>>>({});
+  const seenInsightKeys = useRef<Set<string>>(new Set());
 
   const chatMutation = useChat();
   const stream = useChatStream();
@@ -184,6 +201,33 @@ function ChatApp() {
     [persistFeatureSelections]
   );
 
+  const appendInsightSteps = useCallback(
+    (steps: ActivityStep[] | undefined) => {
+      if (!steps || steps.length === 0) {
+        return;
+      }
+      setMessages((prev) => {
+        let next: ChatMessage[] | undefined;
+        for (const step of steps) {
+          if (step.type !== 'insight') {
+            continue;
+          }
+          const key = activityStepKey(step);
+          if (seenInsightKeys.current.has(key)) {
+            continue;
+          }
+          seenInsightKeys.current.add(key);
+          if (!next) {
+            next = [...prev];
+          }
+          next.push(toThoughtMessage(step));
+        }
+        return next ?? prev;
+      });
+    },
+    [setMessages]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -199,6 +243,7 @@ function ChatApp() {
 
         const data = (await response.json()) as { messages?: AgentMessage[] };
         if (!cancelled && Array.isArray(data.messages)) {
+          seenInsightKeys.current.clear();
           setMessages(data.messages.map((message) => toChatMessage(message)));
         }
       } catch (error) {
@@ -250,6 +295,7 @@ function ChatApp() {
       sessionId,
       feature_overrides: featureSelections
     });
+    appendInsightSteps(response.activity);
     setMessages((prev) => [
       ...prev,
       toChatMessage({ role: 'assistant', content: response.answer }, response.citations)
@@ -257,16 +303,19 @@ function ChatApp() {
     applyFeatureMetadata(response.metadata?.features);
   };
 
-  const sidebar = useMemo(
-    () => ({
+  const sidebar = useMemo(() => {
+    const rawActivity =
+      mode === 'stream'
+        ? stream.activity
+        : chatMutation.data?.activity ?? [];
+    const filteredActivity = rawActivity.filter((step) => step.type !== 'insight');
+
+    return {
       citations:
         mode === 'stream'
           ? stream.citations
           : chatMutation.data?.citations ?? [],
-      activity:
-        mode === 'stream'
-          ? stream.activity
-          : chatMutation.data?.activity ?? [],
+      activity: filteredActivity,
       status:
         mode === 'stream'
           ? stream.status
@@ -274,9 +323,8 @@ function ChatApp() {
             ? 'loading'
             : 'idle',
       critique: mode === 'stream' ? stream.critique : undefined
-    }),
-    [mode, stream, chatMutation.data, chatMutation.isPending]
-  );
+    };
+  }, [mode, stream, chatMutation.data, chatMutation.isPending]);
 
   const isBusy =
     chatMutation.isPending || stream.isStreaming || sidebar.status === 'starting' || loadingHistory;
@@ -308,6 +356,13 @@ function ChatApp() {
   const responsesDetails = mode === 'stream' ? stream.responses : chatMutation.data?.metadata?.responses;
   const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
   const featureMetadata = mode === 'stream' ? stream.features : chatMutation.data?.metadata?.features;
+
+  useEffect(() => {
+    if (mode !== 'stream') {
+      return;
+    }
+    appendInsightSteps(stream.insights);
+  }, [mode, stream.insights, appendInsightSteps]);
 
   const [telemetryOpen, setTelemetryOpen] = useState(false);
 

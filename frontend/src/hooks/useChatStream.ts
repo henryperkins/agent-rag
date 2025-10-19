@@ -34,6 +34,7 @@ interface StreamState {
   answer: string;
   citations: Citation[];
   activity: ActivityStep[];
+  insights: ActivityStep[];
   statusHistory: StatusHistoryItem[];
   critique?: { score?: number; reasoning?: string; action?: string };
   critiqueHistory: CritiqueAttempt[];
@@ -118,21 +119,25 @@ export function useChatStream() {
     answer: '',
     citations: [],
     activity: [],
+    insights: [],
     statusHistory: [],
     critiqueHistory: [],
     telemetry: {},
     evaluation: undefined
   });
   const controllerRef = useRef<AbortController | null>(null);
+  const insightIdsRef = useRef<Set<string>>(new Set());
 
   const reset = useCallback(() => {
     controllerRef.current?.abort();
+    insightIdsRef.current.clear();
     setState({
       isStreaming: false,
       status: 'idle',
       answer: '',
       citations: [],
       activity: [],
+      insights: [],
       statusHistory: [],
       critiqueHistory: [],
       telemetry: {},
@@ -212,7 +217,32 @@ export function useChatStream() {
                   setState((prev) => ({ ...prev, citations: finalCitations }));
                   break;
                 case 'activity':
-                  setState((prev) => ({ ...prev, activity: data.steps ?? [] }));
+                  setState((prev) => {
+                    const incomingSteps: ActivityStep[] = Array.isArray(data.steps) ? data.steps : [];
+                    if (!incomingSteps.length) {
+                      return prev;
+                    }
+
+                    const newInsights: ActivityStep[] = [];
+                    const nonInsights = incomingSteps.filter((step) => {
+                      if (step.type === 'insight') {
+                        const key = `${step.type}:${step.timestamp ?? step.description}`;
+                        if (!insightIdsRef.current.has(key)) {
+                          insightIdsRef.current.add(key);
+                          newInsights.push(step);
+                        }
+                        return false;
+                      }
+                      return true;
+                    });
+
+                    const nextActivity = nonInsights.length ? nonInsights : prev.activity;
+                    return {
+                      ...prev,
+                      activity: nextActivity,
+                      insights: newInsights.length ? [...prev.insights, ...newInsights] : prev.insights
+                    };
+                  });
                   break;
                 case 'critique':
                   setState((prev) => ({
