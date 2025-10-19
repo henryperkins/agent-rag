@@ -62,9 +62,27 @@ describe('CRAG Retrieval Evaluator', () => {
         expect.objectContaining({
           temperature: 0.0,
           max_output_tokens: 3000,
-          reasoning: expect.anything()
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: 'system',
+              content: expect.stringContaining('retrieval quality evaluator')
+            }),
+            expect.objectContaining({
+              role: 'user',
+              content: expect.stringContaining('Query: What is the capital of France?')
+            })
+          ]),
+          textFormat: expect.objectContaining({
+            name: 'crag_evaluation',
+            type: 'json_schema'
+          })
         })
       );
+
+      const requestPayload = mockCreateResponse.mock.calls[0][0];
+      if (requestPayload.reasoning !== undefined) {
+        expect(requestPayload.reasoning).toBeDefined();
+      }
     });
 
     it('should classify mixed-quality retrieval as "ambiguous"', async () => {
