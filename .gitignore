@@ -67,6 +67,9 @@ BACKUP_*
 /*DOCUMENTATION*.md
 Thumbs.db
 
+# Configuration files with sensitive data
+AZURE_AGENT_SERVICE_SETUP.md
+
 # Screenshots and temp images (use docs/images/ for committed images)
 IMG_*.jpg
 IMG_*.JPG
