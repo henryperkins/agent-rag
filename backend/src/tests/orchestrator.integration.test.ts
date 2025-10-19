@@ -40,6 +40,7 @@ vi.mock('../orchestrator/plan.js', () => ({
 }));
 
 vi.mock('../azure/openaiClient.js', () => ({
+  createResponse: vi.fn(),
   createResponseStream: vi.fn(),
   createEmbeddings: vi.fn()
 }));
@@ -65,8 +66,10 @@ beforeEach(() => {
   toolMocks.webSearch.mockReset();
   toolMocks.answer.mockReset();
   toolMocks.critic.mockReset();
+  (openaiClient.createResponse as unknown as Mock).mockReset();
   (openaiClient.createResponseStream as unknown as Mock).mockReset();
   (openaiClient.createEmbeddings as unknown as Mock).mockReset();
+  (openaiClient.createResponse as unknown as Mock).mockResolvedValue({ id: 'mock-response', output_text: '{}' });
   clearSessionTelemetry();
   sessionStore.clearAll();
 });
