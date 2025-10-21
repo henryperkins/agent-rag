@@ -1,4 +1,4 @@
-import { generateEmbedding } from '../azure/directSearch.js';
+import { embedTexts } from '../utils/embeddings.js';
 import type { WebResult, Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 
@@ -60,52 +60,32 @@ export async function filterWebResults(
 
   // Cache query embedding (computed once)
   let queryEmbedding: number[] | null = null;
-  try {
-    queryEmbedding = await generateEmbedding(query);
-  } catch {
-    // Continue without relevance scoring
-  }
-
-  // Cache KB embeddings (computed once per KB doc, max 5)
   const kbEmbeddings = new Map<string, number[]>();
-  if (kbResults.length > 0) {
-    await Promise.all(
-      kbResults.slice(0, 5).map(async (ref) => {
-        const content = ref.content?.slice(0, 500) ?? '';
-        if (!content) return;
-        try {
-          const embedding = await generateEmbedding(content);
-          kbEmbeddings.set(ref.id ?? '', embedding);
-        } catch {
-          // Skip this KB doc
-        }
-      })
-    );
-  }
+  const snippets = results.map((r) => r.snippet);
+  const knowledgeBaseSamples = kbResults.slice(0, 5).map((ref) => ref.content?.slice(0, 500) ?? '').filter(Boolean);
 
-  // Score all results with cached embeddings
-  const scored = await Promise.all(
-    results.map(async (result) => {
+  try {
+    // Embed query, snippets, and KB samples as a single batch
+    const texts = [query, ...snippets, ...knowledgeBaseSamples];
+    const vectors = await embedTexts(texts, config.WEB_EMBEDDING_BATCH_SIZE ?? 16);
+
+    queryEmbedding = vectors[0];
+    const snippetEmbeddings = vectors.slice(1, 1 + snippets.length);
+    const kbVectors = vectors.slice(1 + snippets.length);
+    kbVectors.forEach((vector, index) => {
+      kbEmbeddings.set(`kb-${index}`, vector);
+    });
+
+    const scored = results.map((result, idx) => {
       const authority = scoreAuthority(result.url);
+      const snippetEmbedding = snippetEmbeddings[idx];
 
-      // Compute snippet embedding once per result
-      let snippetEmbedding: number[] | null = null;
-      try {
-        snippetEmbedding = await generateEmbedding(result.snippet);
-      } catch {
-        // Continue without embedding-based scores
-      }
-
-      // Calculate redundancy using cached KB embeddings
       let redundancy = 0;
       if (snippetEmbedding && kbEmbeddings.size > 0) {
-        const similarities = Array.from(kbEmbeddings.values()).map((kbEmb) =>
-          cosineSimilarity(snippetEmbedding!, kbEmb)
-        );
+        const similarities = Array.from(kbEmbeddings.values()).map((kbEmb) => cosineSimilarity(snippetEmbedding, kbEmb));
         redundancy = Math.max(...similarities, 0);
       }
 
-      // Calculate relevance using cached query embedding
       let relevance = 0.5;
       if (queryEmbedding && snippetEmbedding) {
         relevance = cosineSimilarity(queryEmbedding, snippetEmbedding);
@@ -113,25 +93,43 @@ export async function filterWebResults(
 
       const overall = authority * 0.3 + (1 - redundancy) * 0.3 + relevance * 0.4;
       const score: QualityScore = { authority, redundancy, relevance, overall };
-      const resultId = result.id ?? result.url;
-      scores.set(resultId, score);
+      scores.set(result.id ?? result.url, score);
       return { result, score };
-    })
-  );
+    });
 
-  const minAuthority = config.WEB_MIN_AUTHORITY ?? 0.3;
-  const maxRedundancy = config.WEB_MAX_REDUNDANCY ?? 0.9;
-  const minRelevance = config.WEB_MIN_RELEVANCE ?? 0.3;
+    const minAuthority = config.WEB_MIN_AUTHORITY ?? 0.3;
+    const maxRedundancy = config.WEB_MAX_REDUNDANCY ?? 0.9;
+    const minRelevance = config.WEB_MIN_RELEVANCE ?? 0.3;
 
-  const filtered = scored.filter(
-    (s) => s.score.authority > minAuthority && s.score.redundancy < maxRedundancy && s.score.relevance > minRelevance
-  );
+    const filtered = scored.filter(
+      (s) => s.score.authority > minAuthority && s.score.redundancy < maxRedundancy && s.score.relevance > minRelevance
+    );
 
-  const sorted = filtered.sort((a, b) => b.score.overall - a.score.overall).map((s) => s.result);
+    const sorted = filtered.sort((a, b) => b.score.overall - a.score.overall).map((s) => s.result);
 
-  return {
-    filtered: sorted,
-    removed: results.length - sorted.length,
-    scores
-  };
+    return {
+      filtered: sorted,
+      removed: results.length - sorted.length,
+      scores
+    };
+  } catch (error) {
+    console.warn('Web quality scoring degraded to authority-only mode due to embedding failure:', error);
+
+    const scored = results.map((result) => {
+      const authority = scoreAuthority(result.url);
+      const score: QualityScore = { authority, redundancy: 0, relevance: 0.5, overall: authority };
+      scores.set(result.id ?? result.url, score);
+      return { result, score };
+    });
+
+    const minAuthority = config.WEB_MIN_AUTHORITY ?? 0.3;
+    const filtered = scored.filter((s) => s.score.authority > minAuthority);
+    const sorted = filtered.sort((a, b) => b.score.overall - a.score.overall).map((s) => s.result);
+
+    return {
+      filtered: sorted,
+      removed: results.length - sorted.length,
+      scores
+    };
+  }
 }

@@ -3,15 +3,23 @@ import { config as loadEnv } from 'dotenv';
 
 loadEnv();
 
+const SEARCH_SERVICE_PREVIEW_VERSION = '2025-08-01-preview' as const;
+const azureSearchPreviewSchema = z
+  .string()
+  .default(SEARCH_SERVICE_PREVIEW_VERSION)
+  .refine((value) => value === SEARCH_SERVICE_PREVIEW_VERSION, {
+    message: `Azure Search API version must be ${SEARCH_SERVICE_PREVIEW_VERSION} to match searchservice-preview.json`
+  });
+
 const envSchema = z.object({
   PROJECT_NAME: z.string().default('agentic-azure-chat'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(8787),
 
   AZURE_SEARCH_ENDPOINT: z.string().url(),
-  AZURE_SEARCH_API_VERSION: z.string().default('2025-10-01-preview'),
-  AZURE_SEARCH_MANAGEMENT_API_VERSION: z.string().default('2025-10-01-preview'),
-  AZURE_SEARCH_DATA_PLANE_API_VERSION: z.string().default('2025-08-01-preview'),
+  AZURE_SEARCH_API_VERSION: azureSearchPreviewSchema,
+  AZURE_SEARCH_MANAGEMENT_API_VERSION: azureSearchPreviewSchema,
+  AZURE_SEARCH_DATA_PLANE_API_VERSION: azureSearchPreviewSchema,
   AZURE_SEARCH_INDEX_NAME: z.string().default('earth_at_night'),
   AZURE_SEARCH_API_KEY: z.string().optional(),
   AZURE_KNOWLEDGE_AGENT_NAME: z.string().default('earth-knowledge-agent'),
@@ -47,6 +55,9 @@ const envSchema = z.object({
   WEB_CONTEXT_MAX_TOKENS: z.coerce.number().default(30000), // Increased from 8000 (GPT-5: 272K input)
   WEB_RESULTS_MAX: z.coerce.number().default(15), // Increased from 6
   WEB_SEARCH_MODE: z.enum(['summary', 'full']).default('full'),
+  WEB_SAFE_MODE: z.enum(['off', 'active', 'high']).default('off'),
+  WEB_DEFAULT_RECENCY: z.string().default(''),
+  WEB_EMBEDDING_BATCH_SIZE: z.coerce.number().default(16),
 
   CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(40000), // Increased from 1800 (GPT-5: 272K input)
   CONTEXT_SUMMARY_TOKEN_CAP: z.coerce.number().default(10000), // Increased from 600

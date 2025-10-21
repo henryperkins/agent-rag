@@ -2,6 +2,11 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { SearchIndexClient } from '@azure/search-documents';
 import { config } from '../src/config/app.js';
 
+const buildAgentUrl = (apiVersion: string): string => {
+  const encodedName = encodeURIComponent(config.AZURE_KNOWLEDGE_AGENT_NAME);
+  return `${config.AZURE_SEARCH_ENDPOINT}/agents('${encodedName}')?api-version=${apiVersion}`;
+};
+
 async function deleteKnowledgeAgent() {
   const credential = new DefaultAzureCredential();
   const tokenResponse = await credential.getToken('https://search.azure.com/.default');
@@ -11,7 +16,7 @@ async function deleteKnowledgeAgent() {
     return;
   }
 
-  const url = `${config.AZURE_SEARCH_ENDPOINT}/agents/${config.AZURE_KNOWLEDGE_AGENT_NAME}?api-version=${config.AZURE_SEARCH_MANAGEMENT_API_VERSION}`;
+  const url = buildAgentUrl(config.AZURE_SEARCH_MANAGEMENT_API_VERSION);
   let response = await fetch(url, {
     method: 'DELETE',
     headers: {
@@ -26,7 +31,7 @@ async function deleteKnowledgeAgent() {
       /api-version/i.test(errorText ?? '') &&
       config.AZURE_SEARCH_DATA_PLANE_API_VERSION !== config.AZURE_SEARCH_MANAGEMENT_API_VERSION
     ) {
-      const fallbackUrl = `${config.AZURE_SEARCH_ENDPOINT}/agents/${config.AZURE_KNOWLEDGE_AGENT_NAME}?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+      const fallbackUrl = buildAgentUrl(config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
       response = await fetch(fallbackUrl, {
         method: 'DELETE',
         headers: {

@@ -1,13 +1,18 @@
 import { config } from '../config/app.js';
 import { getSearchAuthHeaders } from './directSearch.js';
 
+const buildIndexStatsUrl = (indexName: string): string => {
+  const encodedName = encodeURIComponent(indexName);
+  return `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedName}')/search.stats?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+};
+
 // Types derived from searchservice-preview.json
 export interface ResourceCounter {
   usage: number;
   quota?: number | null;
 }
 
-// Matches 2025-09-01 REST wire schema (field names on the wire)
+// Matches 2025-08-01-preview REST wire schema (field names on the wire)
 export interface ServiceStatistics {
   counters: {
     // aliasesCount appears in API but not always present in examples
@@ -56,7 +61,7 @@ export async function getServiceStats(): Promise<ServiceStatistics> {
 }
 
 export async function getIndexStats(indexName = config.AZURE_SEARCH_INDEX_NAME): Promise<IndexStatistics> {
-  const url = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${encodeURIComponent(indexName)}/search.stats?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const url = buildIndexStatsUrl(indexName);
   const headers = await getSearchAuthHeaders();
 
   const res = await fetch(url, { headers });

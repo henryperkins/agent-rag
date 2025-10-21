@@ -322,7 +322,7 @@ export class SearchQueryBuilder {
       }];
 
       // filterMode is only available in preview API versions (2024-11-01-preview+)
-      // Skip for stable versions like 2025-09-01 to avoid 400 errors
+      // Skip when using GA contracts; stack pins to 2025-08-01-preview to avoid 400 errors
       // if (this.options.vectorFilterMode) {
       //   payload.vectorQueries[0].filterMode = this.options.vectorFilterMode;
       // }
@@ -360,7 +360,8 @@ export async function executeSearch(
   indexName: string,
   queryBuilder: SearchQueryBuilder
 ): Promise<SearchResponse> {
-  const url = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${indexName}/docs/search?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const encodedIndexName = encodeURIComponent(indexName);
+  const url = `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedIndexName}')/docs/search?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
 
   const authHeaders = await getSearchAuthHeaders();
   const headers: Record<string, string> = {

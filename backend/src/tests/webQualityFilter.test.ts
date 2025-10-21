@@ -2,18 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { filterWebResults } from '../tools/webQualityFilter.js';
 import type { WebResult, Reference } from '../../../shared/types.js';
 
-vi.mock('../azure/directSearch.js', () => ({
-  generateEmbedding: vi.fn((text: string) => {
-    const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return Promise.resolve(Array(10).fill(0).map((_, i) => (hash + i) / 1000));
-  })
+vi.mock('../utils/embeddings.js', () => ({
+  embedTexts: vi.fn(async (texts: string[]) =>
+    texts.map((text, index) => {
+      const hash = text.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      return Array(10).fill(0).map((_, i) => (hash + index + i) / 1000);
+    })
+  )
 }));
 
 vi.mock('../config/app.js', () => ({
   config: {
     WEB_MIN_AUTHORITY: 0.3,
     WEB_MAX_REDUNDANCY: 0.9,
-    WEB_MIN_RELEVANCE: 0.3
+    WEB_MIN_RELEVANCE: 0.3,
+    WEB_EMBEDDING_BATCH_SIZE: 8
   }
 }));
 

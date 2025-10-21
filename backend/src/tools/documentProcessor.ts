@@ -1,9 +1,13 @@
-import { PDFParse } from 'pdf-parse';
+import * as pdfParseModule from 'pdf-parse';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage } from '../../../shared/types.js';
-import { createEmbeddings } from '../azure/openaiClient.js';
 import { getSearchAuthHeaders } from '../azure/directSearch.js';
 import { config } from '../config/app.js';
+import { embedTexts } from '../utils/embeddings.js';
+import { withRetry } from '../utils/resilience.js';
+
+// Handle CommonJS module in ESM context
+const pdfParse = (pdfParseModule as any).default || pdfParseModule;
 
 const CHUNK_SIZE = 1000;
 const CHUNK_OVERLAP = 200;
@@ -66,23 +70,8 @@ function chunkText(text: string, pageNumber: number): DocumentChunk[] {
 }
 
 export async function processPDF(buffer: Buffer, filename: string): Promise<ProcessedDocument> {
-  const parser = new PDFParse({ data: buffer });
-  let pageTexts: string[] = [];
-
-  try {
-    const textResult = await parser.getText();
-    if (Array.isArray(textResult.pages) && textResult.pages.length) {
-      pageTexts = textResult.pages.map((page: { text?: string }) => page.text ?? '');
-    } else if (typeof textResult.text === 'string') {
-      pageTexts = textResult.text.split('\f');
-    }
-  } finally {
-    await parser.destroy();
-  }
-
-  if (!pageTexts.length) {
-    pageTexts = [''];
-  }
+  const { text = '' } = await pdfParse(buffer);
+  const pageTexts = text ? text.split('\f') : [''];
 
   const chunks: DocumentChunk[] = [];
 
@@ -115,12 +104,19 @@ export async function buildAzureDocuments(doc: ProcessedDocument) {
   for (let offset = 0; offset < doc.chunks.length; offset += EMBEDDING_BATCH_SIZE) {
     const batch = doc.chunks.slice(offset, offset + EMBEDDING_BATCH_SIZE);
     const texts = batch.map((chunk) => chunk.content);
-    // Create embeddings for the batch
-    const response = await createEmbeddings(texts);
-    const embeddings = response.data.map((item) => item.embedding);
+    const embeddings = await embedTexts(texts, EMBEDDING_BATCH_SIZE);
+
+    if (embeddings.length !== batch.length) {
+      throw new Error(`Embedding count mismatch: expected ${batch.length}, received ${embeddings.length}`);
+    }
 
     batch.forEach((chunk, idx) => {
       const embedding = embeddings[idx];
+      if (!Array.isArray(embedding)) {
+        console.warn(`[EMBEDDING_SKIPPED] Invalid embedding for chunk ${chunk.id}; skipping.`);
+        return;
+      }
+
       results.push({
         id: `${doc.id}_chunk_${chunk.page}_${chunk.chunkIndex}`,
         document_id: doc.id,
@@ -147,32 +143,46 @@ export async function uploadDocumentsToIndex(documents: Array<Record<string, unk
     return null;
   }
 
-  const endpoint = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/docs/index?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const encodedIndexName = encodeURIComponent(config.AZURE_SEARCH_INDEX_NAME);
+  const endpoint = `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedIndexName}')/docs/index?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
   const authHeaders = await getSearchAuthHeaders();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...authHeaders
   };
 
-  const payload = {
-    value: documents.map((doc) => ({
-      '@search.action': 'mergeOrUpload',
-      ...doc
-    }))
-  };
+  const results: unknown[] = [];
+  const batchSize = 100;
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload)
-  });
+  for (let offset = 0; offset < documents.length; offset += batchSize) {
+    const batch = documents.slice(offset, offset + batchSize);
+    const payload = {
+      value: batch.map((doc) => ({
+        '@search.action': 'mergeOrUpload',
+        ...doc
+      }))
+    };
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Failed to upload documents: ${response.status} ${errorText}`);
+    const result = await withRetry('upload-index-batch', async (signal) => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to upload documents: ${response.status} ${errorText}`);
+      }
+
+      return response.json();
+    });
+
+    results.push(result);
   }
 
-  return response.json();
+  return results;
 }
 
 export function buildTranscriptMessages(doc: ProcessedDocument): AgentMessage[] {

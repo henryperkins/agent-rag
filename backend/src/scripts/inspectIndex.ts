@@ -15,8 +15,10 @@ async function inspectIndexConfiguration(): Promise<void> {
   console.log(`Index Name: ${config.AZURE_SEARCH_INDEX_NAME}`);
   console.log(`Endpoint: ${config.AZURE_SEARCH_ENDPOINT}\n`);
 
+  const encodedIndexName = encodeURIComponent(config.AZURE_SEARCH_INDEX_NAME);
+
   // Get index schema
-  const indexUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const indexUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedIndexName}')?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
   const authHeaders = await getSearchAuthHeaders();
 
   try {
@@ -86,7 +88,7 @@ async function inspectIndexConfiguration(): Promise<void> {
 
     // Get index statistics
     console.log('\n=== Index Statistics ===');
-    const statsUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/stats?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+    const statsUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedIndexName}')/search.stats?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
     const statsResponse = await fetch(statsUrl, {
       method: 'GET',
       headers: authHeaders
@@ -103,7 +105,7 @@ async function inspectIndexConfiguration(): Promise<void> {
     const testQuery = 'earth night lights NASA';
     console.log(`Query: "${testQuery}"\n`);
 
-    const searchUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+    const searchUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedIndexName}')/docs/search?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
 
     const searchPayload = {
       search: testQuery,

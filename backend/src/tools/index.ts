@@ -10,10 +10,10 @@ import { getReasoningOptions } from '../config/reasoning.js';
 import type {
   ActivityStep,
   AdaptiveRetrievalStats,
-  AgentMessage,
   Reference,
   LazyReference,
-  FeatureOverrideMap
+  FeatureOverrideMap,
+  AgenticRetrievalResponse
 } from '../../../shared/types.js';
 import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 import { sanitizeUserField } from '../utils/session.js';
@@ -75,13 +75,22 @@ export const toolSchemas = {
 
 /**
  * Direct Azure AI Search retrieval tool
- * Uses hybrid semantic search with full control over query parameters
+ *
+ * IMPORTANT: This performs DIRECT INDEX SEARCH using hybrid semantic search.
+ * It does NOT use Azure Knowledge Agent endpoints or pass conversational context.
+ *
+ * For knowledge-agent retrieval with full chat history, a separate implementation
+ * would be needed that:
+ * 1. Builds an "activity" array from role-tagged conversation messages
+ * 2. Calls the knowledge agent endpoint with the activity array
+ * 3. Targets a specific knowledge source/namespace
+ *
+ * Uses hybrid semantic search with full control over query parameters.
  */
 export async function retrieveTool(args: {
   query: string;
   filter?: string;
   top?: number;
-  messages?: AgentMessage[];
   features?: FeatureOverrideMap;
 }) {
   const { query, filter, top, features } = args;
@@ -176,7 +185,7 @@ export async function retrieveTool(args: {
   };
 
   try {
-    return await withRetry('direct-search', async () => {
+    return await withRetry('direct-search', async (_signal) => {
       if (enableFederation) {
         try {
           const federated = await federatedSearch(query, {
@@ -455,6 +464,12 @@ export async function answerTool(args: {
 
   const responseId = (response as { id?: string } | undefined)?.id;
   const reasoningSummary = extractReasoningSummary(response);
+  const hasCitations = Array.isArray(args.citations) && args.citations.length > 0;
+  if (hasCitations && !/\[\d+\]/.test(answer)) {
+    answer = 'I do not know. (No grounded citations available)';
+  }
 
-  return { answer, citations: args.citations ?? [], responseId, reasoningSummary: reasoningSummary?.join(' ') };
+  const usage = (response as { usage?: unknown } | undefined)?.usage;
+
+  return { answer, citations: args.citations ?? [], responseId, reasoningSummary: reasoningSummary?.join(' '), usage };
 }

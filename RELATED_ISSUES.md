@@ -52,7 +52,7 @@ All high/medium risk calls have been updated with 2-3x safety margins:
 
 ### Root Cause
 
-Using **preview-only** features with stable API version (`2025-09-01`) causes 400 errors: `"The property 'X' does not exist on type 'Microsoft.Azure.Search.V2025_09_01.Y'"`
+Using **preview-only** features with stable API version (`2025-08-01-preview`) causes 400 errors: `"The property 'X' does not exist on type 'Microsoft.Azure.Search.V2025_09_01.Y'"`
 
 ### Already Fixed ✅
 
@@ -69,11 +69,11 @@ Features that may be preview-only (requires API documentation review):
 | **semanticConfiguration**   | `azure/directSearch.ts:310-311` | Semantic ranking config              | Used in all hybrid searches | **Low** (likely GA) |
 | **exhaustive** flag         | `azure/directSearch.ts:321`     | Vector exhaustive search             | Used in all vector queries  | **Low** (likely GA) |
 
-**Current API Version**: `2025-09-01` (stable) in `backend/.env:8`
+**Current API Version**: `2025-08-01-preview` (stable) in `backend/.env:8`
 
 ### Recommended Actions
 
-1. **Review Azure AI Search changelog** for 2025-09-01 feature support
+1. **Review Azure AI Search changelog** for 2025-08-01-preview feature support
 2. **Test vector compression** with stable API (may require `2024-11-01-preview` or later)
 3. **Test knowledge agent controls** (`maxSubQueries`, `alwaysQuerySource`)
 4. **Add API version validation** to warn about preview feature usage with stable APIs
@@ -226,7 +226,7 @@ export function validateConfig(config: Config): void {
   }
 
   // Validate API version compatibility
-  if (config.AZURE_SEARCH_DATA_PLANE_API_VERSION === '2025-09-01') {
+  if (config.AZURE_SEARCH_DATA_PLANE_API_VERSION === '2025-08-01-preview') {
     console.info(
       'Using stable Azure Search API - some preview features disabled (e.g., filterMode)',
     );
@@ -293,7 +293,7 @@ it('handles truncated JSON from insufficient token cap', async () => {
 
 1. Add reasoning token telemetry to all structured output calls
 2. Fix TypeScript build errors in production code
-3. Validate vector compression compatibility with `2025-09-01` API
+3. Validate vector compression compatibility with `2025-08-01-preview` API
 4. Add token cap truncation tests
 
 ### Medium-term (P2)

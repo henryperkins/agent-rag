@@ -323,7 +323,7 @@ Reference these files for architectural context:
    AZURE_SEARCH_ENDPOINT=<your-search-endpoint>
    AZURE_SEARCH_API_KEY=<your-key>
    AZURE_SEARCH_INDEX_NAME=<your-index-name>
-   AZURE_SEARCH_DATA_PLANE_API_VERSION=2025-09-01  # Use valid stable version
+   AZURE_SEARCH_DATA_PLANE_API_VERSION=2025-08-01-preview  # Required preview contract
 
    # Azure OpenAI
    # ⚠️  IMPORTANT: Use DEPLOYMENT NAMES (not model names)

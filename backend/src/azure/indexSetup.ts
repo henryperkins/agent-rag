@@ -5,6 +5,12 @@ import { createEmbeddings } from './openaiClient.js';
 const SAMPLE_DATA_URL =
   'https://raw.githubusercontent.com/Azure-Samples/azure-search-sample-data/refs/heads/main/nasa-e-book/earth-at-night-json/documents.json';
 
+const formatODataResourceUrl = (resource: string, key: string, apiVersion: string, pathSuffix = ''): string => {
+  const encodedKey = encodeURIComponent(key);
+  const normalizedSuffix = pathSuffix ? (pathSuffix.startsWith('/') ? pathSuffix : `/${pathSuffix}`) : '';
+  return `${config.AZURE_SEARCH_ENDPOINT}/${resource}('${encodedKey}')${normalizedSuffix}?api-version=${apiVersion}`;
+};
+
 interface RawDocument {
   id?: string;
   page_chunk?: string;
@@ -127,7 +133,7 @@ export async function createIndexAndIngest(): Promise<void> {
   };
 
   // Use REST API directly with the specified API version
-  const indexUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const indexUrl = formatODataResourceUrl('indexes', config.AZURE_SEARCH_INDEX_NAME, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
@@ -186,7 +192,12 @@ export async function createIndexAndIngest(): Promise<void> {
   }
 
   const uploadBatchSize = 100;
-  const uploadUrl = `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_INDEX_NAME}/docs/index?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const uploadUrl = formatODataResourceUrl(
+    'indexes',
+    config.AZURE_SEARCH_INDEX_NAME,
+    config.AZURE_SEARCH_DATA_PLANE_API_VERSION,
+    '/docs/index'
+  );
 
   for (let i = 0; i < embeddedDocs.length; i += uploadBatchSize) {
     const uploadBatch = embeddedDocs.slice(i, i + uploadBatchSize);
@@ -248,7 +259,7 @@ export async function createKnowledgeAgent(): Promise<void> {
   const knowledgeSourceName = knowledgeSourceNameSanitized.length >= 2
     ? knowledgeSourceNameSanitized
     : `${config.AZURE_SEARCH_INDEX_NAME.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60) || 'knowledge-source'}-ks`;
-  const knowledgeSourceUrl = `${config.AZURE_SEARCH_ENDPOINT}/knowledgesources/${knowledgeSourceName}?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const knowledgeSourceUrl = formatODataResourceUrl('knowledgesources', knowledgeSourceName, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
 
   const knowledgeSourceDefinition = {
     name: knowledgeSourceName,
@@ -272,7 +283,7 @@ export async function createKnowledgeAgent(): Promise<void> {
 
   // Step 2: Create agent
   const agentResourceName = config.AZURE_KNOWLEDGE_AGENT_NAME;
-  const managementUrl = `${config.AZURE_SEARCH_ENDPOINT}/agents/${agentResourceName}?api-version=${config.AZURE_SEARCH_MANAGEMENT_API_VERSION}`;
+  const managementUrl = formatODataResourceUrl('agents', agentResourceName, config.AZURE_SEARCH_MANAGEMENT_API_VERSION);
 
   const agentProperties = {
     description: 'Knowledge agent for Earth at Night dataset',
@@ -327,7 +338,7 @@ export async function createKnowledgeAgent(): Promise<void> {
       throw new Error(`Failed to create agent: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
-    const dataPlaneUrl = `${config.AZURE_SEARCH_ENDPOINT}/agents/${agentResourceName}?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+    const dataPlaneUrl = formatODataResourceUrl('agents', agentResourceName, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
     const dataPlanePayload = {
       name: agentResourceName,
       ...agentProperties

@@ -9,7 +9,11 @@ export interface RetryOptions {
   retryableErrors?: string[];
 }
 
-export async function withRetry<T>(operation: string, fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+export async function withRetry<T>(
+  operation: string,
+  fn: (signal: AbortSignal) => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
   const {
     maxRetries = 3,
     initialDelayMs = 1000,
@@ -29,12 +33,24 @@ export async function withRetry<T>(operation: string, fn: () => Promise<T>, opti
 
     try {
       while (attempt <= maxRetries) {
-        try {
-          const timeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Operation timeout')), timeoutMs)
-          );
+        const controller = new AbortController();
+        let timeoutId: NodeJS.Timeout | undefined;
 
-          const result = await Promise.race([fn(), timeout]);
+        try {
+          const timedOperation = fn(controller.signal);
+          const result = await (timeoutMs && timeoutMs > 0
+            ? Promise.race([
+                timedOperation,
+                new Promise<never>((_, reject) => {
+                  timeoutId = setTimeout(() => {
+                    controller.abort();
+                    const timeoutError = new Error(`${operation} timed out after ${timeoutMs}ms`);
+                    (timeoutError as any).code = 'ETIMEDOUT';
+                    reject(timeoutError);
+                  }, timeoutMs);
+                })
+              ])
+            : timedOperation);
 
           if (attempt > 0) {
             console.info(`${operation} succeeded after ${attempt} retries.`);
@@ -43,8 +59,16 @@ export async function withRetry<T>(operation: string, fn: () => Promise<T>, opti
 
           span.setAttribute('retry.attempts', attempt);
           span.setStatus({ code: SpanStatusCode.OK });
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
           return result;
         } catch (error: any) {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          controller.abort();
+
           lastError = error;
           const isRetryable = retryableErrors.some(
             (code) =>

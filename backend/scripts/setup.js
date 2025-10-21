@@ -1,7 +1,7 @@
 import { createIndexAndIngest, createKnowledgeAgent } from '../src/azure/indexSetup.js';
 async function main() {
     console.log('='.repeat(64));
-    console.log('Azure AI Search setup (2025-10-01-preview contract)');
+    console.log('Azure AI Search setup (2025-08-01-preview contract)');
     console.log('='.repeat(64));
     try {
         console.log('\nStep 1: Creating search index & ingesting sample data...');

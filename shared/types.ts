@@ -394,7 +394,7 @@ export interface OrchestratorTools {
     sessionId?: string;
     userId?: string;
     intent?: string;
-  }) => Promise<{ answer: string; citations?: Reference[]; responseId?: string }>;
+  }) => Promise<{ answer: string; citations?: Reference[]; responseId?: string; reasoningSummary?: string; usage?: unknown }>;
   critic: (args: { draft: string; evidence: string; question: string }) => Promise<CriticReport>;
 }
 

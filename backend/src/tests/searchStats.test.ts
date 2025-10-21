@@ -54,7 +54,7 @@ describe('searchStats', () => {
 
     const result = await getIndexStats();
     expect(fetchSpy).toHaveBeenCalledWith(
-      `${endpoint}/indexes/my-index/search.stats?api-version=2025-08-01-preview`,
+      `${endpoint}/indexes('my-index')/search.stats?api-version=2025-08-01-preview`,
       expect.objectContaining({ headers: expect.any(Object) })
     );
     expect(result.documentCount).toBe(10);

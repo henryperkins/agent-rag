@@ -39,6 +39,7 @@ export function sanitizeInput(request: FastifyRequest, reply: FastifyReply, done
       }
 
       let content = msg.content.replace(SCRIPT_REGEX, '');
+      content = content.replace(/<\/?(code|pre)>/gi, '`');
       content = content.replace(HTML_TAG_REGEX, '');
       content = content.replace(/\s+/g, ' ').trim();
 

@@ -196,10 +196,10 @@ export async function dispatchTools({
         });
 
         // Fallback to direct retrieval
-        retrieval = await retrieve({ query, messages, features: featureStates });
+        retrieval = await retrieve({ query, features: featureStates });
       }
     } else {
-      retrieval = await retrieve({ query, messages, features: featureStates });
+      retrieval = await retrieve({ query, features: featureStates });
     }
 
     references.push(...(retrieval.references ?? []));
@@ -318,6 +318,20 @@ export async function dispatchTools({
           type: 'academic_search',
           description: `Fetched ${academicResult.totalResults} academic papers (${academicResult.sources.semanticScholar} from Semantic Scholar, ${academicResult.sources.arxiv} from arXiv).`
         });
+
+        // Emit dedicated telemetry event for academic search
+        emit?.('telemetry', {
+          type: 'academic_search',
+          timestamp: new Date().toISOString(),
+          data: {
+            totalResults: academicResult.totalResults,
+            sources: {
+              semanticScholar: academicResult.sources.semanticScholar,
+              arxiv: academicResult.sources.arxiv
+            },
+            query: query.slice(0, 100)
+          }
+        });
       } else {
         // Use regular web search
         search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE });
@@ -366,6 +380,18 @@ export async function dispatchTools({
               type: 'web_context_trim',
               description: `Web context truncated by search tool (${search.results.length} results, ${webContextTokens} tokens).`
             });
+
+            // Emit dedicated telemetry event for web context trimming
+            emit?.('telemetry', {
+              type: 'web_context_trim',
+              timestamp: new Date().toISOString(),
+              data: {
+                totalResults: search.results.length,
+                tokensUsed: webContextTokens,
+                tokensRequested: config.WEB_CONTEXT_MAX_TOKENS,
+                trimmed: true
+              }
+            });
           }
         } else {
           const { text, tokens, trimmed, usedResults } = buildWebContext(search.results, config.WEB_CONTEXT_MAX_TOKENS);
@@ -377,6 +403,19 @@ export async function dispatchTools({
             activity.push({
               type: 'web_context_trim',
               description: `Web context truncated to ${usedResults.length} results (${tokens} tokens).`
+            });
+
+            // Emit dedicated telemetry event for web context trimming
+            emit?.('telemetry', {
+              type: 'web_context_trim',
+              timestamp: new Date().toISOString(),
+              data: {
+                totalResults: search.results.length,
+                usedResults: usedResults.length,
+                tokensUsed: tokens,
+                tokensRequested: config.WEB_CONTEXT_MAX_TOKENS,
+                trimmed: true
+              }
             });
           }
 

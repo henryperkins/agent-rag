@@ -27,7 +27,7 @@
 
 **Revision 4 (October 11, 2025 - Post-Fix Update)**: Documented five configuration bugs discovered and resolved during production testing:
 
-1. Azure AI Search API version correction (`2025-10-01` → `2025-09-01`)
+1. Azure AI Search API version correction (`2025-10-01` → `2025-08-01-preview`)
 2. Schema field mismatch fix (removed non-existent `title`/`url` field requests)
 3. Intent classification schema validation fix (added `'reasoning'` to required array)
 4. Intent classifier token limit fix (10 → 100, meets minimum of 16)
@@ -594,7 +594,7 @@ if (filter && isRestrictiveFilter(filter)) {
 
 1. **Azure AI Search API Version** (`backend/.env:8`)
    - **Issue**: Invalid API version `2025-10-01` causing 400 errors on all search queries
-   - **Resolution**: Updated to valid stable version `2025-09-01`
+   - **Resolution**: Updated to valid stable version `2025-08-01-preview`
    - **Verification**: All search queries now successful
    - **Prevention**: Added validation guidance to `.env.example:26-28`
 

@@ -42,7 +42,7 @@ describe('uploadDocumentsToIndex', () => {
       'Content-Type': 'application/json',
       'api-key': 'abc123'
     });
-    expect(result).toEqual({ status: 'ok' });
+    expect(result).toEqual([{ status: 'ok' }]);
   });
 
   it('propagates managed identity Authorization header', async () => {

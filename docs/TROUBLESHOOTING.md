@@ -21,15 +21,14 @@ Azure AI Search query failed: 400 {"error":{"message":"The version indicated by 
 **Solution**:
 
 ```bash
-# Valid API versions for 2025:
-AZURE_SEARCH_DATA_PLANE_API_VERSION=2025-09-01  # Stable (recommended)
-AZURE_SEARCH_DATA_PLANE_API_VERSION=2025-08-01-preview  # Preview
+# Valid API version for 2025 preview contract:
+AZURE_SEARCH_DATA_PLANE_API_VERSION=2025-08-01-preview  # Preview (required)
 ```
 
 **Verification**:
 
 ```bash
-curl "${AZURE_SEARCH_ENDPOINT}?api-version=2025-09-01" -H "api-key: ${AZURE_SEARCH_API_KEY}"
+curl "${AZURE_SEARCH_ENDPOINT}?api-version=2025-08-01-preview" -H "api-key: ${AZURE_SEARCH_API_KEY}"
 ```
 
 ---
@@ -50,7 +49,7 @@ Parameter name: $select
 1. Query your index schema:
 
 ```bash
-curl "${AZURE_SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=2025-09-01" \
+curl "${AZURE_SEARCH_ENDPOINT}/indexes/${INDEX_NAME}?api-version=2025-08-01-preview" \
   -H "api-key: ${AZURE_SEARCH_API_KEY}" | jq '.fields[].name'
 ```
 
@@ -303,7 +302,7 @@ DEFAULT_AGENT_ID=<your-agent-id>
 
 ```bash
 # Check index schema
-curl "${AZURE_SEARCH_ENDPOINT}/indexes/<index-name>?api-version=2025-09-01" \
+curl "${AZURE_SEARCH_ENDPOINT}/indexes/<index-name>?api-version=2025-08-01-preview" \
   -H "api-key: ${AZURE_SEARCH_API_KEY}" | jq '.fields[] | {name, searchable}'
 ```
 
@@ -611,11 +610,11 @@ grep -E "ENABLE_" .env
 
 ```bash
 # Check index exists
-curl "${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX_NAME}?api-version=2025-09-01" \
+curl "${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX_NAME}?api-version=2025-08-01-preview" \
   -H "api-key: ${AZURE_SEARCH_API_KEY}"
 
 # Test search query
-curl -X POST "${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=2025-09-01" \
+curl -X POST "${AZURE_SEARCH_ENDPOINT}/indexes/${AZURE_SEARCH_INDEX_NAME}/docs/search?api-version=2025-08-01-preview" \
   -H "Content-Type: application/json" \
   -H "api-key: ${AZURE_SEARCH_API_KEY}" \
   -d '{"search":"*","top":1}'

@@ -2,7 +2,7 @@ import { createIndexAndIngest, createKnowledgeAgent } from '../src/azure/indexSe
 
 async function main() {
   console.log('='.repeat(64));
-  console.log('Azure AI Search setup (2025-10-01-preview contract)');
+  console.log('Azure AI Search setup (2025-08-01-preview contract)');
   console.log('='.repeat(64));
 
   try {

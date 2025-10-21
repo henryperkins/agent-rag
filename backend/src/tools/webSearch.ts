@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { WebResult, WebSearchResponse } from '../../../shared/types.js';
 import { config } from '../config/app.js';
+import { withRetry } from '../utils/resilience.js';
 
 interface WebSearchArgs {
   query: string;
@@ -65,60 +66,51 @@ export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchRespo
   url.searchParams.set('cx', config.GOOGLE_SEARCH_ENGINE_ID);
   url.searchParams.set('q', query);
   url.searchParams.set('num', Math.min(effectiveCount, 10).toString()); // Google max is 10 per request
-  url.searchParams.set('safe', 'off');
-
-  // Date restriction: last week
-  url.searchParams.set('dateRestrict', 'd7');
-
-  let retries = 0;
-  const maxRetries = 3;
-
-  while (retries <= maxRetries) {
-    try {
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        signal: AbortSignal.timeout(10000)
-      });
-
-      if (response.status === 429 && retries < maxRetries) {
-        retries++;
-        const wait = Math.min(1000 * Math.pow(2, retries), 8000);
-        await new Promise((resolve) => setTimeout(resolve, wait));
-        continue;
-      }
-
-      if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as GoogleSearchResponse;
-        const errorMsg = errorData.error?.message || `${response.status} ${response.statusText}`;
-        throw new Error(`Google Search API error: ${errorMsg}`);
-      }
-
-      const data = (await response.json()) as GoogleSearchResponse;
-      const fetchedAt = new Date().toISOString();
-
-      const results: WebResult[] =
-        data.items?.map((item, index) => ({
-          id: buildResultId(item),
-          title: item.title,
-          snippet: item.snippet ?? '',
-          url: item.link,
-          body: searchMode === 'full' ? item.snippet ?? '' : undefined,
-          rank: index + 1,
-          relevance: undefined, // Google doesn't provide explicit relevance scores in this API
-          fetchedAt
-        })) ?? [];
-
-      return { results };
-    } catch (error: any) {
-      if (retries < maxRetries && (error.name === 'AbortError' || error.message.includes('ECONN'))) {
-        retries++;
-        const wait = Math.min(1000 * Math.pow(2, retries), 8000);
-        await new Promise((resolve) => setTimeout(resolve, wait));
-        continue;
-      }
-      throw error;
-    }
+  const safeMode = (config as Record<string, unknown>).WEB_SAFE_MODE ?? 'off';
+  url.searchParams.set('safe', String(safeMode));
+  const defaultRecency = (config as Record<string, unknown>).WEB_DEFAULT_RECENCY;
+  if (typeof defaultRecency === 'string' && defaultRecency.length > 0) {
+    url.searchParams.set('dateRestrict', defaultRecency);
   }
 
-  return { results: [] };
+  const data = await withRetry('google-search', async (signal) => {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      signal
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as GoogleSearchResponse;
+      const status = response.status;
+      const statusText = response.statusText;
+      const errorMsg = errorData.error?.message || `${status} ${statusText}`;
+      const error = new Error(`Google Search API error ${status}: ${errorMsg}`) as Error & {
+        status?: number;
+        code?: string;
+      };
+      if (typeof errorData.error?.code === 'number') {
+        error.code = String(errorData.error.code);
+      }
+      error.status = status;
+      throw error;
+    }
+
+    return (await response.json()) as GoogleSearchResponse;
+  }, { maxRetries: 3, timeoutMs: 10000, retryableErrors: ['429', '503', 'AbortError', 'ECONN'] });
+
+  const fetchedAt = new Date().toISOString();
+
+  const results: WebResult[] =
+    data.items?.map((item, index) => ({
+      id: buildResultId(item),
+      title: item.title,
+      snippet: item.snippet ?? '',
+      url: item.link,
+      body: searchMode === 'full' ? item.snippet ?? '' : undefined,
+      rank: index + 1,
+      relevance: undefined,
+      fetchedAt
+    })) ?? [];
+
+  return { results };
 }

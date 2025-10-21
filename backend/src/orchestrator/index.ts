@@ -1100,6 +1100,29 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     finalCritic = { grounded: true, coverage: 1.0, action: 'accept', issues: [] };
   }
 
+  // FINAL SAFETY GATE: Enforce grounding requirements
+  // If critic is enabled and final answer fails quality thresholds, refuse to answer
+  if (config.ENABLE_CRITIC && finalCritic) {
+    const finalCoverage = finalCritic.coverage ?? 0;
+    const finalGrounded = finalCritic.grounded ?? false;
+
+    if (!finalGrounded || finalCoverage < config.CRITIC_THRESHOLD) {
+      answer = 'I do not know. The available evidence does not provide sufficient grounding to answer this question confidently.';
+
+      emit?.('quality_gate_refusal', {
+        reason: !finalGrounded ? 'ungrounded' : 'insufficient_coverage',
+        coverage: finalCoverage,
+        grounded: finalGrounded,
+        iterations: attempt + 1,
+        threshold: config.CRITIC_THRESHOLD
+      });
+
+      console.warn(
+        `[QUALITY_GATE] Answer refused after ${attempt + 1} iterations (coverage: ${finalCoverage.toFixed(2)}, grounded: ${finalGrounded}, threshold: ${config.CRITIC_THRESHOLD})`
+      );
+    }
+  }
+
   const critic = finalCritic ?? {
     grounded: true,
     coverage: 0.8,
