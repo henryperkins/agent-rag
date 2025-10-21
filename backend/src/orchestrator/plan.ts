@@ -55,9 +55,40 @@ export async function getPlan(messages: AgentMessage[], context: CompactedContex
 
     const plan = JSON.parse(extractOutputText(response) || '{}');
     const reasoningSummary = extractReasoningSummary(response);
+    const rawSteps = Array.isArray(plan.steps) ? [...plan.steps] : [];
+    const sanitizedSteps = rawSteps
+      .filter((step) => step && typeof step === 'object')
+      .map((step) => {
+        const action = typeof step.action === 'string' ? step.action : 'vector_search';
+        const query =
+          typeof step.query === 'string' && step.query.trim().length > 0
+            ? step.query.trim()
+            : latestUser?.content ?? '';
+        const limitedQuery = query.length > 512 ? query.slice(0, 512) : query;
+        const defaultK =
+          action === 'web_search' || action === 'both' ? config.WEB_RESULTS_MAX : config.RAG_TOP_K;
+        const k =
+          typeof step.k === 'number' && Number.isFinite(step.k) && step.k > 0
+            ? Math.floor(step.k)
+            : defaultK;
+        return { ...step, action, query: limitedQuery, k };
+      });
+
+    const hasVectorStep = sanitizedSteps.some(
+      (step) => step.action === 'vector_search' || step.action === 'both'
+    );
+
+    if (!hasVectorStep) {
+      sanitizedSteps.unshift({
+        action: 'vector_search',
+        query: (latestUser?.content ?? '').slice(0, 512),
+        k: config.RAG_TOP_K
+      });
+    }
+
     return {
       confidence: typeof plan.confidence === 'number' ? plan.confidence : 0.5,
-      steps: Array.isArray(plan.steps) ? plan.steps : [{ action: 'vector_search' }],
+      steps: sanitizedSteps.length ? sanitizedSteps : [{ action: 'vector_search', query: latestUser?.content ?? '', k: config.RAG_TOP_K }],
       reasoningSummary: reasoningSummary?.join(' ')
     };
   } catch (error) {
