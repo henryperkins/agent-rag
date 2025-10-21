@@ -15,7 +15,7 @@ vi.mock('../azure/multiIndexSearch.js', () => ({
 }));
 
 vi.mock('../utils/resilience.js', () => ({
-  withRetry: vi.fn((_, fn) => fn())
+  withRetry: vi.fn((_, fn) => fn(undefined)) // Pass undefined as signal (backward compatible)
 }));
 
 describe('retrieveTool coverage threshold', () => {

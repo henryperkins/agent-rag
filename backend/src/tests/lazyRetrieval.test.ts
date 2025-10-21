@@ -5,7 +5,7 @@ vi.mock('../azure/directSearch.js', () => ({
 }));
 
 vi.mock('../utils/resilience.js', () => ({
-  withRetry: async (_label: string, action: () => Promise<any>) => action()
+  withRetry: async (_label: string, action: (signal?: AbortSignal) => Promise<any>) => action(undefined)
 }));
 
 const directSearch = await import('../azure/directSearch.js');
