@@ -15,11 +15,13 @@ function sanitizeAzureError(status: number, statusText: string, body: string): s
 }
 const scope = 'https://cognitiveservices.azure.com/.default';
 const baseUrl = `${config.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '')}/openai/${config.AZURE_OPENAI_API_VERSION}`;
-const query = config.AZURE_OPENAI_API_QUERY.startsWith('?')
-  ? config.AZURE_OPENAI_API_QUERY
-  : `?${config.AZURE_OPENAI_API_QUERY}`;
+const normalizedQuery = config.AZURE_OPENAI_API_QUERY.replace(/^\?+/, '');
+const query = normalizedQuery ? `?${normalizedQuery}` : '';
 function withQuery(path: string) {
-  return `${baseUrl}${path}${path.includes('?') ? `&${config.AZURE_OPENAI_API_QUERY}` : query}`;
+  if (!normalizedQuery) {
+    return `${baseUrl}${path}`;
+  }
+  return `${baseUrl}${path}${path.includes('?') ? `&${normalizedQuery}` : query}`;
 }
 
 let cachedBearer:
@@ -268,7 +270,7 @@ export interface ResponsePayload {
 
   // Advanced parameters
   top_logprobs?: number; // 0-20, int32
-  reasoning?: ReasoningConfig | ReasoningConfig[] | null;
+  reasoning?: ReasoningConfig | null;
   prompt?: Record<string, unknown> | null; // OpenAI.Prompt object
 
   // Metadata and tracking

@@ -58,7 +58,7 @@ export async function createIndexAndIngest(): Promise<void> {
         type: 'Collection(Edm.Single)',
         searchable: true,
         dimensions: 3072,
-        vectorSearchProfile: 'hnsw_profile'
+      vectorSearchProfile: 'hnsw_profile'
       },
       {
         name: 'page_number',
@@ -86,8 +86,6 @@ export async function createIndexAndIngest(): Promise<void> {
         {
           name: 'sq_config',
           kind: 'scalarQuantization',
-          // Preserve originals to allow rescoring with full-precision vectors
-          rerankWithOriginalVectors: true,
           rescoringOptions: {
             enableRescoring: true,
             defaultOversampling: 2,
@@ -139,10 +137,42 @@ export async function createIndexAndIngest(): Promise<void> {
     config.AZURE_SEARCH_DATA_PLANE_API_VERSION
   );
 
-  await performSearchRequest('create-index', indexUrl, {
-    method: 'PUT',
-    body: indexDefinition
-  });
+  try {
+    await performSearchRequest('create-index', indexUrl, {
+      method: 'PUT',
+      body: indexDefinition
+    });
+  } catch (error: any) {
+    const message = error?.message ?? '';
+    const compressionConflict = /Cannot\s+add\s+compression\s+to\s+a\s+field/i.test(message);
+    if (!compressionConflict) {
+      throw error;
+    }
+
+    console.warn(
+      JSON.stringify({
+        event: 'azure.search.request.fallback',
+        operation: 'create-index',
+        reason: 'vector-compression-conflict',
+        detail: message
+      })
+    );
+
+    const fallbackDefinition = JSON.parse(JSON.stringify(indexDefinition));
+    if (fallbackDefinition.vectorSearch?.compressions) {
+      delete fallbackDefinition.vectorSearch.compressions;
+    }
+    fallbackDefinition.vectorSearch?.profiles?.forEach((profile: any) => {
+      if (profile?.compression) {
+        delete profile.compression;
+      }
+    });
+
+    await performSearchRequest('create-index-without-compression', indexUrl, {
+      method: 'PUT',
+      body: fallbackDefinition
+    });
+  }
 
   const response = await fetch(SAMPLE_DATA_URL);
   if (!response.ok) {
@@ -280,7 +310,7 @@ export async function createKnowledgeAgent(): Promise<void> {
 
   const managementPayload = {
     name: agentResourceName,
-    properties: agentProperties
+    ...agentProperties
   };
 
   const { response } = await performSearchRequest('create-knowledge-agent-management', managementUrl, {
