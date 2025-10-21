@@ -5,12 +5,12 @@ process.env.AZURE_SEARCH_INDEX_NAME = 'test-index';
 process.env.AZURE_SEARCH_DATA_PLANE_API_VERSION = '2025-08-01-preview';
 process.env.AZURE_OPENAI_ENDPOINT = 'https://example.openai.azure.com';
 
-vi.mock('../azure/directSearch.js', () => ({
+vi.mock('../azure/searchAuth.js', () => ({
   getSearchAuthHeaders: vi.fn()
 }));
 
 import { uploadDocumentsToIndex } from '../tools/documentProcessor.js';
-import { getSearchAuthHeaders } from '../azure/directSearch.js';
+import { getSearchAuthHeaders } from '../azure/searchAuth.js';
 
 describe('uploadDocumentsToIndex', () => {
   const fetchSpy = vi.fn();

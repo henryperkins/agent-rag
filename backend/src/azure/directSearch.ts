@@ -12,6 +12,7 @@
 import { DefaultAzureCredential } from '@azure/identity';
 import type { Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
+import { getSearchAuthHeaders } from './searchAuth.js';
 
 // Track reranker threshold warnings per session to avoid log spam
 const thresholdWarningCache = new Set<string>();
@@ -96,48 +97,12 @@ export interface DirectSearchResponse {
 const credential = new DefaultAzureCredential();
 const openAIEmbeddingScope = 'https://cognitiveservices.azure.com/.default';
 
-let cachedSearchToken: {
-  token: string;
-  expiresOnTimestamp: number;
-} | null = null;
-
 let cachedOpenAIToken:
   | {
       token: string;
       expiresOnTimestamp: number;
     }
   | null = null;
-
-/**
- * Get Azure Search authentication headers.
- * Uses API key if available, otherwise falls back to Managed Identity with token caching.
- */
-export async function getSearchAuthHeaders(): Promise<Record<string, string>> {
-  if (config.AZURE_SEARCH_API_KEY) {
-    return { 'api-key': config.AZURE_SEARCH_API_KEY };
-  }
-
-  // Use cached token if still valid (with 2-minute buffer)
-  const now = Date.now();
-  if (cachedSearchToken && cachedSearchToken.expiresOnTimestamp - now > 120000) {
-    return { Authorization: `Bearer ${cachedSearchToken.token}` };
-  }
-
-  // Acquire new token via Managed Identity
-  const scope = 'https://search.azure.com/.default';
-  const tokenResponse = await credential.getToken(scope);
-
-  if (!tokenResponse?.token) {
-    throw new Error('Failed to obtain Azure Search token for managed identity authentication');
-  }
-
-  cachedSearchToken = {
-    token: tokenResponse.token,
-    expiresOnTimestamp: tokenResponse.expiresOnTimestamp
-  };
-
-  return { Authorization: `Bearer ${tokenResponse.token}` };
-}
 
 // ============================================================================
 // Embeddings Service

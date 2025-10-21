@@ -1,7 +1,7 @@
 import * as pdfParseModule from 'pdf-parse';
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage } from '../../../shared/types.js';
-import { getSearchAuthHeaders } from '../azure/directSearch.js';
+import { getSearchAuthHeaders } from '../azure/searchAuth.js';
 import { config } from '../config/app.js';
 import { embedTexts } from '../utils/embeddings.js';
 import { withRetry } from '../utils/resilience.js';

@@ -26,9 +26,21 @@ const envSchema = z.object({
 
   AZURE_OPENAI_ENDPOINT: z.string().url(),
   // v1 path segment is required for Responses API; coerce any value to 'v1'
-  AZURE_OPENAI_API_VERSION: z.string().default('v1').transform(() => 'v1'),
+  AZURE_OPENAI_API_VERSION: z
+    .string()
+    .default('v1')
+    .refine((value) => value === 'v1' || value === 'preview', {
+      message: 'AZURE_OPENAI_API_VERSION must be one of: v1, preview'
+    })
+    .transform(() => 'v1'),
   // Query string appended to all OpenAI requests, defaults to v1 preview
-  AZURE_OPENAI_API_QUERY: z.string().default('api-version=preview'),
+  AZURE_OPENAI_API_QUERY: z
+    .string()
+    .default('api-version=preview')
+    .refine(
+      (value) => value === 'api-version=preview' || value === 'api-version=v1',
+      { message: 'AZURE_OPENAI_API_QUERY must be api-version=preview or api-version=v1' }
+    ),
   AZURE_OPENAI_GPT_DEPLOYMENT: z.string().default('gpt-5'),
   AZURE_OPENAI_GPT_MODEL_NAME: z.string().default('gpt-5'),
   AZURE_OPENAI_EMBEDDING_DEPLOYMENT: z.string().default('text-embedding-3-large'),

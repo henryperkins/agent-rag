@@ -1,6 +1,6 @@
-import { DefaultAzureCredential } from '@azure/identity';
 import { config } from '../config/app.js';
 import { createEmbeddings } from './openaiClient.js';
+import { performSearchRequest } from './searchHttp.js';
 
 const SAMPLE_DATA_URL =
   'https://raw.githubusercontent.com/Azure-Samples/azure-search-sample-data/refs/heads/main/nasa-e-book/earth-at-night-json/documents.json';
@@ -133,33 +133,16 @@ export async function createIndexAndIngest(): Promise<void> {
   };
 
   // Use REST API directly with the specified API version
-  const indexUrl = formatODataResourceUrl('indexes', config.AZURE_SEARCH_INDEX_NAME, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
+  const indexUrl = formatODataResourceUrl(
+    'indexes',
+    config.AZURE_SEARCH_INDEX_NAME,
+    config.AZURE_SEARCH_DATA_PLANE_API_VERSION
+  );
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  if (config.AZURE_SEARCH_API_KEY) {
-    headers['api-key'] = config.AZURE_SEARCH_API_KEY;
-  } else {
-    const credential = new DefaultAzureCredential();
-    const tokenResponse = await credential.getToken('https://search.azure.com/.default');
-    if (!tokenResponse?.token) {
-      throw new Error('Failed to obtain Azure Search token');
-    }
-    headers['Authorization'] = `Bearer ${tokenResponse.token}`;
-  }
-
-  const indexResponse = await fetch(indexUrl, {
+  await performSearchRequest('create-index', indexUrl, {
     method: 'PUT',
-    headers,
-    body: JSON.stringify(indexDefinition)
+    body: indexDefinition
   });
-
-  if (!indexResponse.ok) {
-    const errorText = await indexResponse.text();
-    throw new Error(`Failed to create index: ${indexResponse.status} ${indexResponse.statusText} - ${errorText}`);
-  }
 
   const response = await fetch(SAMPLE_DATA_URL);
   if (!response.ok) {
@@ -209,16 +192,15 @@ export async function createIndexAndIngest(): Promise<void> {
       }))
     };
 
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(uploadPayload)
-    });
-
-    if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text();
-      throw new Error(`Failed to upload documents: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorText}`);
-    }
+    const batchNumber = Math.floor(i / uploadBatchSize) + 1;
+    const { response: uploadResponse } = await performSearchRequest(
+      `upload-documents-batch-${batchNumber}`,
+      uploadUrl,
+      {
+        method: 'POST',
+        body: uploadPayload
+      }
+    );
 
     const result = (await uploadResponse.json()) as UploadResult;
     const failures = result.value?.filter(
@@ -235,21 +217,6 @@ export async function createIndexAndIngest(): Promise<void> {
 }
 
 export async function createKnowledgeAgent(): Promise<void> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  if (config.AZURE_SEARCH_API_KEY) {
-    headers['api-key'] = config.AZURE_SEARCH_API_KEY;
-  } else {
-    const credential = new DefaultAzureCredential();
-    const tokenResponse = await credential.getToken('https://search.azure.com/.default');
-    if (!tokenResponse?.token) {
-      throw new Error('Failed to obtain Azure Search token');
-    }
-    headers['Authorization'] = `Bearer ${tokenResponse.token}`;
-  }
-
   // Step 1: Create knowledge source
   const knowledgeSourceNameSanitized = config.AZURE_SEARCH_INDEX_NAME
     .toLowerCase()
@@ -270,16 +237,10 @@ export async function createKnowledgeAgent(): Promise<void> {
     }
   };
 
-  const ksResponse = await fetch(knowledgeSourceUrl, {
+  await performSearchRequest('create-knowledge-source', knowledgeSourceUrl, {
     method: 'PUT',
-    headers,
-    body: JSON.stringify(knowledgeSourceDefinition)
+    body: knowledgeSourceDefinition
   });
-
-  if (!ksResponse.ok) {
-    const errorText = await ksResponse.text();
-    throw new Error(`Failed to create knowledge source: ${ksResponse.status} ${ksResponse.statusText} - ${errorText}`);
-  }
 
   // Step 2: Create agent
   const agentResourceName = config.AZURE_KNOWLEDGE_AGENT_NAME;
@@ -322,21 +283,29 @@ export async function createKnowledgeAgent(): Promise<void> {
     properties: agentProperties
   };
 
-  const response = await fetch(managementUrl, {
+  const { response } = await performSearchRequest('create-knowledge-agent-management', managementUrl, {
     method: 'PUT',
-    headers,
-    body: JSON.stringify(managementPayload)
+    body: managementPayload,
+    allowedStatuses: [400]
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    const shouldRetryWithDataPlane =
-      response.status === 400 && /api-version/i.test(errorText ?? '') &&
-      config.AZURE_SEARCH_DATA_PLANE_API_VERSION !== config.AZURE_SEARCH_MANAGEMENT_API_VERSION;
+    const shouldRetryWithDataPlane = response.status === 400 && /api-version/i.test(errorText ?? '');
 
     if (!shouldRetryWithDataPlane) {
       throw new Error(`Failed to create agent: ${response.status} ${response.statusText} - ${errorText}`);
     }
+
+    console.warn(
+      JSON.stringify({
+        event: 'azure.search.request.fallback',
+        operation: 'create-knowledge-agent-management',
+        status: response.status,
+        reason: 'api-version-unsupported',
+        detail: errorText
+      })
+    );
 
     const dataPlaneUrl = formatODataResourceUrl('agents', agentResourceName, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
     const dataPlanePayload = {
@@ -344,15 +313,9 @@ export async function createKnowledgeAgent(): Promise<void> {
       ...agentProperties
     };
 
-    const fallbackResponse = await fetch(dataPlaneUrl, {
+    await performSearchRequest('create-knowledge-agent-dataplane', dataPlaneUrl, {
       method: 'PUT',
-      headers,
-      body: JSON.stringify(dataPlanePayload)
+      body: dataPlanePayload
     });
-
-    if (!fallbackResponse.ok) {
-      const fallbackErrorText = await fallbackResponse.text();
-      throw new Error(`Failed to create agent (fallback): ${fallbackResponse.status} ${fallbackResponse.statusText} - ${fallbackErrorText}`);
-    }
   }
 }

@@ -8,7 +8,7 @@
  */
 
 import { config } from '../config/app.js';
-import { getSearchAuthHeaders } from '../azure/directSearch.js';
+import { getSearchAuthHeaders } from '../azure/searchAuth.js';
 
 async function inspectIndexConfiguration(): Promise<void> {
   console.log('=== Azure AI Search Index Inspector ===\n');
