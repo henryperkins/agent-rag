@@ -26,6 +26,7 @@ export interface CRAGResult {
   refinedDocuments?: Reference[];
   activity: ActivityStep[];
   shouldTriggerWebSearch: boolean;
+  reasoningSummary?: string;
 }
 
 // ============================================================================
@@ -79,7 +80,12 @@ Based on your classification, recommend an action:
 - "refine_documents": Filter and extract only relevant portions (for ambiguous retrieval)
 - "web_fallback": Trigger web search to supplement or replace documents (for incorrect retrieval)
 
-For each document, assign a relevance score (0-1) and optionally identify relevant sentences for refinement.`;
+Optionally, you may provide relevanceScores for documents. Each score should include:
+- documentIndex: The index of the document (0-based)
+- score: Relevance score (0-1)
+- relevantSentences: (optional) Specific sentences to extract for refinement
+
+Note: relevanceScores are optional but helpful for the "refine_documents" action.`;
 
   try {
     const reasoningConfig = getReasoningOptions('crag');
@@ -97,7 +103,7 @@ For each document, assign a relevance score (0-1) and optionally identify releva
       ],
       textFormat: CRAGEvaluationSchema,
       temperature: 0.0,
-      max_output_tokens: 3000, // GPT-5 uses ~600-1000 reasoning tokens before JSON payload
+      max_output_tokens: 5000, // Increased from 3000: GPT-5 uses ~600-1000 reasoning tokens, need room for detailed scores
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       reasoning: reasoningConfig
     });
@@ -111,7 +117,22 @@ For each document, assign a relevance score (0-1) and optionally identify releva
     try {
       evaluation = JSON.parse(evaluationText) as CRAGEvaluation;
     } catch (parseError: any) {
-      throw new Error(`Invalid evaluation JSON: ${parseError?.message ?? String(parseError)}`);
+      const errorMsg = parseError?.message ?? String(parseError);
+
+      // Log the actual response text for debugging (truncated to avoid log spam)
+      const previewLength = 500;
+      const textPreview = evaluationText.slice(0, previewLength);
+      const textSuffix = evaluationText.slice(-200); // Last 200 chars to see where it cut off
+
+      console.error('CRAG JSON parse error:', {
+        error: errorMsg,
+        textLength: evaluationText.length,
+        textStart: textPreview,
+        textEnd: evaluationText.length > previewLength ? textSuffix : '',
+        isTruncated: errorMsg.includes('Unterminated') || errorMsg.includes('Unexpected end')
+      });
+
+      throw new Error(`Invalid evaluation JSON: ${errorMsg}`);
     }
 
     // Only extract reasoning summaries if reasoning config is enabled
