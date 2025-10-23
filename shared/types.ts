@@ -78,6 +78,7 @@ export interface AgenticRetrievalDiagnostics {
   knowledgeAgent?: KnowledgeAgentDiagnostic;
   fallbackAttempts?: number;
   knowledgeAgentSummaryProvided?: boolean;
+  retryCount?: number;
   coverageChecklistCount?: number;
   contextSectionLabels?: string[];
 }
@@ -309,6 +310,9 @@ export interface ChatResponse {
     };
     // Adaptive Query Reformulation telemetry snapshot (snake_case for API consistency)
     adaptive_retrieval?: AdaptiveRetrievalStats;
+    knowledge_agent_grounding?: KnowledgeAgentGroundingSummary;
+    reranker_threshold_used?: number;
+    reranker_threshold_history?: number[];
     evaluation?: SessionEvaluation;
   };
 }
@@ -345,6 +349,10 @@ export interface RetrievalDiagnostics {
   fallbackTriggered?: boolean;
   correlationId?: string;
   knowledgeAgent?: KnowledgeAgentDiagnostic;
+  coverageChecklistCount?: number;
+  contextSectionLabels?: string[];
+  knowledgeAgentSummaryProvided?: boolean;
+  latencyMs?: number;
 }
 
 export interface SessionTrace {

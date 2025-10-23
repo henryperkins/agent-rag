@@ -14,9 +14,9 @@ The application implements a production-grade orchestrator pattern with planning
 
 ### Production Status
 
-**Version**: 2.0.3 (October 22, 2025)
-**Status**: ✅ Production-Ready with Phase 1 Complete + Diagnostics Telemetry
-**Test Coverage**: 123/123 tests passing (24 test suites: 96 backend + 27 frontend)
+**Version**: 2.0.4 (October 23, 2025)
+**Status**: ✅ Production-Ready with Phase 1 Complete + Critic Bug Fix
+**Test Coverage**: 177/177 tests passing (29 test suites: 150 backend + 27 frontend)
 **Cost Optimization**: 63-69% reduction vs baseline ($150-180/mo @ 10K requests)
 
 **Key Features Live**:
@@ -430,6 +430,28 @@ Git hooks are installed automatically after `pnpm install` via the `prepare` scr
 - **Current coverage**: 99 tests passing across 21 test suites (45% increase from baseline)
 
 ## Recent Changes
+
+### v2.0.4 (October 23, 2025) - Critic Loop Bug Fix
+
+**Critical Bug Fixes**:
+
+1. **Critic Early-Exit Bug** (`backend/src/orchestrator/index.ts:1366`)
+   - **Issue**: Loop used OR logic (`action === 'accept' || coverage >= threshold`) causing premature exits
+   - **Impact**: Critic would exit when coverage was high enough, even when grounding failed
+   - **Fix**: Changed to only check `action === 'accept'`, trusting critic's internal evaluation
+   - **Example**: Coverage 0.85 with grounded=false would exit early instead of requesting revision
+
+2. **Insufficient Retry Count** (`backend/src/config/app.ts:146`)
+   - **Issue**: `CRITIC_MAX_RETRIES=1` allowed only 2 total iterations (attempt 0 + attempt 1)
+   - **Impact**: System would generate answer, get revision request, then immediately give up
+   - **Fix**: Increased to `CRITIC_MAX_RETRIES=2` enabling proper multi-pass evaluation:
+     - Attempt 0: Initial answer + critique
+     - Attempt 1: Revised answer + critique (can accept if good)
+     - Attempt 2: Final revision + critique (forced accept)
+
+**Test Coverage**: All 177 tests passing (including `retries synthesis when critic requests revision`)
+
+**Impact**: Multi-pass critic now properly iterates and improves answers instead of refusing after first critique
 
 ### v2.0.0 (October 17-18, 2025) - Phase 1 Complete + Production Optimization
 

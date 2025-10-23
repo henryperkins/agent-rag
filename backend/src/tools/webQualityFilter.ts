@@ -1,6 +1,7 @@
 import { embedTexts } from '../utils/embeddings.js';
 import type { WebResult, Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
+import { cosineSimilarity } from '../utils/vector-ops.js';
 
 const TRUSTED_DOMAINS: Record<string, number> = {
   '.gov': 1.0,
@@ -30,14 +31,6 @@ function scoreAuthority(url: string): number {
   } catch {
     return 0.3;
   }
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0;
-  const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
-  const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-  const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-  return dotProduct / (magA * magB);
 }
 
 interface QualityScore {

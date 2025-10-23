@@ -31,7 +31,7 @@ async function inspectIndexConfiguration(): Promise<void> {
       throw new Error(`Failed to fetch index: ${indexResponse.status} ${await indexResponse.text()}`);
     }
 
-    const indexSchema = await indexResponse.json();
+    const indexSchema = await indexResponse.json() as any;
 
     console.log('=== Index Configuration ===\n');
     console.log('Fields:');
@@ -95,7 +95,7 @@ async function inspectIndexConfiguration(): Promise<void> {
     });
 
     if (statsResponse.ok) {
-      const stats = await statsResponse.json();
+      const stats = await statsResponse.json() as any;
       console.log(`Document count: ${stats.documentCount}`);
       console.log(`Storage size: ${stats.storageSize} bytes`);
     }
@@ -129,7 +129,7 @@ async function inspectIndexConfiguration(): Promise<void> {
       throw new Error(`Search failed: ${searchResponse.status} ${await searchResponse.text()}`);
     }
 
-    const searchResult = await searchResponse.json();
+    const searchResult = await searchResponse.json() as any;
     const scores = searchResult.value
       .map((doc: any) => doc['@search.rerankerScore'])
       .filter((score: any) => score !== undefined);

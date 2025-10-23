@@ -522,6 +522,11 @@ async function generateAnswer(
         const delta = JSON.parse(payload);
         const type = typeof delta.type === 'string' ? delta.type : undefined;
 
+        // Diagnostic logging for event types
+        if (type && !type.includes('reasoning')) {
+          console.log('[Streaming Event Type]', { type, keys: Object.keys(delta).join(',') });
+        }
+
         if (delta && typeof delta === 'object') {
           if (!handleReasoningEvent(delta as Record<string, unknown>)) {
             publishFromPayload(delta);
@@ -664,6 +669,30 @@ async function generateAnswer(
       }
     };
 
+    // Log first few non-reasoning payloads for debugging
+    let debugLogCount = 0;
+    const MAX_DEBUG_LOGS = 5;
+    const originalHandleLine = handleLine;
+    const debugHandleLine = (rawLine: string) => {
+      const line = rawLine.trim();
+      if (line.startsWith('data:') && debugLogCount < MAX_DEBUG_LOGS) {
+        const payload = line.slice(5).trim();
+        if (payload && payload !== '[DONE]') {
+          try {
+            const delta = JSON.parse(payload);
+            const type = typeof delta.type === 'string' ? delta.type : undefined;
+            if (type && !type.includes('reasoning')) {
+              console.log('[Debug Payload Sample]', JSON.stringify(delta).slice(0, 500));
+              debugLogCount++;
+            }
+          } catch {
+            // Ignore JSON parse errors for debug logging
+          }
+        }
+      }
+      originalHandleLine(rawLine);
+    };
+
     const processBuffer = (flush = false) => {
       while (buffer) {
         const newlineIndex = buffer.indexOf('\n');
@@ -674,14 +703,14 @@ async function generateAnswer(
           const remaining = buffer.trim();
           buffer = '';
           if (remaining) {
-            handleLine(remaining);
+            debugHandleLine(remaining);
           }
           break;
         }
 
         const rawLine = buffer.slice(0, newlineIndex).replace(/\r$/, '');
         buffer = buffer.slice(newlineIndex + 1);
-        handleLine(rawLine);
+        debugHandleLine(rawLine);
 
         if (completed) {
           buffer = '';
@@ -1033,7 +1062,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       if (features.queryDecomposition && question.trim()) {
         emit?.('status', { stage: 'complexity_assessment' });
         complexityAssessment = await assessComplexity(question);
-        pushInsight('complexity', [complexityAssessment.reasoning, complexityAssessment.reasoningSummary]);
+        pushInsight('complexity', [complexityAssessment.reasoning, complexityAssessment.reasoningSummary].filter(Boolean) as string[]);
         emit?.('complexity', {
           score: complexityAssessment.complexity,
           needsDecomposition: complexityAssessment.needsDecomposition,
@@ -1118,7 +1147,12 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
             strategy: 'direct' as const,
             escalated: false,
             adaptiveStats: undefined,
-            diagnostics: undefined
+            diagnostics: undefined,
+            knowledgeAgentAnswer: undefined,
+            knowledgeAgentGrounding: undefined,
+            retrievalThresholdUsed: undefined,
+            retrievalThresholdHistory: undefined,
+            retrievalLatencyMs: undefined
           };
         }
 
@@ -1170,7 +1204,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const retrievalDiagnostics: RetrievalDiagnostics = {
     attempted: attemptedMode,
     succeeded: dispatch.references.length > 0,
-    retryCount: 0,
+    retryCount: dispatch.diagnostics?.retryCount ?? 0,
     documents: dispatch.references.length,
     meanScore: average(scoreValues),
     minScore: min(scoreValues),
@@ -1180,7 +1214,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     escalated: dispatch.escalated,
     mode: dispatch.retrievalMode,
     summaryTokens: dispatch.summaryTokens,
-    strategy: dispatch.strategy
+    strategy: dispatch.strategy,
+    latencyMs: dispatch.retrievalLatencyMs
   };
   if (dispatch.diagnostics?.correlationId) {
     retrievalDiagnostics.correlationId = dispatch.diagnostics.correlationId;
@@ -1334,9 +1369,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       pushInsight('quality_review', [
         criticResult.reasoningSummary,
         ...(criticResult.issues ?? [])
-      ]);
+      ].filter(Boolean) as string[]);
 
-      if (criticResult.action === 'accept' || criticResult.coverage >= config.CRITIC_THRESHOLD) {
+      if (criticResult.action === 'accept') {
         finalCritic = criticResult;
         break;
       }
@@ -1527,7 +1562,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     knowledgeAgentGrounding: dispatch.knowledgeAgentGrounding,
     rerankerThresholdUsed: dispatch.retrievalThresholdUsed,
     rerankerThresholdHistory: dispatch.retrievalThresholdHistory,
-    responses: responseHistory
+    responses: responseHistory,
+    retrievalLatencyMs: dispatch.retrievalLatencyMs
   } as const;
 
   // Emit dedicated summary selection stats event for real-time monitoring
@@ -1541,7 +1577,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     activity: combinedActivity,
     metadata: {
       features: featureMetadata,
-      retrieval_time_ms: undefined,
+      retrieval_time_ms: dispatch.retrievalLatencyMs,
       critic_iterations: attempt + 1,
       plan: telemetrySnapshot.plan,
       trace_id: options.sessionId,

@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import type {
   AgentMessage,
   PlanSummary,
@@ -43,6 +44,7 @@ export interface DispatchResult {
   knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
   retrievalThresholdUsed?: number;
   retrievalThresholdHistory?: number[];
+  retrievalLatencyMs?: number;
 }
 
 interface DispatchOptions {
@@ -65,7 +67,7 @@ interface DispatchOptions {
       activity: ActivityStep[];
       lazyReferences?: LazyReference[];
       summaryTokens?: number;
-      mode?: 'direct' | 'lazy';
+      mode?: 'direct' | 'lazy' | 'knowledge_agent';
       fullContentAvailable?: boolean;
       diagnostics?: AgenticRetrievalDiagnostics;
     }>;
@@ -75,7 +77,7 @@ interface DispatchOptions {
       activity: ActivityStep[];
       lazyReferences?: LazyReference[];
       summaryTokens?: number;
-      mode?: 'direct' | 'lazy';
+      mode?: 'direct' | 'lazy' | 'knowledge_agent';
       fullContentAvailable?: boolean;
       diagnostics?: AgenticRetrievalDiagnostics;
     }>;
@@ -257,6 +259,7 @@ export async function dispatchTools({
   let retrievalThresholdUsed: number | undefined;
   let retrievalThresholdHistory: number[] | undefined;
   let knowledgeAgentAnswer: string | undefined;
+  let retrievalLatencyMs: number | undefined;
   let contextSectionLabels: string[] | undefined;
   let coverageChecklistCount: number | undefined;
 
@@ -283,6 +286,7 @@ export async function dispatchTools({
     const supportsLazy = typeof lazyRetrieve === 'function';
     const useLazy = wantsLazy && supportsLazy;
 
+    const retrievalStart = performance.now();
     let retrieval;
     let lazyRetrievalFailed = false;
     if (useLazy) {
@@ -331,9 +335,11 @@ export async function dispatchTools({
           ? retrieval.mode
           : 'direct';
     }
-    if (retrieval.diagnostics) {
+    if ('diagnostics' in retrieval && retrieval.diagnostics) {
       diagnostics = retrieval.diagnostics;
     }
+
+    retrievalLatencyMs = Math.round(performance.now() - retrievalStart);
 
     activity.push(
       ...(retrieval.activity ?? []),
@@ -356,8 +362,11 @@ export async function dispatchTools({
       source = 'knowledge_agent';
       retrievalMode = 'knowledge_agent';
     }
-    if (retrieval.strategy) {
-      strategy = retrieval.strategy;
+    if ('strategy' in retrieval && retrieval.strategy) {
+      const retrievalStrategy = retrieval.strategy;
+      if (retrievalStrategy === 'direct' || retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid') {
+        strategy = retrievalStrategy;
+      }
     } else if (retrieval.mode === 'knowledge_agent') {
       strategy = 'knowledge_agent';
     }
@@ -766,6 +775,7 @@ export async function dispatchTools({
     timestamp: new Date().toISOString(),
     sections: contextSectionLabels ?? [],
     coverageChecklistCount: coverageChecklistCount ?? 0,
+    latencyMs: retrievalLatencyMs ?? null,
     knowledgeAgentSummary: {
       present: knowledgeAgentSummaryProvided,
       length: knowledgeAgentAnswer ? knowledgeAgentAnswer.length : 0
@@ -793,6 +803,7 @@ export async function dispatchTools({
     diagnostics,
     knowledgeAgentGrounding,
     retrievalThresholdUsed,
-    retrievalThresholdHistory
+    retrievalThresholdHistory,
+    retrievalLatencyMs
   };
 }

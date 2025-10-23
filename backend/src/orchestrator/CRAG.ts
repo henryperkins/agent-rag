@@ -27,6 +27,7 @@ export interface CRAGResult {
   refinedDocuments?: Reference[];
   activity: ActivityStep[];
   shouldTriggerWebSearch: boolean;
+  reasoningSummary?: string;
 }
 
 const CRAGEvaluationValidator = z.object({

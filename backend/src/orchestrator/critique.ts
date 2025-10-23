@@ -94,7 +94,7 @@ Return ONLY valid JSON matching the schema. Be strict: prefer revise when uncert
     const failedGrounding = !grounded;
     const insufficientCoverage = coverage < threshold;
 
-    let action = parsedAction;
+    let action: 'accept' | 'revise' = parsedAction;
     let forced = false;
     if (parsedAction !== 'revise' && (failedGrounding || insufficientCoverage)) {
       const reasons: string[] = [];

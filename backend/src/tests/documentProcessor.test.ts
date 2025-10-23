@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 
 process.env.AZURE_SEARCH_ENDPOINT = 'https://example.search.windows.net';
 process.env.AZURE_SEARCH_INDEX_NAME = 'test-index';
@@ -14,7 +15,7 @@ import { getSearchAuthHeaders } from '../azure/searchAuth.js';
 
 describe('uploadDocumentsToIndex', () => {
   const fetchSpy = vi.fn();
-  const authMock = getSearchAuthHeaders as unknown as vi.Mock;
+  const authMock = getSearchAuthHeaders as unknown as Mock;
 
   beforeEach(() => {
     fetchSpy.mockResolvedValue({

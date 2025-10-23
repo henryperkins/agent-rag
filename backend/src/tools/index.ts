@@ -166,12 +166,13 @@ export async function retrieveTool(args: {
   let knowledgeAgentStatusCode: number | undefined;
   let knowledgeAgentErrorMessage: string | undefined;
   let knowledgeAgentRequestId: string | undefined;
-  let knowledgeAgentCorrelationId = correlationId;
+  let knowledgeAgentCorrelationId: string = correlationId;
   let knowledgeAgentAttempted = false;
   let knowledgeAgentGrounding: KnowledgeAgentGroundingSummary | undefined;
   let knowledgeAgentAnswer: string | undefined;
   let thresholdUsed = config.RERANKER_THRESHOLD;
   const thresholdHistory: number[] = [];
+  let maxRetryAttempt = 0;
   const recordThreshold = (value: number) => {
     thresholdHistory.push(value);
     thresholdUsed = value;
@@ -211,6 +212,10 @@ export async function retrieveTool(args: {
         diagnostics.knowledgeAgent.grounding = knowledgeAgentGrounding;
       }
     }
+    diagnostics.retryCount = Math.max(diagnostics.retryCount ?? 0, maxRetryAttempt);
+    if (fallbackTriggered) {
+      diagnostics.knowledgeAgentSummaryProvided = false;
+    }
     return diagnostics;
   };
 
@@ -230,7 +235,10 @@ export async function retrieveTool(args: {
       ...extras
     };
 
-    if (knowledgeAgentGrounding && response.knowledgeAgentGrounding === undefined) {
+    response.diagnostics = response.diagnostics ?? buildDiagnostics();
+    response.diagnostics.retryCount = Math.max(response.diagnostics.retryCount ?? 0, maxRetryAttempt);
+
+    if (knowledgeAgentGrounding && response.knowledgeAgentGrounding === undefined && !fallbackTriggered) {
       response.knowledgeAgentGrounding = knowledgeAgentGrounding;
     }
     if (response.thresholdUsed === undefined) {
@@ -245,7 +253,12 @@ export async function retrieveTool(args: {
     if (!response.contextSectionLabels && Array.isArray(extras.contextSectionLabels)) {
       response.contextSectionLabels = extras.contextSectionLabels;
     }
-    if (response.knowledgeAgentSummaryProvided === undefined) {
+
+    if (fallbackTriggered) {
+      response.knowledgeAgentAnswer = undefined;
+      response.knowledgeAgentSummaryProvided = false;
+      response.diagnostics.knowledgeAgentSummaryProvided = false;
+    } else if (response.knowledgeAgentSummaryProvided === undefined) {
       const candidateSummary = response.knowledgeAgentAnswer ?? knowledgeAgentAnswer;
       response.knowledgeAgentSummaryProvided = Boolean(
         typeof candidateSummary === 'string' && candidateSummary.trim().length > 0
@@ -260,6 +273,8 @@ export async function retrieveTool(args: {
     signal: AbortSignal
   ): Promise<{ references: Reference[]; activity: ActivityStep[]; threshold: number }> => {
     fallbackTriggered = true;
+    knowledgeAgentAnswer = undefined;
+    knowledgeAgentGrounding = undefined;
     const activity = [...existingActivity];
     const fallbackThreshold = config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD;
     const thresholdFloor = Math.max(
@@ -340,6 +355,7 @@ export async function retrieveTool(args: {
   try {
     return await withRetry('direct-search', async (signal, context) => {
       const retryAttempt = context?.attempt ?? 0;
+      maxRetryAttempt = Math.max(maxRetryAttempt, retryAttempt);
       knowledgeAgentGrounding = undefined;
       knowledgeAgentAnswer = undefined;
       let knowledgeAgentReferences: Reference[] = [];
@@ -359,7 +375,7 @@ export async function retrieveTool(args: {
             });
 
             knowledgeAgentGrounding = agentResult.grounding;
-            knowledgeAgentCorrelationId = (agentResult.correlationId ?? correlationId) as string;
+            knowledgeAgentCorrelationId = agentResult.correlationId ?? correlationId;
             knowledgeAgentRequestId = agentResult.requestId;
 
             if (Array.isArray(agentResult.activity) && agentResult.activity.length) {
@@ -474,7 +490,7 @@ export async function retrieveTool(args: {
             knowledgeAgentFailurePhase = 'invocation';
             const errorCorrelation = (agentError as { correlationId?: string }).correlationId;
             if (errorCorrelation) {
-              knowledgeAgentCorrelationId = errorCorrelation as string;
+              knowledgeAgentCorrelationId = errorCorrelation;
             }
             knowledgeAgentStatusCode =
               typeof (agentError as { status?: number }).status === 'number'
