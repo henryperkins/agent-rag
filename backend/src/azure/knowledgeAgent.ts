@@ -2,19 +2,24 @@ import type { ActivityStep, Reference, KnowledgeAgentGroundingSummary } from '..
 import { config } from '../config/app.js';
 import { performSearchRequest } from './searchHttp.js';
 
-interface KnowledgeAgentActivityEntry {
+interface KnowledgeAgentMessage {
   role: string;
-  content: string;
+  content: Array<{
+    type: 'text';
+    text: string;
+  }>;
+}
+
+interface KnowledgeSourceParams {
+  knowledgeSourceName: string;
+  kind: 'searchIndex';
+  filterAddOn?: string | null;
 }
 
 export interface KnowledgeAgentInvocationOptions {
-  activity: KnowledgeAgentActivityEntry[];
-  top?: number;
+  messages: KnowledgeAgentMessage[];
+  knowledgeSourceName?: string;
   filter?: string;
-  includeActivity?: boolean;
-  includeReferences?: boolean;
-  includeReferenceSourceData?: boolean;
-  attemptFastPath?: boolean;
   correlationId?: string;
 }
 
@@ -43,52 +48,83 @@ function normalizeKnowledgeReference(entry: any, index: number): Reference {
     };
   }
 
-  const metadata = entry as Record<string, unknown>;
+  const container = entry as Record<string, unknown>;
+  const sourceData =
+    container?.sourceData && typeof container.sourceData === 'object'
+      ? (container.sourceData as Record<string, unknown>)
+      : undefined;
+
+  const lookupOrder = [sourceData, container].filter(
+    (candidate): candidate is Record<string, unknown> => Boolean(candidate)
+  );
+
+  const getField = (field: string): unknown => {
+    for (const candidate of lookupOrder) {
+      if (field in candidate) {
+        return candidate[field];
+      }
+    }
+    return undefined;
+  };
+
   const id =
-    (typeof metadata.id === 'string' && metadata.id) ||
-    (typeof metadata.chunkId === 'string' && metadata.chunkId) ||
-    (typeof metadata.sourceId === 'string' && metadata.sourceId) ||
-    (typeof metadata.documentId === 'string' && metadata.documentId) ||
+    (typeof getField('id') === 'string' && (getField('id') as string)) ||
+    (typeof getField('ref_id') === 'number' && String(getField('ref_id'))) ||
+    (typeof getField('chunkId') === 'string' && (getField('chunkId') as string)) ||
+    (typeof getField('sourceId') === 'string' && (getField('sourceId') as string)) ||
+    (typeof getField('documentId') === 'string' && (getField('documentId') as string)) ||
     `knowledge_${index + 1}`;
 
   const title =
-    (typeof metadata.title === 'string' && metadata.title) ||
-    (typeof metadata.heading === 'string' && metadata.heading) ||
-    (typeof metadata.sourceTitle === 'string' && metadata.sourceTitle) ||
-    (typeof metadata.displayName === 'string' && metadata.displayName) ||
+    (typeof getField('title') === 'string' && (getField('title') as string)) ||
+    (typeof getField('heading') === 'string' && (getField('heading') as string)) ||
+    (typeof getField('sourceTitle') === 'string' && (getField('sourceTitle') as string)) ||
+    (typeof getField('displayName') === 'string' && (getField('displayName') as string)) ||
     id;
 
   let content =
-    (typeof metadata.content === 'string' && metadata.content) ||
-    (typeof metadata.text === 'string' && metadata.text) ||
-    (typeof metadata.chunk === 'string' && metadata.chunk) ||
-    (typeof metadata.body === 'string' && metadata.body) ||
-    (Array.isArray(metadata.contents) && metadata.contents.filter((part) => typeof part === 'string').join('\n\n')) ||
+    (typeof getField('content') === 'string' && (getField('content') as string)) ||
+    (typeof getField('text') === 'string' && (getField('text') as string)) ||
+    (typeof getField('chunk') === 'string' && (getField('chunk') as string)) ||
+    (typeof getField('body') === 'string' && (getField('body') as string)) ||
+    (Array.isArray(getField('contents')) &&
+      (getField('contents') as unknown[])
+        .filter((part) => typeof part === 'string')
+        .join('\n\n')) ||
     '';
 
-  if (!content && typeof metadata.preview === 'string') {
-    content = metadata.preview;
+  if (!content) {
+    const preview = getField('preview');
+    if (typeof preview === 'string') {
+      content = preview;
+    }
   }
 
+  const sourceContainer =
+    container.source && typeof container.source === 'object'
+      ? (container.source as Record<string, unknown>)
+      : undefined;
+
   const url =
-    (typeof metadata.url === 'string' && metadata.url) ||
-    (typeof metadata.href === 'string' && metadata.href) ||
-    (metadata.source && typeof (metadata.source as Record<string, unknown>).url === 'string'
-      ? ((metadata.source as Record<string, unknown>).url as string)
+    (typeof getField('url') === 'string' && (getField('url') as string)) ||
+    (typeof getField('href') === 'string' && (getField('href') as string)) ||
+    (sourceContainer && typeof sourceContainer.url === 'string'
+      ? (sourceContainer.url as string)
       : undefined);
 
   const pageNumber =
-    (typeof metadata.pageNumber === 'number' && metadata.pageNumber) ||
-    (typeof metadata.page === 'number' && metadata.page) ||
-    (metadata.metadata && typeof (metadata.metadata as Record<string, unknown>).pageNumber === 'number'
-      ? ((metadata.metadata as Record<string, unknown>).pageNumber as number)
+    (typeof getField('pageNumber') === 'number' && (getField('pageNumber') as number)) ||
+    (typeof getField('page') === 'number' && (getField('page') as number)) ||
+    (container.metadata &&
+    typeof (container.metadata as Record<string, unknown>)?.pageNumber === 'number'
+      ? ((container.metadata as Record<string, unknown>).pageNumber as number)
       : undefined);
 
   const scoreValue =
-    (typeof metadata.score === 'number' && metadata.score) ||
-    (typeof metadata.confidence === 'number' && metadata.confidence) ||
-    (typeof metadata.relevanceScore === 'number' && metadata.relevanceScore) ||
-    (typeof metadata.rank === 'number' && metadata.rank) ||
+    (typeof getField('score') === 'number' && (getField('score') as number)) ||
+    (typeof getField('confidence') === 'number' && (getField('confidence') as number)) ||
+    (typeof getField('relevanceScore') === 'number' && (getField('relevanceScore') as number)) ||
+    (typeof getField('rank') === 'number' && (getField('rank') as number)) ||
     undefined;
 
   return {
@@ -98,7 +134,7 @@ function normalizeKnowledgeReference(entry: any, index: number): Reference {
     url,
     page_number: pageNumber,
     score: scoreValue,
-    metadata
+    metadata: container
   };
 }
 
@@ -123,6 +159,118 @@ function extractReferenceCandidates(payload: any): any[] {
     candidates.push(...payload.results);
   }
   return candidates;
+}
+
+interface ExtractiveParseResult {
+  references: Reference[];
+  parsed: boolean;
+}
+
+function parseExtractiveContentReferences(payload: any): ExtractiveParseResult {
+  const result: ExtractiveParseResult = {
+    references: [],
+    parsed: false
+  };
+
+  const text = payload?.response?.[0]?.content?.[0]?.text;
+  if (typeof text !== 'string' || !text.trim()) {
+    return result;
+  }
+
+  const attempts = [text.trim()];
+  if (text.startsWith('"') && text.endsWith('"')) {
+    attempts.push(text.slice(1, -1));
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      if (!Array.isArray(parsed)) {
+        continue;
+      }
+
+      result.parsed = true;
+
+      parsed.forEach((item: any, idx: number) => {
+        if (!item || typeof item !== 'object') {
+          return;
+        }
+
+        const refId =
+          typeof item.ref_id === 'number'
+            ? String(item.ref_id)
+            : typeof item.id === 'string'
+              ? item.id
+              : `knowledge_${idx + 1}`;
+
+        const rawTitle =
+          typeof item.title === 'string' && item.title.trim()
+            ? item.title.trim()
+            : undefined;
+
+        const content =
+          typeof item.content === 'string'
+            ? item.content
+            : typeof item.text === 'string'
+              ? item.text
+              : '';
+
+        result.references.push({
+          id: refId,
+          title: rawTitle ?? `Result ${refId}`,
+          content,
+          metadata: item
+        });
+      });
+      break;
+    } catch {
+      continue;
+    }
+  }
+
+  return result;
+}
+
+function extractRefIdsFromAnswer(answer?: string): string[] {
+  if (!answer || typeof answer !== 'string') {
+    return [];
+  }
+  const ids = new Set<string>();
+  const regex = /\[ref_id:(\d+)\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(answer)) !== null) {
+    ids.add(match[1]);
+  }
+  return Array.from(ids);
+}
+
+function addCitationIdsToReferences(answer: string | undefined, references: Reference[]): void {
+  const ids = extractRefIdsFromAnswer(answer);
+  if (ids.length === 0) {
+    return;
+  }
+
+  const idToIndex = new Map<string, number>();
+  references.forEach((ref, idx) => {
+    if (typeof ref.id === 'string' && ref.id.trim()) {
+      idToIndex.set(ref.id.trim(), idx);
+    }
+  });
+
+  ids.forEach((id) => {
+    const targetIndex = idToIndex.get(id);
+    if (targetIndex === undefined) {
+      return;
+    }
+
+    const reference = references[targetIndex];
+    const metadata = (reference.metadata ??= {});
+    const store = metadata as Record<string, unknown>;
+    const existing = Array.isArray(store.citationIds) ? (store.citationIds as string[]) : [];
+    if (!existing.includes(id)) {
+      store.citationIds = [...existing, id];
+    }
+  });
 }
 
 interface UnifiedGroundingEntry {
@@ -649,11 +797,12 @@ function normalizeKnowledgeActivity(payload: any): ActivityStep[] {
 
       return { type, description, timestamp };
     })
-    .filter((step): step is ActivityStep => Boolean(step));
+    .filter((step: ActivityStep | null): step is ActivityStep => Boolean(step));
 }
 
-function normalizeKnowledgeReferences(payload: any): Reference[] {
+function normalizeKnowledgeReferences(payload: any, extractive?: ExtractiveParseResult): Reference[] {
   const candidates = extractReferenceCandidates(payload);
+  const parsedExtractive = extractive ?? parseExtractiveContentReferences(payload);
   const references: Reference[] = [];
   const seen = new Set<string>();
   let index = 0;
@@ -662,13 +811,35 @@ function normalizeKnowledgeReferences(payload: any): Reference[] {
     const ref = normalizeKnowledgeReference(candidate, index);
     index += 1;
 
-    if (!ref.content || !ref.content.trim()) {
+    const metadataStore = ref.metadata as Record<string, unknown> | undefined;
+    const hasKey =
+      (typeof ref.id === 'string' && ref.id.trim().length > 0) ||
+      (metadataStore && typeof metadataStore.docKey === 'string' && metadataStore.docKey.trim().length > 0);
+    const hasContent = typeof ref.content === 'string' && ref.content.trim().length > 0;
+
+    if (!hasKey && !hasContent) {
       continue;
     }
 
     const key =
       ref.id ??
-      `${ref.url ?? ''}|${ref.page_number ?? ''}|${(ref.content ?? '').slice(0, 64)}`;
+      (metadataStore && typeof metadataStore.docKey === 'string'
+        ? `docKey:${metadataStore.docKey}`
+        : `${ref.url ?? ''}|${ref.page_number ?? ''}|${(ref.content ?? '').slice(0, 64)}`);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    references.push(ref);
+  }
+
+  for (const ref of parsedExtractive.references) {
+    const metadataStore = ref.metadata as Record<string, unknown> | undefined;
+    const key =
+      ref.id ??
+      (metadataStore && typeof metadataStore.docKey === 'string'
+        ? `docKey:${metadataStore.docKey}`
+        : `${(ref.content ?? '').slice(0, 64)}`);
     if (seen.has(key)) {
       continue;
     }
@@ -682,40 +853,162 @@ function normalizeKnowledgeReferences(payload: any): Reference[] {
 export async function invokeKnowledgeAgent(
   options: KnowledgeAgentInvocationOptions
 ): Promise<KnowledgeAgentInvocationResult> {
-  if (!Array.isArray(options.activity) || options.activity.length === 0) {
-    throw new Error('Knowledge agent invocation requires non-empty activity history.');
+  if (!Array.isArray(options.messages) || options.messages.length === 0) {
+    throw new Error('Knowledge agent invocation requires non-empty messages array.');
   }
 
   const agentName = encodeURIComponent(config.AZURE_KNOWLEDGE_AGENT_NAME);
-  const url = `${config.AZURE_SEARCH_ENDPOINT}/agents('${agentName}')/search?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
+  const url = `${config.AZURE_SEARCH_ENDPOINT}/agents/${agentName}/retrieve?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
 
-  const payload = stripUndefined({
-    activity: options.activity,
-    options: stripUndefined({
-      top: options.top ?? config.KNOWLEDGE_AGENT_TOP_K ?? config.RAG_TOP_K,
-      filter: options.filter,
-      includeActivity: options.includeActivity ?? config.KNOWLEDGE_AGENT_INCLUDE_ACTIVITY,
-      includeReferences: options.includeReferences ?? config.KNOWLEDGE_AGENT_INCLUDE_REFERENCES,
-      includeReferenceSourceData:
-        options.includeReferenceSourceData ?? config.KNOWLEDGE_AGENT_INCLUDE_SOURCE_DATA,
-      attemptFastPath: options.attemptFastPath ?? config.KNOWLEDGE_AGENT_ATTEMPT_FAST_PATH
-    })
-  });
+  // Determine knowledge source name using the same derivation logic as createKnowledgeAgent
+  // to ensure consistency between creation and invocation
+  const defaultKnowledgeSourceName = (() => {
+    const sanitized = config.AZURE_SEARCH_INDEX_NAME
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+    return sanitized.length >= 2
+      ? sanitized
+      : `${config.AZURE_SEARCH_INDEX_NAME.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60) || 'knowledge-source'}-ks`;
+  })();
 
-  const { response, requestId, correlationId } = await performSearchRequest('knowledge-agent-search', url, {
-    method: 'POST',
-    body: payload,
-    correlationId: options.correlationId
-  });
+  const shouldIncludeKnowledgeSourceParams =
+    options.filter !== undefined ||
+    options.knowledgeSourceName !== undefined ||
+    config.AZURE_KNOWLEDGE_SOURCE_NAME !== undefined;
 
-  let data: any = null;
-  try {
-    data = await response.json();
-  } catch {
-    data = {};
+  let knowledgeSourceParams: KnowledgeSourceParams[] | undefined;
+  if (shouldIncludeKnowledgeSourceParams) {
+    const knowledgeSourceName =
+      options.knowledgeSourceName ??
+      config.AZURE_KNOWLEDGE_SOURCE_NAME ??
+      defaultKnowledgeSourceName;
+
+    knowledgeSourceParams = [
+      stripUndefined({
+        knowledgeSourceName,
+        kind: 'searchIndex' as const,
+        filterAddOn: options.filter ?? null
+      }) as KnowledgeSourceParams
+    ];
   }
 
-  const references = normalizeKnowledgeReferences(data);
+  const payload: {
+    messages: KnowledgeAgentMessage[];
+    knowledgeSourceParams?: KnowledgeSourceParams[];
+  } = {
+    messages: options.messages
+  };
+
+  if (knowledgeSourceParams) {
+    payload.knowledgeSourceParams = knowledgeSourceParams;
+  }
+
+  let response: Response;
+  let requestId: string | undefined;
+  let correlationId: string;
+
+  try {
+    const result = await performSearchRequest('knowledge-agent-retrieve', url, {
+      method: 'POST',
+      body: payload,
+      correlationId: options.correlationId
+    });
+    response = result.response;
+    requestId = result.requestId;
+    correlationId = result.correlationId;
+  } catch (error) {
+    const status = typeof (error as { status?: number }).status === 'number' ? (error as { status: number }).status : undefined;
+    const body = typeof (error as { body?: string }).body === 'string' ? (error as { body: string }).body : '';
+    const correlationFromError =
+      (error as { correlationId?: string }).correlationId ?? options.correlationId;
+    const requestIdFromError = (error as { requestId?: string }).requestId;
+
+    let parsedErrorBody: unknown = null;
+    if (body) {
+      try {
+        parsedErrorBody = JSON.parse(body);
+      } catch {
+        parsedErrorBody = null;
+      }
+    }
+
+    const baseError = error instanceof Error ? error : new Error(String(error));
+    const truncatedBody = body.length > 512 ? `${body.slice(0, 512)}…` : body;
+    const diagnostics: string[] = [];
+    if (status !== undefined) diagnostics.push(`status=${status}`);
+    if (truncatedBody) diagnostics.push(`body=${truncatedBody}`);
+    if (correlationFromError) diagnostics.push(`correlationId=${correlationFromError}`);
+    if (requestIdFromError) diagnostics.push(`requestId=${requestIdFromError}`);
+
+    if (diagnostics.length) {
+      baseError.message = `${baseError.message} (${diagnostics.join(', ')})`;
+    }
+
+    if (status !== undefined) {
+      (baseError as { status?: number }).status = status;
+    }
+    if (correlationFromError) {
+      (baseError as { correlationId?: string }).correlationId = correlationFromError;
+    }
+    if (requestIdFromError) {
+      (baseError as { requestId?: string }).requestId = requestIdFromError;
+    }
+    if (body) {
+      (baseError as { responseBody?: string }).responseBody = body;
+    }
+    if (parsedErrorBody) {
+      (baseError as { responseJson?: unknown }).responseJson = parsedErrorBody;
+    }
+
+    throw baseError;
+  }
+
+  let rawBody = '';
+  try {
+    rawBody = await response.text();
+  } catch {
+    rawBody = '';
+  }
+
+  let parsedBody: any = null;
+  if (rawBody) {
+    try {
+      parsedBody = JSON.parse(rawBody);
+    } catch {
+      parsedBody = null;
+    }
+  }
+
+  let data: any;
+  if (response.ok) {
+    data = parsedBody ?? (rawBody ? { raw: rawBody } : {});
+  } else {
+    data = typeof parsedBody === 'object' && parsedBody !== null ? parsedBody : {};
+    data.error = {
+      status: response.status,
+      body: parsedBody ?? rawBody
+    };
+  }
+
+  const extractive = parseExtractiveContentReferences(data);
+
+  // Extract answer from response according to API spec:
+  // response[0].content[0].text
+  let answer: string | undefined;
+  if (!extractive.parsed && Array.isArray(data?.response) && data.response.length > 0) {
+    const firstResponse = data.response[0];
+    if (Array.isArray(firstResponse?.content) && firstResponse.content.length > 0) {
+      const firstContent = firstResponse.content[0];
+      if (firstContent?.type === 'text' && typeof firstContent.text === 'string') {
+        answer = firstContent.text;
+      }
+    }
+  }
+
+  const references = normalizeKnowledgeReferences(data, extractive);
+  addCitationIdsToReferences(answer, references);
   const grounding = applyUnifiedGrounding(data, references);
   const activity = normalizeKnowledgeActivity(data);
 
@@ -727,13 +1020,7 @@ export async function invokeKnowledgeAgent(
     });
   }
 
-  const answer =
-    (typeof data?.answer === 'string' && data.answer) ||
-    (typeof data?.answer?.text === 'string' && data.answer.text) ||
-    (typeof data?.response === 'string' && data.response) ||
-    undefined;
-
-  const usage = data?.usage ?? data?.answer?.usage;
+  const usage = data?.usage;
 
   return {
     references,

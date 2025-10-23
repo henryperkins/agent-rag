@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { dispatchTools } from '../orchestrator/dispatch.js';
 import type { PlanSummary } from '../../../shared/types.js';
 
@@ -31,6 +31,47 @@ describe('Adaptive Retrieval Telemetry', () => {
     process.env.ENABLE_ADAPTIVE_RETRIEVAL = 'true';
     process.env.ADAPTIVE_MIN_COVERAGE = '0.4';
     process.env.ADAPTIVE_MIN_DIVERSITY = '0.3';
+    process.env.RETRIEVAL_STRATEGY = 'direct'; // Prevent knowledge agent calls
+
+    // Mock fetch to prevent real network calls and return proper search results
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      // Handle embedding API calls
+      if (url.includes('/embeddings')) {
+        return {
+          ok: true,
+          headers: { get: vi.fn().mockReturnValue(null) },
+          json: async () => ({
+            data: [{ embedding: new Array(1536).fill(0.1) }]
+          })
+        };
+      }
+      // Handle search API calls - return documents
+      return {
+        ok: true,
+        headers: { get: vi.fn().mockReturnValue(null) },
+        json: async () => ({
+          value: [
+            {
+              chunk_id: 'doc1',
+              page_chunk: 'Moon landing content',
+              '@search.score': 2.5,
+              '@search.rerankerScore': 3.0
+            },
+            {
+              chunk_id: 'doc2',
+              page_chunk: 'Apollo mission details',
+              '@search.score': 2.3,
+              '@search.rerankerScore': 2.8
+            }
+          ]
+        })
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('emits telemetry and returns adaptive stats when enabled', { timeout: 30000 }, async () => {

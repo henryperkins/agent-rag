@@ -23,6 +23,7 @@ const envSchema = z.object({
   AZURE_SEARCH_INDEX_NAME: z.string().default('earth_at_night'),
   AZURE_SEARCH_API_KEY: z.string().optional(),
   AZURE_KNOWLEDGE_AGENT_NAME: z.string().default('earth-knowledge-agent'),
+  AZURE_KNOWLEDGE_SOURCE_NAME: z.string().optional(),
   RETRIEVAL_STRATEGY: z.enum(['direct', 'knowledge_agent', 'hybrid']).default('direct'),
   KNOWLEDGE_AGENT_INCLUDE_ACTIVITY: z.coerce.boolean().default(true),
   KNOWLEDGE_AGENT_INCLUDE_REFERENCES: z.coerce.boolean().default(true),
@@ -67,7 +68,7 @@ const envSchema = z.object({
   LAZY_SUMMARY_MAX_CHARS: z.coerce.number().default(1000), // Increased from 300
   LAZY_PREFETCH_COUNT: z.coerce.number().default(20), // Increased from 10
   LAZY_LOAD_THRESHOLD: z.coerce.number().default(0.5),
-  RERANKER_THRESHOLD: z.coerce.number().default(2.5),
+  RERANKER_THRESHOLD: z.coerce.number().default(1.5), // Lowered from 2.5 for better document recall
   TARGET_INDEX_MAX_DOCUMENTS: z.coerce.number().default(100),
 
   WEB_CONTEXT_MAX_TOKENS: z.coerce.number().default(30000), // Increased from 8000 (GPT-5: 272K input)

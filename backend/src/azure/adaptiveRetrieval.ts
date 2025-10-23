@@ -70,7 +70,7 @@ async function assessCoverage(results: Reference[], query: string): Promise<numb
           content: `Question: ${query}\n\nDocuments:\n${documentsPreview}`,
         },
       ],
-      max_output_tokens: 1000, // GPT-5 uses ~200-400 reasoning tokens before JSON payload
+      max_output_tokens: 2000, // Increased from 1000 to reduce incomplete JSON responses (GPT-5: 128K output)
       temperature: 0,
       reasoning: getReasoningOptions('adaptive'),
       textFormat: {
@@ -178,7 +178,7 @@ export async function retrieveWithAdaptiveRefinement(
           content: `Original query: ${query}\n\nCurrent retrieval:\n- Coverage: ${quality.coverage.toFixed(2)} (target: >=${coverageThreshold})\n- Diversity: ${quality.diversity.toFixed(2)} (target: >=${diversityThreshold})\n- Documents retrieved: ${results.references.length}\n\nReformulate to improve retrieval quality.`,
         },
       ],
-      max_output_tokens: 1500, // GPT-5 uses ~300-500 reasoning tokens before text output
+      max_output_tokens: 2000, // Increased from 1500 to avoid truncation during reformulation reasoning
       temperature: 0.3,
       reasoning: getReasoningOptions('adaptive')
     });

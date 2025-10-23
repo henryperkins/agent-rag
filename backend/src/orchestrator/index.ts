@@ -201,7 +201,7 @@ async function generateAnswer(
   citations?: Reference[]
 ): Promise<GenerateAnswerResult> {
   const routePromptHint = routeConfig.systemPromptHints ? `${routeConfig.systemPromptHints}\n\n` : '';
-  const basePrompt = `${routePromptHint}Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.`;
+  const basePrompt = `${routePromptHint}Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.\n\nReview every section in the context (Knowledge Agent Summary, Retrieved Knowledge, Retrieval Insights, Salience Signals, Web Context, Memory Context) and integrate relevant details. Treat any Knowledge Agent Summary as guidance—verify its claims against the numbered sources before citing.`;
 
   const hasLazyReferences = lazyRefs.length > 0;
   const lazyContext = hasLazyReferences
@@ -217,6 +217,7 @@ async function generateAnswer(
     ? [lazyContext, supplementalContext].filter((segment) => segment && segment.length > 0).join('\n\n')
     : supplementalContext;
   const usedFullContent = hasLazyReferences && lazyRefs.some((ref) => ref.isSummary === false);
+  const hasNumberedSources = /\[\d+\]/.test(activeContext ?? '');
 
   if (!activeContext?.trim()) {
     const fallbackAnswer = 'I do not know. (No grounded evidence retrieved)';
@@ -232,10 +233,21 @@ async function generateAnswer(
       : 'generating_from_summaries'
     : 'generating';
 
-  let userPrompt = `Question: ${question}\n\nContext:\n${activeContext}`;
-  if (revisionNotes && revisionNotes.length > 0) {
-    userPrompt += `\n\nRevision guidance (address these issues):\n${revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
+  const instructions = [
+    'Review each available section in the context (Knowledge Agent Summary, Retrieved Knowledge, Retrieval Insights, Salience Signals, Web Context, Memory Context).',
+    'Synthesize information across sections to create a comprehensive answer.',
+    'Highlight agreements, contradictions, or gaps when they matter to the question.'
+  ];
+  if (hasNumberedSources) {
+    instructions.push('Cite the numbered sources for every factual statement.');
+  } else {
+    instructions.push('If no numbered sources are available, clearly state the limitations before answering.');
   }
+  let userPrompt = `Question: ${question}\n\nInstructions:\n- ${instructions.join('\n- ')}\n`;
+  if (revisionNotes && revisionNotes.length > 0) {
+    userPrompt += `\nRevision guidance (address these issues):\n${revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
+  }
+  userPrompt += `\n\nContext:\n${activeContext}`;
 
   if (mode === 'stream') {
     const extractStreamText = (payload: unknown): string => {
@@ -473,6 +485,27 @@ async function generateAnswer(
 
     let completed = false;
     let buffer = '';
+    const hasCitations = Array.isArray(citations) && citations.length > 0;
+
+    // Citation validation buffer for streaming mode
+    const CITATION_VALIDATION_WINDOW = 150;
+    let citationBuffer = '';
+    const validateBufferedCitations = () => {
+      if (!hasCitations || citationBuffer.length < CITATION_VALIDATION_WINDOW) {
+        return true;
+      }
+      const isValid = validateCitationIntegrity(citationBuffer, citations);
+      if (!isValid) {
+        emit?.('warning', {
+          type: 'citation_integrity',
+          message: 'Invalid citations detected during streaming. Aborting.'
+        });
+        return false;
+      }
+      // Keep overlap for next validation window
+      citationBuffer = citationBuffer.slice(-50);
+      return true;
+    };
 
     const handleLine = (rawLine: string) => {
       const line = rawLine.trim();
@@ -516,6 +549,13 @@ async function generateAnswer(
           if (content) {
             successfulChunks++;
             answer += content;
+            citationBuffer += content;
+            // Validate citations during streaming
+            if (!validateBufferedCitations()) {
+              completed = true;
+              answer = 'I do not know. (Citation validation failed during streaming)';
+              return;
+            }
             emit?.('token', { content });
           }
           return;
@@ -661,7 +701,6 @@ async function generateAnswer(
       throw new Error('Streaming failed: no valid chunks received');
     }
 
-    const hasCitations = Array.isArray(citations) && citations.length > 0;
     if (hasCitations) {
       const citationValid = validateCitationIntegrity(answer, citations);
       if (!citationValid) {
@@ -1150,24 +1189,43 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       retrievalDiagnostics.fallbackReason = retrievalDiagnostics.fallbackReason ?? 'insufficient_documents';
     }
   }
+  if (dispatch.coverageChecklistCount !== undefined) {
+    retrievalDiagnostics.coverageChecklistCount = dispatch.coverageChecklistCount;
+  }
+  if (dispatch.contextSectionLabels && dispatch.contextSectionLabels.length) {
+    retrievalDiagnostics.contextSectionLabels = dispatch.contextSectionLabels;
+  }
+  retrievalDiagnostics.knowledgeAgentSummaryProvided =
+    retrievalDiagnostics.knowledgeAgentSummaryProvided ||
+    Boolean(dispatch.knowledgeAgentAnswer && dispatch.knowledgeAgentAnswer.trim().length > 0);
 
-  const combinedSegments = [dispatch.contextText, dispatch.webContextText];
-  if (memoryContextAugmented) {
-    combinedSegments.push(memoryContextAugmented);
+  const normalize = (value?: string) => (typeof value === 'string' ? value.trim() : '');
+  const knowledgeAgentSummary = normalize(dispatch.knowledgeAgentAnswer);
+  const retrievedBlock = normalize(dispatch.contextText);
+  const webBlock = normalize(dispatch.webContextText);
+  const memoryBlock = normalize(memoryContextAugmented);
+
+  const contextSections: string[] = [];
+  if (knowledgeAgentSummary) {
+    contextSections.push(`### Knowledge Agent Summary\n${knowledgeAgentSummary}`);
+  }
+  if (retrievedBlock) {
+    contextSections.push(retrievedBlock);
+  }
+  if (webBlock) {
+    contextSections.push(`### Web Context\n${webBlock}`);
+  }
+  if (memoryBlock) {
+    contextSections.push(`### Memory Context\n${memoryBlock}`);
   }
 
-  let combinedContext = combinedSegments
-    .filter((segment) => typeof segment === 'string' && segment.trim().length > 0)
-    .join('\n\n');
+  let combinedContext = contextSections.join('\n\n');
 
   if (!combinedContext) {
-    const fallbackSegments = [sections.history];
-    if (memoryContextAugmented) {
-      fallbackSegments.push(memoryContextAugmented);
-    }
-    combinedContext = fallbackSegments
-      .filter((segment) => typeof segment === 'string' && segment.trim().length > 0)
-      .join('\n\n');
+    const fallbackSegments = [sections.history, memoryContextAugmented]
+      .filter((segment): segment is string => typeof segment === 'string' && segment.trim().length > 0)
+      .map((segment, idx) => `### Fallback Context ${idx + 1}\n${segment.trim()}`);
+    combinedContext = fallbackSegments.join('\n\n');
   }
 
   // Critic (optional) retry loop

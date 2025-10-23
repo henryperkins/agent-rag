@@ -9,7 +9,6 @@ import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
 import { getReasoningOptions } from '../config/reasoning.js';
-import { shouldUseFastPath } from '../orchestrator/fastPath.js';
 import type {
   ActivityStep,
   AdaptiveRetrievalStats,
@@ -20,22 +19,22 @@ import type {
   AgentMessage,
   KnowledgeAgentGroundingSummary
 } from '../../../shared/types.js';
-import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
+import { extractOutputText, extractReasoningSummary, sanitizeLogMessage } from '../utils/openai.js';
 import { sanitizeUserField } from '../utils/session.js';
 import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
 import { validateCitationIntegrity } from '../utils/citation-validator.js';
 
-function buildKnowledgeAgentActivityHistory(
+function buildKnowledgeAgentMessages(
   messages: AgentMessage[] | undefined,
   query: string
-): Array<{ role: string; content: string }> {
-  const history: Array<{ role: string; content: string }> = Array.isArray(messages)
+): Array<{ role: string; content: Array<{ type: 'text'; text: string }> }> {
+  const history: Array<{ role: string; content: Array<{ type: 'text'; text: string }> }> = Array.isArray(messages)
     ? messages
         .map((message) => ({
           role: message.role,
-          content: (message.content ?? '').toString()
+          content: [{ type: 'text' as const, text: (message.content ?? '').toString() }]
         }))
-        .filter((entry) => entry.content && entry.content.trim().length > 0)
+        .filter((entry) => entry.content[0].text && entry.content[0].text.trim().length > 0)
     : [];
 
   const trimmedQuery = query.trim();
@@ -43,9 +42,9 @@ function buildKnowledgeAgentActivityHistory(
     trimmedQuery.length > 0 &&
     (history.length === 0 ||
       history[history.length - 1].role !== 'user' ||
-      history[history.length - 1].content.trim() !== trimmedQuery)
+      history[history.length - 1].content[0].text.trim() !== trimmedQuery)
   ) {
-    history.push({ role: 'user', content: trimmedQuery });
+    history.push({ role: 'user', content: [{ type: 'text' as const, text: trimmedQuery }] });
   }
 
   // Keep only the most recent 30 turns to avoid oversized payloads
@@ -170,6 +169,7 @@ export async function retrieveTool(args: {
   let knowledgeAgentCorrelationId = correlationId;
   let knowledgeAgentAttempted = false;
   let knowledgeAgentGrounding: KnowledgeAgentGroundingSummary | undefined;
+  let knowledgeAgentAnswer: string | undefined;
   let thresholdUsed = config.RERANKER_THRESHOLD;
   const thresholdHistory: number[] = [];
   const recordThreshold = (value: number) => {
@@ -194,7 +194,8 @@ export async function retrieveTool(args: {
   const buildDiagnostics = (): AgenticRetrievalResponse['diagnostics'] => {
     const diagnostics: AgenticRetrievalResponse['diagnostics'] = {
       correlationId,
-      fallbackAttempts
+      fallbackAttempts,
+      knowledgeAgentSummaryProvided: Boolean(knowledgeAgentAnswer && knowledgeAgentAnswer.trim().length > 0)
     };
     if (knowledgeAgentAttempted) {
       diagnostics.knowledgeAgent = {
@@ -237,6 +238,18 @@ export async function retrieveTool(args: {
     }
     if (!response.thresholdHistory) {
       response.thresholdHistory = thresholdHistory.slice();
+    }
+    if (response.coverageChecklistCount === undefined && typeof extras.coverageChecklistCount === 'number') {
+      response.coverageChecklistCount = extras.coverageChecklistCount;
+    }
+    if (!response.contextSectionLabels && Array.isArray(extras.contextSectionLabels)) {
+      response.contextSectionLabels = extras.contextSectionLabels;
+    }
+    if (response.knowledgeAgentSummaryProvided === undefined) {
+      const candidateSummary = response.knowledgeAgentAnswer ?? knowledgeAgentAnswer;
+      response.knowledgeAgentSummaryProvided = Boolean(
+        typeof candidateSummary === 'string' && candidateSummary.trim().length > 0
+      );
     }
 
     return response;
@@ -318,29 +331,24 @@ export async function retrieveTool(args: {
   try {
     return await withRetry('direct-search', async (_signal) => {
       knowledgeAgentGrounding = undefined;
+      knowledgeAgentAnswer = undefined;
       let knowledgeAgentReferences: Reference[] = [];
       const knowledgeAgentActivity: ActivityStep[] = [];
-      let knowledgeAgentAnswer: string | undefined;
 
       if (knowledgeAgentPreferred) {
-        const activityHistory = buildKnowledgeAgentActivityHistory(messages, query);
-        if (activityHistory.length) {
+        const agentMessages = buildKnowledgeAgentMessages(messages, query);
+        if (agentMessages.length) {
           knowledgeAgentAttempted = true;
           try {
-            // Detect if query is simple enough for fast path (bypass LLM query planning)
-            const useFastPath = shouldUseFastPath(query);
-
             const agentResult = await invokeKnowledgeAgent({
-              activity: activityHistory,
-              top: baseTop,
+              messages: agentMessages,
               filter,
-              attemptFastPath: useFastPath,
               correlationId
             });
 
             knowledgeAgentGrounding = agentResult.grounding;
-            knowledgeAgentCorrelationId = agentResult.correlationId ?? correlationId;
-            knowledgeAgentRequestId = agentResult.requestId ?? knowledgeAgentRequestId;
+            knowledgeAgentCorrelationId = (agentResult.correlationId ?? correlationId) as string;
+            knowledgeAgentRequestId = agentResult.requestId;
 
             if (Array.isArray(agentResult.activity) && agentResult.activity.length) {
               knowledgeAgentActivity.push(...agentResult.activity);
@@ -454,7 +462,7 @@ export async function retrieveTool(args: {
             knowledgeAgentFailurePhase = 'invocation';
             const errorCorrelation = (agentError as { correlationId?: string }).correlationId;
             if (errorCorrelation) {
-              knowledgeAgentCorrelationId = errorCorrelation;
+              knowledgeAgentCorrelationId = errorCorrelation as string;
             }
             knowledgeAgentStatusCode =
               typeof (agentError as { status?: number }).status === 'number'
@@ -466,9 +474,10 @@ export async function retrieveTool(args: {
               agentError instanceof Error ? agentError.message : String(agentError);
             knowledgeAgentRequestId =
               (agentError as { requestId?: string }).requestId ?? knowledgeAgentRequestId;
+            const sanitizedError = sanitizeLogMessage(knowledgeAgentErrorMessage ?? 'Unknown error');
             const errorDescription = `Knowledge agent failed [correlation=${knowledgeAgentCorrelationId}${
               knowledgeAgentStatusCode ? ` status=${knowledgeAgentStatusCode}` : ''
-            }]: ${knowledgeAgentErrorMessage ?? 'Unknown error'}`;
+            }]: ${sanitizedError}`;
 
             knowledgeAgentActivity.push(
               withTimestamp({
@@ -483,9 +492,9 @@ export async function retrieveTool(args: {
                 correlationId: knowledgeAgentCorrelationId,
                 requestId: knowledgeAgentRequestId,
                 statusCode: knowledgeAgentStatusCode,
-                message: knowledgeAgentErrorMessage,
+                message: sanitizedError,
                 fallbackTriggered: true,
-                activityHistoryLength: activityHistory.length
+                messagesLength: agentMessages.length
               })
             );
           }

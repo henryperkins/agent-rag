@@ -1,3 +1,19 @@
+// Secret redaction patterns for log sanitization
+const SECRET_PATTERNS = [
+  { pattern: /api-key:\s*[\w-]{32,}/gi, replacement: 'api-key: [REDACTED]' },
+  { pattern: /"(AZURE_[\w]*_API_KEY|GOOGLE_SEARCH_API_KEY)"\s*:\s*"[^"]+"/g, replacement: '"$1": "[REDACTED]"' },
+  { pattern: /Bearer\s+[\w.-]{20,}/gi, replacement: 'Bearer [REDACTED]' },
+  { pattern: /"token"\s*:\s*"[^"]{20,}"/g, replacement: '"token": "[REDACTED]"' },
+  { pattern: /sk-[a-zA-Z0-9]{32,}/g, replacement: 'sk-[REDACTED]' }
+];
+
+export function sanitizeLogMessage(message: string): string {
+  return SECRET_PATTERNS.reduce(
+    (msg, { pattern, replacement }) => msg.replace(pattern, replacement),
+    message
+  );
+}
+
 function stringifyJson(value: unknown): string {
   if (value === undefined || value === null) {
     return '';
@@ -6,7 +22,8 @@ function stringifyJson(value: unknown): string {
     return value;
   }
   try {
-    return JSON.stringify(value);
+    const json = JSON.stringify(value);
+    return sanitizeLogMessage(json);
   } catch {
     return '';
   }

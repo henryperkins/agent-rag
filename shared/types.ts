@@ -77,6 +77,9 @@ export interface AgenticRetrievalDiagnostics {
   correlationId?: string;
   knowledgeAgent?: KnowledgeAgentDiagnostic;
   fallbackAttempts?: number;
+  knowledgeAgentSummaryProvided?: boolean;
+  coverageChecklistCount?: number;
+  contextSectionLabels?: string[];
 }
 
 export interface ActivityStep {
@@ -210,6 +213,9 @@ export interface AgenticRetrievalResponse {
   knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
   thresholdUsed?: number;
   thresholdHistory?: number[];
+  coverageChecklistCount?: number;
+  contextSectionLabels?: string[];
+  knowledgeAgentSummaryProvided?: boolean;
 }
 
 export interface KnowledgeAgentGroundingSummary {

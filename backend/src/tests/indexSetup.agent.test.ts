@@ -30,11 +30,13 @@ describe('createKnowledgeAgent', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
+        headers: { get: vi.fn().mockReturnValue(null) },
         json: async () => ({})
       })
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
+        headers: { get: vi.fn().mockReturnValue(null) },
         json: async () => ({})
       });
 
@@ -67,52 +69,36 @@ describe('createKnowledgeAgent', () => {
     });
   });
 
-  it('falls back to data plane when management API rejects the request', async () => {
-    const managementError = 'Unsupported api-version';
+  it('throws error when agent creation fails', async () => {
+    const errorMessage = 'Unsupported api-version';
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
+        headers: { get: vi.fn().mockReturnValue(null) },
         json: async () => ({})
       })
       .mockResolvedValueOnce({
         ok: false,
         status: 400,
         statusText: 'Bad Request',
-        text: async () => managementError
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({})
+        headers: { get: vi.fn().mockReturnValue(null) },
+        text: async () => errorMessage
       });
 
     vi.stubGlobal('fetch', fetchMock);
 
     const { createKnowledgeAgent } = await import('../azure/indexSetup.js');
 
-    await createKnowledgeAgent();
+    await expect(createKnowledgeAgent()).rejects.toThrow(/create-knowledge-agent failed/);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    const [, managementOptions] = fetchMock.mock.calls[1]!;
-    expect(managementOptions).toMatchObject({
-      method: 'PUT',
-      headers: expect.objectContaining({
-        'Content-Type': 'application/json',
-        'api-key': 'test-key'
-      })
-    });
+    const [ksUrl] = fetchMock.mock.calls[0]!;
+    expect(ksUrl).toBe(`${endpoint}/knowledgesources('earth-at-night')?api-version=2025-08-01-preview`);
 
-    const [fallbackUrl, fallbackOptions] = fetchMock.mock.calls[2]!;
-    expect(fallbackUrl).toBe(`${endpoint}/agents('earth-knowledge-agent')?api-version=2025-08-01-preview`);
-    expect(fallbackOptions).toMatchObject({
-      method: 'PUT',
-      headers: expect.objectContaining({
-        'Content-Type': 'application/json',
-        'api-key': 'test-key'
-      })
-    });
+    const [agentUrl] = fetchMock.mock.calls[1]!;
+    expect(agentUrl).toBe(`${endpoint}/agents('earth-knowledge-agent')?api-version=2025-08-01-preview`);
   });
 });

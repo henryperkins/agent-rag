@@ -77,13 +77,16 @@ export async function performSearchRequest(
   const statusPermitted = response.ok || allowedStatuses.includes(response.status);
   if (!statusPermitted) {
     const errorText = await response.text().catch(() => '');
+    // Sanitize error text to prevent secret leakage
+    const { sanitizeLogMessage } = await import('../utils/openai.js');
+    const sanitizedError = sanitizeLogMessage(errorText);
     console.error(
       JSON.stringify({
         event: 'azure.search.request.error',
         operation,
         status: response.status,
         durationMs,
-        error: errorText,
+        error: sanitizedError,
         correlationId,
         requestId,
         retryAttempt: retryAttempt ?? 0,

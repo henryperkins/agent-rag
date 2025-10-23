@@ -113,7 +113,7 @@ For each document, assign a relevance score (0-1) and optionally identify releva
       ],
       textFormat: CRAGEvaluationSchema,
       temperature: 0.0,
-      max_output_tokens: 3000, // GPT-5 uses ~600-1000 reasoning tokens before JSON payload
+      max_output_tokens: 4500, // Increased from 3000 to prevent evaluator truncation (GPT-5: 128K output)
       model: config.AZURE_OPENAI_GPT_DEPLOYMENT,
       reasoning: reasoningConfig
     });

@@ -253,9 +253,10 @@ export async function createKnowledgeAgent(): Promise<void> {
     .replace(/[^a-z0-9-]/g, '-')
     .replace(/^-+/, '')
     .replace(/-+$/, '');
-  const knowledgeSourceName = knowledgeSourceNameSanitized.length >= 2
+  const derivedKnowledgeSourceName = knowledgeSourceNameSanitized.length >= 2
     ? knowledgeSourceNameSanitized
     : `${config.AZURE_SEARCH_INDEX_NAME.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60) || 'knowledge-source'}-ks`;
+  const knowledgeSourceName = config.AZURE_KNOWLEDGE_SOURCE_NAME ?? derivedKnowledgeSourceName;
   const knowledgeSourceUrl = formatODataResourceUrl('knowledgesources', knowledgeSourceName, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
 
   const knowledgeSourceDefinition = {
@@ -272,11 +273,12 @@ export async function createKnowledgeAgent(): Promise<void> {
     body: knowledgeSourceDefinition
   });
 
-  // Step 2: Create agent
+  // Step 2: Create agent using data plane API (2025-08-01-preview)
   const agentResourceName = config.AZURE_KNOWLEDGE_AGENT_NAME;
-  const managementUrl = formatODataResourceUrl('agents', agentResourceName, config.AZURE_SEARCH_MANAGEMENT_API_VERSION);
+  const agentUrl = formatODataResourceUrl('agents', agentResourceName, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
 
-  const agentProperties = {
+  const agentPayload = {
+    name: agentResourceName,
     description: 'Knowledge agent for Earth at Night dataset',
     models: [
       {
@@ -309,44 +311,18 @@ export async function createKnowledgeAgent(): Promise<void> {
     }
   };
 
-  const managementPayload = {
-    name: agentResourceName,
-    ...agentProperties
-  };
-
-  const { response } = await performSearchRequest('create-knowledge-agent-management', managementUrl, {
+  await performSearchRequest('create-knowledge-agent', agentUrl, {
     method: 'PUT',
-    body: managementPayload,
-    allowedStatuses: [400]
+    body: agentPayload
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    const shouldRetryWithDataPlane = response.status === 400 && /api-version/i.test(errorText ?? '');
-
-    if (!shouldRetryWithDataPlane) {
-      throw new Error(`Failed to create agent: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-
-    console.warn(
-      JSON.stringify({
-        event: 'azure.search.request.fallback',
-        operation: 'create-knowledge-agent-management',
-        status: response.status,
-        reason: 'api-version-unsupported',
-        detail: errorText
-      })
-    );
-
-    const dataPlaneUrl = formatODataResourceUrl('agents', agentResourceName, config.AZURE_SEARCH_DATA_PLANE_API_VERSION);
-    const dataPlanePayload = {
-      name: agentResourceName,
-      ...agentProperties
-    };
-
-    await performSearchRequest('create-knowledge-agent-dataplane', dataPlaneUrl, {
-      method: 'PUT',
-      body: dataPlanePayload
-    });
-  }
+  // Save knowledge source name for later use
+  console.log(
+    JSON.stringify({
+      event: 'knowledge-agent.created',
+      agentName: agentResourceName,
+      knowledgeSourceName,
+      apiVersion: config.AZURE_SEARCH_DATA_PLANE_API_VERSION
+    })
+  );
 }

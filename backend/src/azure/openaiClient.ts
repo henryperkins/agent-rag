@@ -30,28 +30,52 @@ let cachedBearer:
       expiresOnTimestamp: number;
     }
   | null = null;
+let openaiTokenRefreshPromise: Promise<{ token: string; expiresOnTimestamp: number }> | null = null;
+
+function isTokenExpiringSoon(cached: { expiresOnTimestamp: number }): boolean {
+  const now = Date.now();
+  return cached.expiresOnTimestamp - now <= 120000;
+}
+
+async function refreshOpenAIToken(): Promise<{ token: string; expiresOnTimestamp: number }> {
+  const tokenResponse = await credential.getToken(scope);
+  if (!tokenResponse?.token) {
+    throw new Error('Failed to obtain Azure AD token for Azure OpenAI.');
+  }
+
+  const now = Date.now();
+  const newToken = {
+    token: tokenResponse.token,
+    expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? now + 15 * 60 * 1000
+  };
+
+  cachedBearer = newToken;
+  return newToken;
+}
 
 async function authHeaders(): Promise<Record<string, string>> {
   if (config.AZURE_OPENAI_API_KEY) {
     return { 'api-key': config.AZURE_OPENAI_API_KEY };
   }
 
-  const now = Date.now();
-  if (cachedBearer && cachedBearer.expiresOnTimestamp - now > 120000) {
+  // Check if we have a valid cached token
+  if (cachedBearer && !isTokenExpiringSoon(cachedBearer)) {
     return { Authorization: `Bearer ${cachedBearer.token}` };
   }
 
-  const tokenResponse = await credential.getToken(scope);
-  if (!tokenResponse?.token) {
-    throw new Error('Failed to obtain Azure AD token for Azure OpenAI.');
+  // If a refresh is already in progress, wait for it
+  if (openaiTokenRefreshPromise) {
+    const token = await openaiTokenRefreshPromise;
+    return { Authorization: `Bearer ${token.token}` };
   }
 
-  cachedBearer = {
-    token: tokenResponse.token,
-    expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? now + 15 * 60 * 1000
-  };
+  // Start a new refresh and cache the promise
+  openaiTokenRefreshPromise = refreshOpenAIToken().finally(() => {
+    openaiTokenRefreshPromise = null;
+  });
 
-  return { Authorization: `Bearer ${tokenResponse.token}` };
+  const token = await openaiTokenRefreshPromise;
+  return { Authorization: `Bearer ${token.token}` };
 }
 
 function buildMessage(role: 'system' | 'user' | 'assistant' | 'developer', text: string) {

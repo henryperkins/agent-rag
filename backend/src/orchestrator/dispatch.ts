@@ -31,6 +31,9 @@ export interface DispatchResult {
   webContextTokens: number;
   webContextTrimmed: boolean;
   summaryTokens?: number;
+  knowledgeAgentAnswer?: string;
+  contextSectionLabels?: string[];
+  coverageChecklistCount?: number;
   source: 'direct' | 'fallback_vector' | 'knowledge_agent';
   retrievalMode: 'direct' | 'lazy' | 'knowledge_agent';
   strategy: 'direct' | 'knowledge_agent' | 'hybrid';
@@ -131,6 +134,96 @@ function buildWebContext(results: WebResult[], maxTokens: number) {
   };
 }
 
+function normalizeString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : undefined;
+}
+
+function extractMetadataString(metadata: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const candidate = normalizeString(metadata[key]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function buildReferenceEntry(ref: Reference, index: number): string | undefined {
+  const label = `[${index + 1}]`;
+  const lines: string[] = [];
+
+  const title = normalizeString(ref.title);
+  if (title) {
+    lines.push(`Title: ${title}`);
+  }
+
+  const url = normalizeString(ref.url);
+  const docKey =
+    extractMetadataString(ref.metadata, ['docKey', 'documentId', 'sourceId']) ??
+    extractMetadataString(ref.metadata, ['id']);
+  const locationParts = [docKey, url].filter(Boolean);
+  if (locationParts.length) {
+    lines.push(`Source: ${locationParts.join(' · ')}`);
+  }
+
+  const contentCandidates: Array<string | undefined> = [
+    ref.content,
+    ref.chunk,
+    'summary' in ref ? normalizeString((ref as LazyReference).summary) : undefined
+  ];
+
+  if (Array.isArray(ref.captions)) {
+    contentCandidates.push(
+      ref.captions
+        .map((caption) => normalizeString(caption.text))
+        .filter((segment): segment is string => Boolean(segment))
+        .join(' ')
+    );
+  }
+
+  if (ref.highlights) {
+    const highlightText = Object.values(ref.highlights)
+      .flat()
+      .map((segment) => normalizeString(segment))
+      .filter((segment): segment is string => Boolean(segment))
+      .join(' ');
+    if (highlightText) {
+      contentCandidates.push(`Highlights: ${highlightText}`);
+    }
+  }
+
+  const bodySegments = contentCandidates
+    .map((candidate) => (typeof candidate === 'string' ? candidate.trim() : ''))
+    .filter((segment) => segment.length > 0);
+
+  const uniqueSegments: string[] = [];
+  const seen = new Set<string>();
+  for (const segment of bodySegments) {
+    if (seen.has(segment)) {
+      continue;
+    }
+    seen.add(segment);
+    uniqueSegments.push(segment);
+  }
+
+  if (uniqueSegments.length) {
+    lines.push(uniqueSegments.join('\n'));
+  }
+
+  if (!lines.length) {
+    return undefined;
+  }
+
+  return `${label} ${lines.join('\n')}`;
+}
+
 function latestUserQuery(messages: AgentMessage[]): string {
   const last = [...messages].reverse().find((m) => m.role === 'user');
   return last?.content ?? '';
@@ -163,6 +256,9 @@ export async function dispatchTools({
   let knowledgeAgentGrounding: KnowledgeAgentGroundingSummary | undefined;
   let retrievalThresholdUsed: number | undefined;
   let retrievalThresholdHistory: number[] | undefined;
+  let knowledgeAgentAnswer: string | undefined;
+  let contextSectionLabels: string[] | undefined;
+  let coverageChecklistCount: number | undefined;
 
   const queryFallback = latestUserQuery(messages);
   const retrieve = tools?.retrieve ?? retrieveTool;
@@ -275,6 +371,13 @@ export async function dispatchTools({
       } catch {
         // Ignore telemetry emission errors to prevent disrupting retrieval flow
       }
+    }
+    const candidateKnowledgeAnswer =
+      typeof (retrieval as any).knowledgeAgentAnswer === 'string'
+        ? (retrieval as any).knowledgeAgentAnswer.trim()
+        : '';
+    if (candidateKnowledgeAnswer) {
+      knowledgeAgentAnswer = candidateKnowledgeAnswer;
     }
   }
 
@@ -595,33 +698,49 @@ export async function dispatchTools({
 
   const salienceText = salience.map((note, idx) => `[Salience ${idx + 1}] ${note.fact}`).join('\n');
   const primaryReferences = lazyReferences.length ? lazyReferences : references;
-  const referenceText = primaryReferences
+  const referenceEntries = primaryReferences
+    .map((ref, idx) => buildReferenceEntry(ref, idx))
+    .filter((entry): entry is string => Boolean(entry && entry.trim()));
+
+  const referenceBlock = lazyReferences.length ? '' : referenceEntries.join('\n\n');
+
+  const coverageChecklist = primaryReferences
     .map((ref, idx) => {
-      const candidates: Array<string | undefined> = [
-        ref.content,
-        ref.chunk,
-        'summary' in ref ? ref.summary : undefined,
-        Array.isArray(ref.captions) ? ref.captions.map((caption) => caption.text).filter(Boolean).join(' ') : undefined,
-        ref.highlights
-          ? Object.values(ref.highlights)
-              .flat()
-              .filter((value): value is string => typeof value === 'string')
-              .join(' ')
-          : undefined
-      ];
-      const body = candidates.find((text) => typeof text === 'string' && text.trim().length > 0);
-      if (!body) {
-        return undefined;
-      }
-      return `[${idx + 1}] ${body}`;
+      const title = normalizeString(ref.title);
+      const docKey =
+        extractMetadataString(ref.metadata, ['docKey', 'documentId', 'sourceId']) ??
+        extractMetadataString(ref.metadata, ['id']);
+      const label = title ?? docKey ?? `Result ${idx + 1}`;
+      return label ? `- [${idx + 1}] ${label}` : undefined;
     })
-    .filter((segment): segment is string => Boolean(segment && segment.trim()))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, 8);
+
+  const retrievalInsights = retrievalSnippets
+    .map((snippet) => (typeof snippet === 'string' ? snippet.trim() : ''))
+    .filter((snippet) => snippet.length > 0)
     .join('\n\n');
 
-  const referenceBlock = lazyReferences.length ? '' : referenceText;
-  const contextText = [referenceBlock, retrievalSnippets.join('\n\n'), salienceText]
-    .filter((block) => Boolean(block && block.trim()))
-    .join('\n\n');
+  const contextSections: string[] = [];
+  if (referenceBlock) {
+    contextSections.push(`### Retrieved Knowledge\n${referenceBlock}`);
+    (contextSectionLabels ??= []).push('Retrieved Knowledge');
+  }
+  if (coverageChecklist.length) {
+    contextSections.push(`### Coverage Checklist\n${coverageChecklist.join('\n')}`);
+    (contextSectionLabels ??= []).push('Coverage Checklist');
+    coverageChecklistCount = coverageChecklist.length;
+  }
+  if (retrievalInsights) {
+    contextSections.push(`### Retrieval Insights\n${retrievalInsights}`);
+    (contextSectionLabels ??= []).push('Retrieval Insights');
+  }
+  if (salienceText) {
+    contextSections.push(`### Salience Signals\n${salienceText}`);
+    (contextSectionLabels ??= []).push('Salience Signals');
+  }
+
+  const contextText = contextSections.join('\n\n');
 
   if (references.length < config.RETRIEVAL_MIN_DOCS) {
     activity.push({
@@ -629,6 +748,29 @@ export async function dispatchTools({
       description: `Retrieved ${references.length} documents (<${config.RETRIEVAL_MIN_DOCS}). Consider fallback expansion.`
     });
   }
+
+  const knowledgeAgentSummaryProvided = Boolean(knowledgeAgentAnswer && knowledgeAgentAnswer.trim().length > 0);
+  if (!diagnostics) {
+    diagnostics = {};
+  }
+  diagnostics.knowledgeAgentSummaryProvided = knowledgeAgentSummaryProvided;
+  if (coverageChecklistCount !== undefined) {
+    diagnostics.coverageChecklistCount = coverageChecklistCount;
+  }
+  if (contextSectionLabels && contextSectionLabels.length) {
+    diagnostics.contextSectionLabels = contextSectionLabels;
+  }
+
+  emit?.('telemetry', {
+    type: 'retrieval_context',
+    timestamp: new Date().toISOString(),
+    sections: contextSectionLabels ?? [],
+    coverageChecklistCount: coverageChecklistCount ?? 0,
+    knowledgeAgentSummary: {
+      present: knowledgeAgentSummaryProvided,
+      length: knowledgeAgentAnswer ? knowledgeAgentAnswer.length : 0
+    }
+  });
 
   return {
     contextText,
@@ -640,6 +782,9 @@ export async function dispatchTools({
     webContextTokens,
     webContextTrimmed,
     summaryTokens,
+    knowledgeAgentAnswer,
+    contextSectionLabels,
+    coverageChecklistCount,
     source,
     retrievalMode,
     strategy,

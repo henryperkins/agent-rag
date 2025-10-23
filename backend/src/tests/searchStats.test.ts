@@ -15,7 +15,6 @@ describe('searchStats', () => {
   });
 
   it('fetches service stats', async () => {
-    const { getServiceStats } = await import('../azure/searchStats.js');
     const mockJson = {
       counters: {
         aliasesCount: { usage: 0 },
@@ -31,13 +30,18 @@ describe('searchStats', () => {
       limits: {}
     };
 
-    const fetchSpy = vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      headers: { get: vi.fn().mockReturnValue(null) },
       json: async () => mockJson
     } as any);
 
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getServiceStats } = await import('../azure/searchStats.js');
     const result = await getServiceStats();
-    expect(fetchSpy).toHaveBeenCalledWith(
+
+    expect(fetchMock).toHaveBeenCalledWith(
       `${endpoint}/servicestats?api-version=2025-08-01-preview`,
       expect.objectContaining({ headers: expect.any(Object) })
     );
@@ -45,15 +49,20 @@ describe('searchStats', () => {
   });
 
   it('fetches index stats for default index', async () => {
-    const { getIndexStats } = await import('../azure/searchStats.js');
     const mockJson = { documentCount: 10, storageSize: 2048, vectorIndexSize: 1024 };
-    const fetchSpy = vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      headers: { get: vi.fn().mockReturnValue(null) },
       json: async () => mockJson
     } as any);
 
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getIndexStats } = await import('../azure/searchStats.js');
     const result = await getIndexStats();
-    expect(fetchSpy).toHaveBeenCalledWith(
+
+    expect(fetchMock).toHaveBeenCalledWith(
       `${endpoint}/indexes('my-index')/search.stats?api-version=2025-08-01-preview`,
       expect.objectContaining({ headers: expect.any(Object) })
     );
@@ -61,15 +70,20 @@ describe('searchStats', () => {
   });
 
   it('fetches index stats summary', async () => {
-    const { getIndexStatsSummary } = await import('../azure/searchStats.js');
     const mockJson = { value: [{ name: 'my-index', documentCount: 10, storageSize: 2048, vectorIndexSize: 1024 }] };
-    const fetchSpy = vi.spyOn(global, 'fetch' as any).mockResolvedValue({
+
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      headers: { get: vi.fn().mockReturnValue(null) },
       json: async () => mockJson
     } as any);
 
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getIndexStatsSummary } = await import('../azure/searchStats.js');
     const result = await getIndexStatsSummary();
-    expect(fetchSpy).toHaveBeenCalledWith(
+
+    expect(fetchMock).toHaveBeenCalledWith(
       `${endpoint}/indexstats?api-version=2025-08-01-preview`,
       expect.objectContaining({ headers: expect.any(Object) })
     );
@@ -77,8 +91,17 @@ describe('searchStats', () => {
   });
 
   it('throws on non-OK responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      headers: { get: vi.fn().mockReturnValue(null) },
+      text: async () => 'err'
+    } as any);
+
+    vi.stubGlobal('fetch', fetchMock);
+
     const { getIndexStats } = await import('../azure/searchStats.js');
-    vi.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: false, status: 500, text: async () => 'err' } as any);
     await expect(getIndexStats()).rejects.toBeInstanceOf(Error);
   });
 });

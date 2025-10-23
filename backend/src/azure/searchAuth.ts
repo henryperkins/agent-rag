@@ -9,17 +9,14 @@ interface CachedToken {
 }
 
 let cachedSearchToken: CachedToken | null = null;
+let tokenRefreshPromise: Promise<CachedToken> | null = null;
 
-export async function getSearchAuthHeaders(): Promise<Record<string, string>> {
-  if (config.AZURE_SEARCH_API_KEY) {
-    return { 'api-key': config.AZURE_SEARCH_API_KEY };
-  }
-
+function isExpiringSoon(cached: CachedToken): boolean {
   const now = Date.now();
-  if (cachedSearchToken && cachedSearchToken.expiresOnTimestamp - now > 120000) {
-    return { Authorization: `Bearer ${cachedSearchToken.token}` };
-  }
+  return cached.expiresOnTimestamp - now <= 120000;
+}
 
+async function refreshSearchToken(): Promise<CachedToken> {
   const scope = 'https://search.azure.com/.default';
   const tokenResponse = await credential.getToken(scope);
 
@@ -27,12 +24,38 @@ export async function getSearchAuthHeaders(): Promise<Record<string, string>> {
     throw new Error('Failed to obtain Azure Search token for managed identity authentication');
   }
 
-  cachedSearchToken = {
+  const newToken: CachedToken = {
     token: tokenResponse.token,
     expiresOnTimestamp: tokenResponse.expiresOnTimestamp
   };
 
-  return { Authorization: `Bearer ${tokenResponse.token}` };
+  cachedSearchToken = newToken;
+  return newToken;
+}
+
+export async function getSearchAuthHeaders(): Promise<Record<string, string>> {
+  if (config.AZURE_SEARCH_API_KEY) {
+    return { 'api-key': config.AZURE_SEARCH_API_KEY };
+  }
+
+  // Check if we have a valid cached token
+  if (cachedSearchToken && !isExpiringSoon(cachedSearchToken)) {
+    return { Authorization: `Bearer ${cachedSearchToken.token}` };
+  }
+
+  // If a refresh is already in progress, wait for it
+  if (tokenRefreshPromise) {
+    const token = await tokenRefreshPromise;
+    return { Authorization: `Bearer ${token.token}` };
+  }
+
+  // Start a new refresh and cache the promise
+  tokenRefreshPromise = refreshSearchToken().finally(() => {
+    tokenRefreshPromise = null;
+  });
+
+  const token = await tokenRefreshPromise;
+  return { Authorization: `Bearer ${token.token}` };
 }
 
 export async function getSearchJsonHeaders(): Promise<Record<string, string>> {
