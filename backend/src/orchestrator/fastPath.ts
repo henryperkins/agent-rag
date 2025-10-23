@@ -21,6 +21,9 @@ const FAST_PATH_PATTERNS = [
   // Simple definitional queries: "what is X?", "what are Y?"
   /^(what|where|when|who|which)\s+(is|are|was|were)\s+.+[?]?$/i,
 
+  // Simple question word queries with other verbs: "who invented X?", "when was X discovered?"
+  /^(what|where|when|who|which)\s+\w+\s+.+[?]?$/i,
+
   // Show/display commands: "show me X", "display the Y"
   /^(show|display|find)\s+(me\s+)?(the\s+)?.+$/i,
 
@@ -51,13 +54,20 @@ const COMPLEXITY_KEYWORDS = [
   'vs',
   'better',
   'worse',
+  'more',
+  'less',
   'advantage',
   'disadvantage',
+  'effective',
 
   // Analysis indicators
   'analyze',
   'evaluate',
   'assess',
+  'implications',
+  'impact',
+  'effect',
+  'effects',
   'explain why',
   'how does',
   'why do',
@@ -72,6 +82,7 @@ const COMPLEXITY_KEYWORDS = [
   // Causal reasoning
   'because',
   'cause',
+  'causes',
   'reason',
   'result in',
   'lead to',
@@ -94,11 +105,14 @@ const COMPLEXITY_ANTI_PATTERNS = [
   // Nested questions
   /\?.*\?/,
 
-  // Conditional logic
-  /\b(if|when|unless|assuming|given that)\b/i,
+  // Conditional logic (excluding 'when' as it's often used in simple questions)
+  /\b(if|unless|assuming|given that)\b/i,
 
   // Comparison operators
-  /\b(more than|less than|compared to|versus|vs)\b/i
+  /\b(more than|less than|compared to|versus|vs)\b/i,
+
+  // Structured queries with colons suggest complexity
+  /:/
 ];
 
 /**
@@ -239,6 +253,7 @@ export function analyzeFastPath(query: string): FastPathAnalysis {
   if (matchedPatternIndex !== -1) {
     const patternDescriptions = [
       'Simple definitional query',
+      'Simple question with standard verb',
       'Show/display command',
       'List command',
       'Definition request',
