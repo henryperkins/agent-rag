@@ -1,8 +1,9 @@
-/* Markdown rendering styles */
+/* Markdown rendering styles - Anthropic Theme */
 
 .rich-message-content {
-  line-height: 1.6;
-  color: #1f2937;
+  line-height: var(--leading-relaxed, 1.7);
+  color: #141413;
+  font-family: 'Lora', Georgia, serif;
 }
 
 /* Code blocks */
@@ -10,8 +11,8 @@
   margin: 16px 0;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
-  background: #1e1e1e;
+  border: 1px solid #1e293b;
+  background: #0f172a;
 }
 
 .code-block-header {
@@ -19,33 +20,34 @@
   justify-content: space-between;
   align-items: center;
   padding: 8px 16px;
-  background: #2d2d30;
-  border-bottom: 1px solid #3e3e42;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
 }
 
 .code-block-language {
   font-size: 12px;
   font-weight: 600;
-  color: #858585;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .code-block-copy {
-  background: transparent;
-  border: 1px solid #3e3e42;
-  color: #858585;
+  background: #334155;
+  border: 1px solid #475569;
+  color: #e2e8f0;
   padding: 4px 12px;
   border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast, 0.15s ease);
 }
 
 .code-block-copy:hover {
-  background: #3e3e42;
-  color: #d4d4d4;
-  border-color: #555555;
+  background: #d97757;
+  color: #faf9f5;
+  border-color: #d97757;
+  transform: translateY(-1px);
 }
 
 .code-block-content {
@@ -62,35 +64,38 @@
 
 /* Inline code */
 .inline-code {
-  background: #f3f4f6;
-  color: #dc2626;
+  background: rgba(217, 119, 87, 0.1);
+  color: #d97757;
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 0.9em;
+  font-size: 0.88em;
+  font-weight: 500;
   font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(217, 119, 87, 0.2);
 }
 
 /* Links */
 .markdown-link {
-  color: var(--color-primary, #3b82f6);
+  color: #6a9bcc;
   text-decoration: none;
   border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease;
+  transition: all var(--transition-fast, 0.15s ease);
 }
 
 .markdown-link:hover {
-  border-bottom-color: var(--color-primary, #3b82f6);
+  color: #d97757;
+  border-bottom-color: #d97757;
 }
 
 /* Blockquotes */
 .markdown-blockquote {
   margin: 16px 0;
   padding: 12px 16px;
-  border-left: 4px solid #3b82f6;
-  background: #f0f9ff;
-  color: #1e3a8a;
+  border-left: 4px solid #d97757;
+  background: rgba(217, 119, 87, 0.08);
+  color: #141413;
   border-radius: 0 4px 4px 0;
+  font-style: italic;
 }
 
 .markdown-blockquote p {
@@ -102,7 +107,7 @@
   margin: 16px 0;
   overflow-x: auto;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e8e6dc;
 }
 
 .markdown-table {
@@ -112,21 +117,23 @@
 }
 
 .markdown-table th {
-  background: #f9fafb;
+  background: #e8e6dc;
   padding: 12px 16px;
   text-align: left;
   font-weight: 600;
-  color: #374151;
-  border-bottom: 2px solid #e5e7eb;
+  font-family: 'Poppins', Arial, sans-serif;
+  color: #141413;
+  border-bottom: 2px solid #b0aea5;
 }
 
 .markdown-table td {
   padding: 12px 16px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid #e8e6dc;
+  color: #141413;
 }
 
 .markdown-table tbody tr:hover {
-  background: #f9fafb;
+  background: rgba(217, 119, 87, 0.05);
 }
 
 .markdown-table tbody tr:last-child td {
@@ -158,8 +165,10 @@
   font-size: 28px;
   font-weight: 700;
   margin: 24px 0 16px 0;
-  color: #111827;
-  border-bottom: 2px solid #e5e7eb;
+  color: #141413;
+  font-family: 'Poppins', Arial, sans-serif;
+  line-height: var(--leading-tight, 1.3);
+  border-bottom: 2px solid #e8e6dc;
   padding-bottom: 8px;
 }
 
@@ -167,8 +176,10 @@
   font-size: 24px;
   font-weight: 700;
   margin: 20px 0 12px 0;
-  color: #1f2937;
-  border-bottom: 1px solid #f3f4f6;
+  color: #141413;
+  font-family: 'Poppins', Arial, sans-serif;
+  line-height: var(--leading-tight, 1.3);
+  border-bottom: 1px solid #e8e6dc;
   padding-bottom: 6px;
 }
 
@@ -176,14 +187,18 @@
   font-size: 20px;
   font-weight: 600;
   margin: 16px 0 10px 0;
-  color: #374151;
+  color: #141413;
+  font-family: 'Poppins', Arial, sans-serif;
+  line-height: var(--leading-tight, 1.3);
 }
 
 .markdown-h4 {
   font-size: 18px;
   font-weight: 600;
   margin: 14px 0 8px 0;
-  color: #4b5563;
+  color: #141413;
+  font-family: 'Poppins', Arial, sans-serif;
+  line-height: var(--leading-tight, 1.3);
 }
 
 /* Paragraphs */
@@ -204,57 +219,71 @@
 .rich-message-content hr {
   margin: 24px 0;
   border: none;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e8e6dc;
 }
 
-/* Dark mode support (optional) */
+/* Dark mode support (Anthropic theme - currently unused but prepared) */
 @media (prefers-color-scheme: dark) {
   .rich-message-content {
-    color: #e5e7eb;
+    color: #faf9f5;
+    background: #1a1a18;
   }
 
   .inline-code {
-    background: #374151;
-    color: #f87171;
-    border-color: #4b5563;
+    background: rgba(217, 119, 87, 0.2);
+    color: #d97757;
+    border-color: rgba(217, 119, 87, 0.3);
   }
 
   .markdown-blockquote {
-    background: #1e3a5f;
-    color: #93c5fd;
-    border-left-color: #60a5fa;
+    background: rgba(217, 119, 87, 0.15);
+    color: #faf9f5;
+    border-left-color: #d97757;
   }
 
   .markdown-h1,
   .markdown-h2,
   .markdown-h3,
   .markdown-h4 {
-    color: #f3f4f6;
+    color: #faf9f5;
   }
 
   .markdown-h1 {
-    border-bottom-color: #374151;
+    border-bottom-color: #2a2926;
   }
 
   .markdown-h2 {
-    border-bottom-color: #4b5563;
+    border-bottom-color: #2a2926;
   }
 
   .markdown-table th {
-    background: #1f2937;
-    color: #e5e7eb;
-    border-bottom-color: #374151;
+    background: #2a2926;
+    color: #faf9f5;
+    border-bottom-color: #6b6962;
   }
 
   .markdown-table td {
-    border-bottom-color: #374151;
+    border-bottom-color: #2a2926;
+    color: #faf9f5;
   }
 
   .markdown-table tbody tr:hover {
-    background: #1f2937;
+    background: rgba(217, 119, 87, 0.1);
   }
 
   .markdown-table-wrapper {
-    border-color: #374151;
+    border-color: #2a2926;
+  }
+
+  .rich-message-content hr {
+    border-top-color: #2a2926;
+  }
+
+  .markdown-link {
+    color: #6a9bcc;
+  }
+
+  .markdown-link:hover {
+    color: #d97757;
   }
 }

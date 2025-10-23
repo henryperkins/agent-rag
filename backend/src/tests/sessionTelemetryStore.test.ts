@@ -70,8 +70,8 @@ describe('sessionTelemetryStore redaction', () => {
 
     expect(tokenEvents).toHaveLength(3);
     expect((tokenEvents[0]?.data as any)?.content).toBe('Contact us at [EMAIL] or call');
-    expect((tokenEvents[1]?.data as any)?.content).toBe(' [CARD] for help.');
-    expect((tokenEvents[2]?.data as any)?.content).toBe(' SSN [SSN] is on file.');
+    expect((tokenEvents[1]?.data as any)?.content).toBe('[CARD] for help.');
+    expect((tokenEvents[2]?.data as any)?.content).toBe('SSN [SSN] is on file.');
 
     // Ensure no unredacted PII remains
     tokenEvents.forEach((evt) => {
@@ -112,8 +112,8 @@ describe('sessionTelemetryStore redaction', () => {
 
     expect(tokenEvents).toHaveLength(3);
     expect((tokenEvents[0]?.data as any)?.content).toBe('Email [EMAIL] for');
-    expect((tokenEvents[1]?.data as any)?.content).toBe(' billing at [CARD]');
-    expect((tokenEvents[2]?.data as any)?.content).toBe(' or SSN [SSN].');
+    expect((tokenEvents[1]?.data as any)?.content).toBe('billing at [CARD]');
+    expect((tokenEvents[2]?.data as any)?.content).toBe('or SSN [SSN].');
 
     // Verify PII is fully redacted
     tokenEvents.forEach((evt) => {
@@ -185,6 +185,77 @@ describe('sessionTelemetryStore redaction', () => {
     expect(steps[0]?.description).toBe('Contact user via [EMAIL]');
   });
 
+  it('redacts URLs and identifiers across telemetry payloads', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-urls',
+      mode: 'sync',
+      question: 'Check https://example.com/resource?id=42 and tracking 123e4567-e89b-12d3-a456-426614174000'
+    });
+
+    recorder.emit('telemetry', {
+      data: {
+        correlationId: '123e4567-e89b-12d3-a456-426614174000',
+        url: 'https://internal.example.com/resource?token=abcdEFGHijklMNOPqrstuv',
+        token: 'sk-this-is-a-very-long-token-value-that-should-be-hidden'
+      }
+    });
+
+    recorder.emit('web_context', {
+      text: 'Visit https://example.com/resource?id=42',
+      tokens: 64,
+      trimmed: false,
+      results: [
+        {
+          id: 'result-1',
+          title: 'Result title',
+          url: 'https://example.com/resource?id=42',
+          rank: 1
+        }
+      ]
+    });
+
+    recorder.complete({
+      answer: 'Go to https://example.com/resource?id=42 and cite 123e4567-e89b-12d3-a456-426614174000',
+      metadata: {
+        web_context: {
+          text: 'https://example.com/resource?id=42',
+          tokens: 64,
+          trimmed: false,
+          results: [
+            {
+              id: 'doc-1',
+              title: 'Doc title',
+              url: 'https://example.com/doc/1',
+              rank: 1
+            }
+          ]
+        }
+      }
+    } as any);
+
+    const [entry] = getSessionTelemetry();
+    expect(entry.question).toContain('[URL]');
+    expect(entry.question).toContain('[ID]');
+    expect(entry.question).not.toContain('https://example.com');
+
+    expect(entry.answer).toContain('[URL]');
+    expect(entry.answer).toContain('[ID]');
+    expect(entry.answer).not.toContain('https://example.com');
+
+    const telemetryEvent = entry.events.find((event) => event.event === 'telemetry');
+    const telemetryPayload = JSON.stringify(telemetryEvent?.data ?? {});
+    expect(telemetryPayload).toContain('[URL]');
+    expect(telemetryPayload).toContain('[ID]');
+    expect(telemetryPayload).toContain('[TOKEN]');
+    expect(telemetryPayload).not.toContain('https://example.com');
+    expect(telemetryPayload).not.toContain('123e4567-e89b-12d3-a456-426614174000');
+
+    expect(entry.webContext?.text).toContain('[URL]');
+    expect(entry.webContext?.results?.[0]?.url).toBe('[URL]');
+    expect(entry.metadata?.web_context?.text).toBe('[URL]');
+    expect(entry.metadata?.web_context?.results?.[0]?.url).toBe('[URL]');
+  });
+
   it('stores summary selection telemetry from events and metadata', () => {
     const recorder = createSessionRecorder({
       sessionId: 'session-5',
@@ -220,6 +291,27 @@ describe('sessionTelemetryStore redaction', () => {
     expect(entry.summarySelection?.mode).toBe('semantic');
     expect(entry.summarySelection?.selectedCount).toBe(2);
     expect(entry.metadata?.summary_selection?.maxScore).toBeCloseTo(0.91);
+  });
+
+  it('supports session shutdown to drop telemetry', () => {
+    const recorder = createSessionRecorder({
+      sessionId: 'session-opt-out',
+      mode: 'sync',
+      question: 'Do not store this'
+    });
+
+    recorder.emit('token', {
+      content: 'Sensitive 4111-1111-1111-1111'
+    });
+
+    recorder.shutdown();
+
+    recorder.complete({
+      answer: 'Should not persist',
+      metadata: {}
+    } as any);
+
+    expect(getSessionTelemetry()).toHaveLength(0);
   });
 
   it('sanitizes evaluation telemetry payloads', () => {

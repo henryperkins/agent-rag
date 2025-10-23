@@ -10,6 +10,7 @@ export interface SearchRequestOptions {
   contentType?: string | null;
   correlationId?: string;
   retryAttempt?: number;
+  signal?: AbortSignal;
 }
 
 export interface SearchRequestResult {
@@ -31,7 +32,8 @@ export async function performSearchRequest(
     allowedStatuses = [],
     contentType,
     correlationId: providedCorrelationId,
-    retryAttempt
+    retryAttempt,
+    signal
   } = options;
 
   const authHeaders = await getSearchAuthHeaders();
@@ -42,7 +44,8 @@ export async function performSearchRequest(
 
   const init: RequestInit = {
     method,
-    headers: finalHeaders
+    headers: finalHeaders,
+    signal
   };
 
   const correlationId = providedCorrelationId ?? randomUUID();

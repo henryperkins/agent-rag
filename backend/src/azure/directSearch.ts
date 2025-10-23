@@ -11,7 +11,7 @@
 
 import type { Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
-import { getSearchAuthHeaders } from './searchAuth.js';
+import { performSearchRequest } from './searchHttp.js';
 import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
 import { embedText } from '../utils/embeddings.js';
 
@@ -249,29 +249,22 @@ export function isRestrictiveFilter(filter: string): boolean {
 
 export async function executeSearch(
   indexName: string,
-  queryBuilder: SearchQueryBuilder
+  queryBuilder: SearchQueryBuilder,
+  options: { signal?: AbortSignal; correlationId?: string; retryAttempt?: number } = {}
 ): Promise<SearchResponse> {
   const encodedIndexName = encodeURIComponent(indexName);
   const url = `${config.AZURE_SEARCH_ENDPOINT}/indexes('${encodedIndexName}')/docs/search?api-version=${config.AZURE_SEARCH_DATA_PLANE_API_VERSION}`;
 
-  const authHeaders = await getSearchAuthHeaders();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...authHeaders
-  };
-
   const payload = queryBuilder.build();
 
-  const response = await fetch(url, {
+  const { response } = await performSearchRequest('docs.search', url, {
     method: 'POST',
-    headers,
-    body: JSON.stringify(payload)
+    body: payload,
+    contentType: 'application/json',
+    correlationId: options.correlationId,
+    signal: options.signal,
+    retryAttempt: options.retryAttempt
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Azure AI Search query failed: ${response.status} ${error}`);
-  }
 
   return (await response.json()) as SearchResponse;
 }
@@ -296,12 +289,13 @@ export async function hybridSemanticSearch(
     selectFields?: string[];
     sessionId?: string;
     correlationId?: string;
+    signal?: AbortSignal;
   } = {}
 ): Promise<DirectSearchResponse> {
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
 
   // Generate query vector
-  const queryVector = await embedText(query);
+  const queryVector = await embedText(query, { signal: options.signal });
 
   // Build hybrid semantic query
   const builder = new SearchQueryBuilder(query)
@@ -323,7 +317,10 @@ export async function hybridSemanticSearch(
     builder.withRerankerThreshold(options.rerankerThreshold);
   }
 
-  const response = await executeSearch(indexName, builder);
+  const response = await executeSearch(indexName, builder, {
+    signal: options.signal,
+    correlationId: options.correlationId
+  });
 
   const top = options.top || config.RAG_TOP_K;
   const rawResults = response.value;
@@ -366,10 +363,12 @@ export async function vectorSearch(
     top?: number;
     filter?: string;
     vectorFields?: string[];
+    signal?: AbortSignal;
+    correlationId?: string;
   } = {}
 ): Promise<DirectSearchResponse> {
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
-  const queryVector = await embedText(query);
+  const queryVector = await embedText(query, { signal: options.signal });
 
   const builder = new SearchQueryBuilder('*')
     .withVector(queryVector, options.vectorFields || ['page_embedding_text_3_large'])
@@ -380,7 +379,10 @@ export async function vectorSearch(
     builder.withFilter(options.filter);
   }
 
-  const response = await executeSearch(indexName, builder);
+  const response = await executeSearch(indexName, builder, {
+    signal: options.signal,
+    correlationId: options.correlationId
+  });
 
   const references: Reference[] = response.value.map((result, idx) => ({
     id: result.id || `result_${idx}`,
@@ -408,6 +410,8 @@ export async function keywordSearch(
     filter?: string;
     searchFields?: string[];
     semanticRanking?: boolean;
+    signal?: AbortSignal;
+    correlationId?: string;
   } = {}
 ): Promise<DirectSearchResponse> {
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
@@ -426,7 +430,10 @@ export async function keywordSearch(
     builder.withFilter(options.filter);
   }
 
-  const response = await executeSearch(indexName, builder);
+  const response = await executeSearch(indexName, builder, {
+    signal: options.signal,
+    correlationId: options.correlationId
+  });
 
   const references: Reference[] = response.value.map((result, idx) => ({
     id: result.id || `result_${idx}`,

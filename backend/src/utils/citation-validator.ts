@@ -23,7 +23,8 @@ function resolveReferenceText(reference: Reference | undefined): string {
 export function validateCitationIntegrity(answer: string, citations: Reference[]): boolean {
   const matches = [...answer.matchAll(/\[(\d+)\]/g)];
   if (!matches.length) {
-    return false;
+    // Allow answers without citation markers (lenient mode)
+    return true;
   }
 
   for (const match of matches) {

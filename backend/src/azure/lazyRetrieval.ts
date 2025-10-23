@@ -46,12 +46,13 @@ function createFullLoader(id: string | undefined, query: string, baseFilter?: st
     }
 
     try {
-      const result = await withRetry('lazy-load-full', async (_signal) =>
+      const result = await withRetry('lazy-load-full', async (signal) =>
         hybridSemanticSearch(query, {
           top: 1,
           filter: baseFilter ? `(${baseFilter}) and ${buildFullContentFilter(id)}` : buildFullContentFilter(id),
           selectFields: ['id', 'page_chunk', 'page_number'],
-          searchFields: ['page_chunk']
+          searchFields: ['page_chunk'],
+          signal
         })
       );
       cached = result.references[0]?.content ?? '';
@@ -86,13 +87,14 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
 
   let result;
   try {
-    result = await withRetry('lazy-search', async (_signal) =>
+    result = await withRetry('lazy-search', async (signal) =>
       hybridSemanticSearch(query, {
         top: searchTop,
         filter,
         rerankerThreshold,
         selectFields: ['id', 'page_chunk', 'page_number'],
-        searchFields: ['page_chunk']
+        searchFields: ['page_chunk'],
+        signal
       })
     );
   } catch (error) {

@@ -654,8 +654,13 @@ async function generateAnswer(
           }
           completed = true;
         }
-      } catch (_error) {
-        // ignore malformed chunks
+      } catch (parseError) {
+        // Log malformed chunks for debugging
+        console.error('[Streaming Parse Error]', {
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+          payload: payload.slice(0, 200), // Log first 200 chars
+          rawLine: rawLine.slice(0, 200)
+        });
       }
     };
 
@@ -685,26 +690,51 @@ async function generateAnswer(
       }
     };
 
+    let chunkCount = 0;
     while (!completed) {
       const { value, done } = await reader.read();
       if (done) {
+        console.log(`[Streaming] Completed after ${chunkCount} chunks`, {
+          totalChunks: chunkCount,
+          successfulChunks,
+          answerLength: answer.length,
+          answerPreview: answer.slice(0, 150)
+        });
         buffer += decoder.decode();
         processBuffer(true);
         break;
       }
 
+      chunkCount++;
       buffer += decoder.decode(value, { stream: true });
       processBuffer();
     }
 
     if (!answer && successfulChunks === 0) {
-      throw new Error('Streaming failed: no valid chunks received');
+      console.error('[Streaming Failed]', {
+        completed,
+        bufferLength: buffer.length,
+        responseId,
+        reasoningSnippets: reasoningSnippets.length
+      });
+      throw new Error('Streaming failed: no valid chunks received from Azure OpenAI. Check backend logs for parse errors.');
     }
 
     if (hasCitations) {
+      console.log('[Citation Validation]', {
+        answerLength: answer.length,
+        answerPreview: answer.slice(0, 300),
+        citationsCount: citations?.length || 0,
+        hasCitationMarkers: /\[\d+\]/.test(answer)
+      });
       const citationValid = validateCitationIntegrity(answer, citations);
       if (!citationValid) {
         const failureMessage = 'I do not know. (Citation validation failed)';
+        console.error('[Citation Validation Failed]', {
+          reason: /\[\d+\]/.test(answer) ? 'Invalid citation references' : 'No citation markers found',
+          answerHadContent: answer.length > 0,
+          successfulChunks
+        });
         emit?.('warning', {
           type: 'citation_integrity',
           message: 'Invalid citations detected in streamed response.'

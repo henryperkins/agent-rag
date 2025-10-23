@@ -78,6 +78,16 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token.token}` };
 }
 
+async function embeddingAuthHeaders(): Promise<Record<string, string>> {
+  if (config.AZURE_OPENAI_EMBEDDING_API_KEY) {
+    return { 'api-key': config.AZURE_OPENAI_EMBEDDING_API_KEY };
+  }
+  if (config.AZURE_OPENAI_API_KEY) {
+    return { 'api-key': config.AZURE_OPENAI_API_KEY };
+  }
+  return authHeaders();
+}
+
 function buildMessage(role: 'system' | 'user' | 'assistant' | 'developer', text: string) {
   return {
     role,
@@ -406,25 +416,19 @@ export async function createResponseStream(payload: ResponsePayload) {
   return response.body.getReader();
 }
 
-export async function createEmbeddings(inputs: string[] | string, model?: string) {
+export async function createEmbeddings(
+  inputs: string[] | string,
+  model?: string,
+  options: { signal?: AbortSignal } = {}
+) {
   // Use separate endpoint for embeddings if configured
   const embeddingEndpoint = config.AZURE_OPENAI_EMBEDDING_ENDPOINT || config.AZURE_OPENAI_ENDPOINT;
-  const embeddingApiKey = config.AZURE_OPENAI_EMBEDDING_API_KEY || config.AZURE_OPENAI_API_KEY;
   const embeddingBaseUrl = `${embeddingEndpoint.replace(/\/+$/, '')}/openai/${config.AZURE_OPENAI_API_VERSION}`;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    ...(await embeddingAuthHeaders())
   };
-
-  if (embeddingApiKey) {
-    headers['api-key'] = embeddingApiKey;
-  } else {
-    const tokenResponse = await credential.getToken(scope);
-    if (!tokenResponse?.token) {
-      throw new Error('Failed to obtain Azure AD token for Azure OpenAI.');
-    }
-    headers['Authorization'] = `Bearer ${tokenResponse.token}`;
-  }
 
   const response = await fetch(
     `${embeddingBaseUrl}/embeddings${embeddingBaseUrl.includes('?') ? `&${config.AZURE_OPENAI_API_QUERY}` : query}`,
@@ -434,7 +438,8 @@ export async function createEmbeddings(inputs: string[] | string, model?: string
       body: JSON.stringify({
         model: model ?? config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
         input: inputs
-      })
+      }),
+      signal: options.signal
     }
   );
 

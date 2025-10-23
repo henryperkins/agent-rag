@@ -1,10 +1,13 @@
 // backend/src/azure/adaptiveRetrieval.ts
+import { createHash } from 'node:crypto';
 import { hybridSemanticSearch } from './directSearch.js';
 import { createResponse } from './openaiClient.js';
 import { extractOutputText } from '../utils/openai.js';
 import { config } from '../config/app.js';
 import type { Reference } from '../../../shared/types.js';
 import { getReasoningOptions } from '../config/reasoning.js';
+import { embedTexts } from '../utils/embeddings.js';
+import { cosineSimilarity } from '../utils/vector-ops.js';
 
 export interface RetrievalQuality {
   diversity: number; // 0-1, semantic diversity of results
@@ -17,32 +20,78 @@ export interface RetrievalQuality {
  * Calculate semantic diversity of results
  * Low diversity = redundant/duplicate results
  */
-function calculateDiversity(references: Reference[]): number {
-  if (references.length < 2) return 1.0;
+async function calculateDiversity(
+  references: Reference[],
+  options: { signal?: AbortSignal } = {}
+): Promise<number> {
+  if (references.length < 2) {
+    return 1.0;
+  }
 
-  const embeddings = references
-    .map((r) => (r as any).embedding)
-    .filter((emb): emb is number[] => Array.isArray(emb) && emb.length > 0);
+  const existingEmbeddings: Array<number[] | null> = references.map((ref) => {
+    const candidate = (ref as { embedding?: unknown }).embedding;
+    return Array.isArray(candidate) && candidate.length ? candidate : null;
+  });
 
-  if (embeddings.length < 2) return 0.5;
+  const missingIndices: number[] = [];
+  const textsToEmbed: string[] = [];
 
-  // Calculate pairwise cosine similarity
-  let totalSimilarity = 0;
-  let pairs = 0;
+  references.forEach((ref, index) => {
+    if (existingEmbeddings[index]) {
+      return;
+    }
 
-  for (let i = 0; i < embeddings.length; i++) {
-    for (let j = i + 1; j < embeddings.length; j++) {
-      const dotProduct = embeddings[i].reduce((sum, val, idx) => sum + val * embeddings[j][idx], 0);
-      const magA = Math.sqrt(embeddings[i].reduce((sum, val) => sum + val * val, 0));
-      const magB = Math.sqrt(embeddings[j].reduce((sum, val) => sum + val * val, 0));
-      const similarity = dotProduct / (magA * magB);
+    const textCandidate =
+      ref.content ??
+      ref.chunk ??
+      (typeof (ref as { summary?: unknown }).summary === 'string' ? (ref as { summary?: string }).summary : '') ??
+      '';
+    const trimmed = textCandidate.trim();
+    if (!trimmed) {
+      existingEmbeddings[index] = null;
+      return;
+    }
 
-      totalSimilarity += similarity;
-      pairs++;
+    missingIndices.push(index);
+    // Truncate to reduce token cost while preserving topical signal
+    textsToEmbed.push(trimmed.slice(0, 1500));
+  });
+
+  if (textsToEmbed.length > 0) {
+    try {
+      const generated = await embedTexts(textsToEmbed, undefined, { signal: options.signal });
+      generated.forEach((vector, idx) => {
+        const targetIndex = missingIndices[idx];
+        existingEmbeddings[targetIndex] = vector;
+      });
+    } catch (error) {
+      console.warn('Adaptive retrieval diversity embedding failed, falling back to neutral score:', error);
+      return 0.5;
     }
   }
 
-  // Low average similarity = high diversity
+  const usableEmbeddings = existingEmbeddings.filter(
+    (embedding): embedding is number[] => Array.isArray(embedding) && embedding.length > 0
+  );
+
+  if (usableEmbeddings.length < 2) {
+    return 0.5;
+  }
+
+  let totalSimilarity = 0;
+  let pairs = 0;
+
+  for (let i = 0; i < usableEmbeddings.length; i += 1) {
+    for (let j = i + 1; j < usableEmbeddings.length; j += 1) {
+      totalSimilarity += cosineSimilarity(usableEmbeddings[i], usableEmbeddings[j]);
+      pairs += 1;
+    }
+  }
+
+  if (pairs === 0) {
+    return 0.5;
+  }
+
   return 1 - totalSimilarity / pairs;
 }
 
@@ -100,8 +149,9 @@ async function assessCoverage(results: Reference[], query: string): Promise<numb
 export async function assessRetrievalQuality(
   results: Reference[],
   query: string,
+  options: { signal?: AbortSignal } = {}
 ): Promise<RetrievalQuality> {
-  const diversity = calculateDiversity(results);
+  const diversity = await calculateDiversity(results, options);
   const coverage = await assessCoverage(results, query);
 
   // Calculate authority from scores (higher reranker scores = more authoritative)
@@ -128,6 +178,7 @@ export async function retrieveWithAdaptiveRefinement(
     filter?: string;
     minCoverage?: number;
     minDiversity?: number;
+    signal?: AbortSignal;
   } = {},
   attempt = 1,
   maxAttempts = 3,
@@ -146,10 +197,13 @@ export async function retrieveWithAdaptiveRefinement(
   const results = await hybridSemanticSearch(query, {
     top: options.top ?? config.RAG_TOP_K,
     filter: options.filter,
+    signal: options.signal
   });
 
   // Assess quality
-  const quality = await assessRetrievalQuality(results.references, query);
+  const quality = await assessRetrievalQuality(results.references, query, {
+    signal: options.signal
+  });
   const latency = Date.now() - start;
   attemptsInfo.push({ attempt, query, quality, latency_ms: latency });
 
@@ -162,8 +216,15 @@ export async function retrieveWithAdaptiveRefinement(
     attempt < maxAttempts;
 
   if (needsReformulation) {
-    console.log(
-      `Retrieval quality insufficient (coverage: ${quality.coverage.toFixed(2)}, diversity: ${quality.diversity.toFixed(2)}). Reformulating query...`,
+    const queryHash = createHash('sha256').update(query).digest('hex').slice(0, 12);
+    console.info(
+      JSON.stringify({
+        event: 'adaptive_retrieval.quality_low',
+        coverage: Number(quality.coverage.toFixed(3)),
+        diversity: Number(quality.diversity.toFixed(3)),
+        retrieved: results.references.length,
+        queryHash
+      })
     );
 
     const reformulationPrompt = await createResponse({
@@ -186,7 +247,16 @@ export async function retrieveWithAdaptiveRefinement(
     const newQuery = extractOutputText(reformulationPrompt).trim();
     reformulations.push(newQuery);
 
-    console.log(`Reformulated query (attempt ${attempt}): "${newQuery}"`);
+    const reformulatedHash = createHash('sha256').update(newQuery).digest('hex').slice(0, 12);
+    console.info(
+      JSON.stringify({
+        event: 'adaptive_retrieval.reformulated',
+        attempt,
+        queryHash,
+        reformulatedHash,
+        reformulations: reformulations.length + 1
+      })
+    );
 
     // Recursive retry with new query
     const next = await retrieveWithAdaptiveRefinement(newQuery, options, attempt + 1, maxAttempts);

@@ -9,9 +9,13 @@ export interface RetryOptions {
   retryableErrors?: string[];
 }
 
+export interface RetryInvocationContext {
+  attempt: number;
+}
+
 export async function withRetry<T>(
   operation: string,
-  fn: (signal: AbortSignal) => Promise<T>,
+  fn: (signal: AbortSignal, context?: RetryInvocationContext) => Promise<T>,
   options: RetryOptions = {}
 ): Promise<T> {
   const {
@@ -37,7 +41,7 @@ export async function withRetry<T>(
         let timeoutId: NodeJS.Timeout | undefined;
 
         try {
-          const timedOperation = fn(controller.signal);
+          const timedOperation = fn(controller.signal, { attempt });
           const result = await (timeoutMs && timeoutMs > 0
             ? Promise.race([
                 timedOperation,

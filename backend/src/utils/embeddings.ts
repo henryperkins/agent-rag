@@ -5,6 +5,10 @@ const DEFAULT_BATCH_SIZE = 32;
 const MAX_CACHE_ENTRIES = 2000;
 const CACHE = new Map<string, number[]>();
 
+interface EmbedOptions {
+  signal?: AbortSignal;
+}
+
 function cacheKey(text: string): string {
   // Limit cache key length to avoid extremely large keys; text is trimmed to 2048 chars.
   return text.slice(0, 2048);
@@ -22,7 +26,11 @@ function pruneCache() {
   }
 }
 
-export async function embedTexts(texts: string[], batchSize: number = DEFAULT_BATCH_SIZE): Promise<number[][]> {
+export async function embedTexts(
+  texts: string[],
+  batchSize: number = DEFAULT_BATCH_SIZE,
+  options: EmbedOptions = {}
+): Promise<number[][]> {
   const embeddings: number[][] = new Array(texts.length);
   const pending: Array<{ index: number; text: string }> = [];
 
@@ -43,10 +51,38 @@ export async function embedTexts(texts: string[], batchSize: number = DEFAULT_BA
   for (let offset = 0; offset < pending.length; offset += batchSize) {
     const slice = pending.slice(offset, offset + batchSize);
     const batch = slice.map((item) => item.text);
-    const response = await withRetry('embeddings.batch', async (_signal) => {
-      const result = await createEmbeddings(batch);
-      // `createEmbeddings` does not currently accept an AbortSignal; ignore `_signal` for now.
-      return result.data.map((item: { embedding: number[] }) => item.embedding);
+    const response = await withRetry('embeddings.batch', async (retrySignal) => {
+      if (options.signal?.aborted) {
+        const abortError = new Error('Embedding request aborted before start');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }
+
+      const mapResult = async (signal: AbortSignal) => {
+        const result = await createEmbeddings(batch, undefined, { signal });
+        return result.data.map((item: { embedding: number[] }) => item.embedding);
+      };
+
+      if (!options.signal) {
+        return mapResult(retrySignal);
+      }
+
+      const controller = new AbortController();
+      const forwardRetryAbort = () => controller.abort();
+      const forwardOuterAbort = () => controller.abort();
+
+      retrySignal.addEventListener('abort', forwardRetryAbort);
+      options.signal.addEventListener('abort', forwardOuterAbort);
+
+      try {
+        if (options.signal.aborted) {
+          controller.abort();
+        }
+        return await mapResult(controller.signal);
+      } finally {
+        retrySignal.removeEventListener('abort', forwardRetryAbort);
+        options.signal.removeEventListener('abort', forwardOuterAbort);
+      }
     });
 
     if (response.length !== slice.length) {
@@ -65,6 +101,6 @@ export async function embedTexts(texts: string[], batchSize: number = DEFAULT_BA
   return embeddings;
 }
 
-export async function embedText(text: string): Promise<number[]> {
-  return (await embedTexts([text]))[0];
+export async function embedText(text: string, options: EmbedOptions = {}): Promise<number[]> {
+  return (await embedTexts([text], DEFAULT_BATCH_SIZE, options))[0];
 }

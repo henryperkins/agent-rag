@@ -1,7 +1,5 @@
 import type { FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify';
-
-const HTML_TAG_REGEX = /<[^>]*>/g;
-const SCRIPT_REGEX = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi;
+import { sanitizeUserContent } from '../utils/sanitize-text.js';
 const MAX_MESSAGE_LENGTH = 10000;
 const MAX_MESSAGES = 50;
 const VALID_ROLES = new Set(['system', 'user', 'assistant']);
@@ -38,18 +36,9 @@ export function sanitizeInput(request: FastifyRequest, reply: FastifyReply, done
         return done();
       }
 
-      let content = msg.content.replace(SCRIPT_REGEX, '');
-      content = content.replace(/<\/?(code|pre)>/gi, '`');
-      content = content.replace(HTML_TAG_REGEX, '');
-      content = content.replace(/\r\n?/g, '\n');
-      content = content.replace(/\u00a0/g, ' ');
-      const lines = content.split('\n').map((line) => line.replace(/\s+$/g, ''));
-      content = lines.join('\n');
-      content = content.replace(/\n{3,}/g, '\n\n').trim();
-
       sanitized.push({
         role: msg.role,
-        content
+        content: sanitizeUserContent(msg.content)
       });
     }
 

@@ -13,6 +13,11 @@ import type {
   FeatureSelectionMetadata,
   WebResult
 } from '../../../shared/types.js';
+import {
+  sanitizeAndRedactDeep,
+  sanitizeAndRedactOptional,
+  sanitizeAndRedactText
+} from '../utils/sanitize-text.js';
 
 type SessionMode = 'sync' | 'stream';
 
@@ -124,61 +129,36 @@ const summaryAggregates: SummarySelectionAggregates = {
 
 const MAX_RECENT_SAMPLES = 50;
 
-const EMAIL_REGEX = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const SSN_REGEX = /\b\d{3}-\d{2}-\d{4}\b/g;
-const CREDIT_CARD_GROUPED_REGEX = /\b(?:\d{4}[ -]?){3}\d{4}\b/g;
-const CREDIT_CARD_PLAIN_REGEX = /\b\d{13,16}\b/g;
-
-function redactSensitive(text?: string | null): string | undefined {
-  if (!text) {
-    return text ?? undefined;
-  }
-  let sanitized = text;
-  sanitized = sanitized.replace(EMAIL_REGEX, '[EMAIL]');
-  sanitized = sanitized.replace(SSN_REGEX, '[SSN]');
-  sanitized = sanitized.replace(CREDIT_CARD_GROUPED_REGEX, '[CARD]');
-  sanitized = sanitized.replace(CREDIT_CARD_PLAIN_REGEX, '[CARD]');
-  return sanitized;
-}
-
 function sanitizeActivitySteps(steps?: ActivityStep[] | null): ActivityStep[] | undefined {
   if (!Array.isArray(steps) || steps.length === 0) {
     return steps ?? undefined;
   }
-  return steps.map((step) => {
-    if (!step || typeof step !== 'object') {
-      return step;
-    }
-    const next: ActivityStep = { ...step };
-    if (typeof next.description === 'string') {
-      next.description = redactSensitive(next.description) ?? next.description;
-    }
-    return next;
-  });
+  return steps.map((step) => sanitizeAndRedactDeep(step)) as ActivityStep[];
 }
 
 function sanitizeEventPayload(event: string, data: unknown): unknown {
-  if (event === 'complete' && data && typeof data === 'object') {
-    const payload = data as { answer?: string };
-    if (typeof payload.answer === 'string') {
-      return { ...payload, answer: redactSensitive(payload.answer) };
-    }
-  }
-  // Sanitize both 'tokens' (plural) and 'token' (singular) events for PII protection
-  if ((event === 'tokens' || event === 'token') && data && typeof data === 'object') {
-    const payload = data as { content?: string };
-    if (typeof payload.content === 'string') {
-      return { ...payload, content: redactSensitive(payload.content) };
-    }
-  }
   if (event === 'activity' && data && typeof data === 'object') {
     const payload = data as { steps?: ActivityStep[] };
     return {
-      ...payload,
+      ...sanitizeAndRedactDeep(payload),
       steps: sanitizeActivitySteps(payload.steps)
     };
   }
-  return data;
+  if ((event === 'tokens' || event === 'token') && data && typeof data === 'object') {
+    const payload = { ...(data as Record<string, unknown>) };
+    if (typeof payload.content === 'string') {
+      payload.content = sanitizeAndRedactText(payload.content);
+    }
+    return sanitizeAndRedactDeep(payload);
+  }
+  if (event === 'complete' && data && typeof data === 'object') {
+    const payload = { ...(data as Record<string, unknown>) };
+    if (typeof payload.answer === 'string') {
+      payload.answer = sanitizeAndRedactText(payload.answer);
+    }
+    return sanitizeAndRedactDeep(payload);
+  }
+  return sanitizeAndRedactDeep(data);
 }
 
 function normalizeTelemetryPayload(payload: Record<string, any>): Record<string, any> {
@@ -228,7 +208,7 @@ function sanitizeEvaluation(evaluation?: SessionEvaluation | null): SessionEvalu
       return undefined;
     }
     const next = { ...dimension } as EvaluationDimension;
-    next.reason = typeof next.reason === 'string' ? redactSensitive(next.reason) ?? next.reason : next.reason;
+    next.reason = typeof next.reason === 'string' ? sanitizeAndRedactText(next.reason) : next.reason;
     if (next.evidence) {
       next.evidence = clone(next.evidence);
     }
@@ -293,7 +273,7 @@ function sanitizeEvaluation(evaluation?: SessionEvaluation | null): SessionEvalu
             : [],
           reason:
             typeof evaluation.safety.reason === 'string'
-              ? redactSensitive(evaluation.safety.reason) ?? evaluation.safety.reason
+              ? sanitizeAndRedactText(evaluation.safety.reason)
               : evaluation.safety.reason,
           evidence: evaluation.safety.evidence ? clone(evaluation.safety.evidence) : undefined
         }
@@ -378,9 +358,9 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
     case 'context': {
       const payload = sanitized as any;
       state.context = {
-        history: redactSensitive(payload?.history),
-        summary: redactSensitive(payload?.summary),
-        salience: redactSensitive(payload?.salience)
+        history: sanitizeAndRedactOptional(payload?.history),
+        summary: sanitizeAndRedactOptional(payload?.summary),
+        salience: sanitizeAndRedactOptional(payload?.salience)
       };
       break;
     }
@@ -531,10 +511,42 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
   }
 }
 
+function wipeState(state: SessionTelemetryRecord): void {
+  state.question = undefined;
+  state.status = undefined;
+  state.statusHistory.length = 0;
+  state.plan = undefined;
+  state.context = undefined;
+  state.toolUsage = undefined;
+  state.contextBudget = undefined;
+  state.citations = undefined;
+  state.activity = undefined;
+  state.insights = undefined;
+  state.critic = undefined;
+  state.answer = undefined;
+  state.metadata = undefined;
+  state.features = undefined;
+  state.traceId = undefined;
+  state.finalStatus = undefined;
+  state.error = undefined;
+  state.events.length = 0;
+  state.retrieval = undefined;
+  state.trace = undefined;
+  state.summarySelection = undefined;
+  state.webContext = undefined;
+  state.route = undefined;
+  state.lazySummaryTokens = undefined;
+  state.retrievalMode = undefined;
+  state.evaluation = undefined;
+  state.adaptiveRetrieval = undefined;
+  state.completedAt = undefined;
+}
+
 export interface SessionRecorder {
   emit: (event: string, data: unknown) => void;
   complete: (response?: ChatResponse) => void;
   fail: (error: Error) => void;
+  shutdown: (options?: { keepTelemetry?: boolean }) => void;
 }
 
 export function createSessionRecorder(options: {
@@ -547,23 +559,32 @@ export function createSessionRecorder(options: {
   const state: SessionTelemetryRecord = {
     sessionId,
     mode,
-    question: redactSensitive(question),
+    question: sanitizeAndRedactOptional(question),
     startedAt: Date.now(),
     statusHistory: [],
     events: []
   };
+  let recordingEnabled = true;
 
   return {
     emit(event, data) {
-      const timestamp = Date.now();
-      recordEvent(state, event, data, timestamp);
+      if (recordingEnabled) {
+        const timestamp = Date.now();
+        recordEvent(state, event, data, timestamp);
+      }
       forward?.(event, data);
     },
     complete(response) {
+      if (!recordingEnabled) {
+        return;
+      }
       state.completedAt = Date.now();
       if (response) {
-        state.answer = redactSensitive(response.answer);
-        state.citations = clone(response.citations);
+        state.answer = sanitizeAndRedactOptional(response.answer);
+        const citations = response.citations
+          ? (sanitizeAndRedactDeep(response.citations) as Reference[])
+          : undefined;
+        state.citations = citations ? clone(citations) : undefined;
         const activity = sanitizeActivitySteps(response.activity);
         state.activity = activity ? clone(activity) : [];
         if (activity && activity.length) {
@@ -572,50 +593,65 @@ export function createSessionRecorder(options: {
         } else {
           state.insights = undefined;
         }
-        state.metadata = clone(response.metadata);
-      if (response.metadata?.summary_selection) {
-        state.summarySelection = clone(response.metadata.summary_selection);
-      }
-      if (response.metadata?.features) {
-        state.features = clone(response.metadata.features);
-      }
-        if (response.metadata?.context_budget) {
-          state.contextBudget = clone(response.metadata.context_budget);
+        const metadata = response.metadata
+          ? (sanitizeAndRedactDeep(response.metadata) as ChatResponse['metadata'])
+          : undefined;
+        state.metadata = metadata ? clone(metadata) : undefined;
+        if (metadata?.summary_selection) {
+          state.summarySelection = clone(metadata.summary_selection);
         }
-        if (response.metadata?.critic_report) {
-          state.critic = clone(response.metadata.critic_report);
+        if (metadata?.features) {
+          state.features = clone(metadata.features);
         }
-        if (response.metadata?.plan) {
-          state.plan = clone(response.metadata.plan);
+        if (metadata?.context_budget) {
+          state.contextBudget = clone(metadata.context_budget);
         }
-        if (response.metadata?.trace_id) {
-          state.traceId = response.metadata.trace_id;
+        if (metadata?.critic_report) {
+          state.critic = clone(metadata.critic_report);
         }
-        if (response.metadata?.web_context) {
-          state.webContext = clone(response.metadata.web_context);
+        if (metadata?.plan) {
+          state.plan = clone(metadata.plan);
         }
-        if (response.metadata?.route) {
-          state.route = clone(response.metadata.route);
+        if (metadata?.trace_id) {
+          state.traceId = metadata.trace_id;
         }
-        if (response.metadata?.lazy_summary_tokens !== undefined) {
-          state.lazySummaryTokens = response.metadata.lazy_summary_tokens;
+        if (metadata?.web_context) {
+          state.webContext = clone(metadata.web_context);
         }
-        if (response.metadata?.retrieval_mode) {
-          state.retrievalMode = response.metadata.retrieval_mode;
+        if (metadata?.route) {
+          state.route = clone(metadata.route);
         }
-        if (response.metadata?.evaluation) {
-          state.evaluation = sanitizeEvaluation(response.metadata.evaluation);
+        if (metadata?.lazy_summary_tokens !== undefined) {
+          state.lazySummaryTokens = metadata.lazy_summary_tokens;
         }
-        if ((response.metadata as any)?.adaptive_retrieval) {
-          state.adaptiveRetrieval = clone((response.metadata as any).adaptive_retrieval);
+        if (metadata?.retrieval_mode) {
+          state.retrievalMode = metadata.retrieval_mode;
+        }
+        if (metadata?.evaluation) {
+          state.evaluation = sanitizeEvaluation(metadata.evaluation);
+        }
+        if ((metadata as any)?.adaptive_retrieval) {
+          state.adaptiveRetrieval = clone((metadata as any).adaptive_retrieval);
         }
       }
       pushRecord(clone(state));
     },
     fail(error) {
+      if (!recordingEnabled) {
+        return;
+      }
       state.completedAt = Date.now();
       state.error = error.message;
       pushRecord(clone(state));
+    },
+    shutdown(options) {
+      if (!recordingEnabled) {
+        return;
+      }
+      if (!options?.keepTelemetry) {
+        wipeState(state);
+      }
+      recordingEnabled = false;
     }
   };
 }

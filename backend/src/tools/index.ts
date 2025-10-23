@@ -256,7 +256,8 @@ export async function retrieveTool(args: {
   };
 
   const runFallbackPipeline = async (
-    existingActivity: ActivityStep[]
+    existingActivity: ActivityStep[],
+    signal: AbortSignal
   ): Promise<{ references: Reference[]; activity: ActivityStep[]; threshold: number }> => {
     fallbackTriggered = true;
     const activity = [...existingActivity];
@@ -274,7 +275,8 @@ export async function retrieveTool(args: {
       rerankerThreshold: fallbackThreshold,
       searchFields,
       selectFields,
-      correlationId
+      correlationId,
+      signal
     });
     recordThreshold(fallbackThreshold);
     activity.push(
@@ -300,7 +302,8 @@ export async function retrieveTool(args: {
       rerankerThreshold: thresholdFloor,
       searchFields,
       selectFields,
-      correlationId
+      correlationId,
+      signal
     });
     recordThreshold(thresholdFloor);
     activity.push(
@@ -321,7 +324,8 @@ export async function retrieveTool(args: {
     fallbackAttempts += 1;
     const vectorResult = await vectorSearch(query, {
       top: baseTop,
-      filter
+      filter,
+      signal
     });
     recordThreshold(thresholdFloor);
     activity.push(
@@ -334,7 +338,8 @@ export async function retrieveTool(args: {
   };
 
   try {
-    return await withRetry('direct-search', async (_signal) => {
+    return await withRetry('direct-search', async (signal, context) => {
+      const retryAttempt = context?.attempt ?? 0;
       knowledgeAgentGrounding = undefined;
       knowledgeAgentAnswer = undefined;
       let knowledgeAgentReferences: Reference[] = [];
@@ -348,7 +353,9 @@ export async function retrieveTool(args: {
             const agentResult = await invokeKnowledgeAgent({
               messages: agentMessages,
               filter,
-              correlationId
+              correlationId,
+              signal,
+              retryAttempt
             });
 
             knowledgeAgentGrounding = agentResult.grounding;
@@ -544,7 +551,8 @@ export async function retrieveTool(args: {
             top: baseTop,
             filter,
             minCoverage: config.ADAPTIVE_MIN_COVERAGE,
-            minDiversity: config.ADAPTIVE_MIN_DIVERSITY
+            minDiversity: config.ADAPTIVE_MIN_DIVERSITY,
+            signal
           },
           1,
           config.ADAPTIVE_MAX_ATTEMPTS
@@ -629,7 +637,7 @@ export async function retrieveTool(args: {
           return finalize(adaptiveResult.references.slice(0, baseTop), adaptiveActivity, extras);
         }
 
-        const fallbackOutcome = await runFallbackPipeline(adaptiveActivity);
+        const fallbackOutcome = await runFallbackPipeline(adaptiveActivity, signal);
         const mergedFallback = knowledgeAgentReferences.length
           ? mergeKnowledgeAgentReferences(
               knowledgeAgentReferences,
@@ -664,11 +672,12 @@ export async function retrieveTool(args: {
       const result = await hybridSemanticSearch(query, {
         top: baseTop,
         filter,
-      rerankerThreshold: config.RERANKER_THRESHOLD,
-      searchFields,
-      selectFields,
-      correlationId
-    });
+        rerankerThreshold: config.RERANKER_THRESHOLD,
+        searchFields,
+        selectFields,
+        correlationId,
+        signal
+      });
     recordThreshold(config.RERANKER_THRESHOLD);
 
       if (
@@ -719,7 +728,7 @@ export async function retrieveTool(args: {
       console.log(
         `Insufficient results (${result.references.length}); attempting fallback retrieval pipeline.`
       );
-      const fallbackOutcome = await runFallbackPipeline(primaryActivity);
+      const fallbackOutcome = await runFallbackPipeline(primaryActivity, signal);
       const mergedFallback = knowledgeAgentReferences.length
         ? mergeKnowledgeAgentReferences(
             knowledgeAgentReferences,

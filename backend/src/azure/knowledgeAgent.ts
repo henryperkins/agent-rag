@@ -21,6 +21,8 @@ export interface KnowledgeAgentInvocationOptions {
   knowledgeSourceName?: string;
   filter?: string;
   correlationId?: string;
+  signal?: AbortSignal;
+  retryAttempt?: number;
 }
 
 export interface KnowledgeAgentInvocationResult {
@@ -913,7 +915,9 @@ export async function invokeKnowledgeAgent(
     const result = await performSearchRequest('knowledge-agent-retrieve', url, {
       method: 'POST',
       body: payload,
-      correlationId: options.correlationId
+      correlationId: options.correlationId,
+      signal: options.signal,
+      retryAttempt: options.retryAttempt
     });
     response = result.response;
     requestId = result.requestId;
