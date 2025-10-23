@@ -12,6 +12,8 @@ import type {
   KnowledgeAgentGroundingSummary
 } from '../../../shared/types.js';
 import { retrieveTool, webSearchTool, lazyRetrieveTool } from '../tools/index.js';
+import { selectRetrievalStrategy } from '../retrieval/selectStrategy.js';
+import { mapToTelemetryResult } from './telemetry/mapResult.js';
 import type { SalienceNote } from './compact.js';
 import { config } from '../config/app.js';
 import { estimateTokens } from './contextBudget.js';
@@ -286,11 +288,8 @@ export async function dispatchTools({
     const supportsLazy = typeof lazyRetrieve === 'function';
     // Disable lazy mode when Knowledge Agent is preferred (strategy=knowledge_agent or hybrid)
     // to ensure the agentic retrieval path in retrieveTool is executed
-    const retrievalStrategy = config.RETRIEVAL_STRATEGY;
-    const knowledgeAgentPreferred =
-      (retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid') &&
-      Array.isArray(messages) &&
-      messages.length > 0;
+    const retrievalStrategy = selectRetrievalStrategy(config, messages);
+    const knowledgeAgentPreferred = retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid';
     const useLazy = wantsLazy && supportsLazy && !knowledgeAgentPreferred;
 
     const retrievalStart = performance.now();
@@ -527,12 +526,7 @@ export async function dispatchTools({
           emit?.('web_context', {
             tokens: webContextTokens,
             trimmed: webContextTrimmed,
-            results: search.results.map((result) => ({
-              id: result.id,
-              title: result.title,
-              url: result.url,
-              rank: result.rank
-            })),
+            results: search.results.map((result) => mapToTelemetryResult(result)),
             text: search.contextText
           });
           if (webContextTrimmed) {
@@ -582,12 +576,7 @@ export async function dispatchTools({
           emit?.('web_context', {
             tokens,
             trimmed,
-            results: usedResults.map((result) => ({
-              id: result.id,
-              title: result.title,
-              url: result.url,
-              rank: result.rank
-            })),
+            results: usedResults.map((result) => mapToTelemetryResult(result)),
             text
           });
         }
@@ -686,12 +675,7 @@ export async function dispatchTools({
       emit?.('web_context', {
         tokens,
         trimmed,
-        results: usedResults.map((result) => ({
-          id: result.id,
-          title: result.title,
-          url: result.url,
-          rank: result.rank
-        })),
+        results: usedResults.map((result) => mapToTelemetryResult(result)),
         text
       });
     } else {

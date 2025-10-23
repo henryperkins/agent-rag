@@ -1,5 +1,6 @@
 import type { CompactedContext, SalienceNote } from './compact.js';
 import { sessionStore } from '../services/sessionStore.js';
+import { dedupeSummaryBullets } from './summaries/dedupe.js';
 
 export interface SummaryBullet {
   text: string;
@@ -34,20 +35,6 @@ function cloneSummary(entry: SummaryBullet): SummaryBullet {
   };
 }
 
-function normalizeSummaries(summaries: SummaryBullet[]): SummaryBullet[] {
-  const deduped: SummaryBullet[] = [];
-  const seen = new Set<string>();
-  for (const entry of summaries) {
-    const text = entry.text?.trim();
-    if (!text || seen.has(text)) {
-      continue;
-    }
-    seen.add(text);
-    deduped.push(cloneSummary({ text, embedding: entry.embedding }));
-  }
-  return deduped;
-}
-
 export function upsertMemory(
   sessionId: string,
   turn: number,
@@ -77,7 +64,7 @@ export function upsertMemory(
     mergedSummaries.push(current);
   }
 
-  const summaryBullets = normalizeSummaries(mergedSummaries).slice(-50);
+  const summaryBullets = dedupeSummaryBullets(mergedSummaries).slice(-50);
 
   const next: MemoryEntry = {
     sessionId,

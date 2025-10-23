@@ -966,6 +966,37 @@ html,
   color: #141413;
 }
 
+.activity-detail {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.activity-detail dt {
+  font-weight: 600;
+  color: #788c5d;
+}
+
+.activity-detail dd {
+  margin: 0;
+  color: #141413;
+  word-break: break-word;
+}
+
+.activity-json {
+  margin-top: 4px;
+  padding: 8px;
+  background: #f2f0e6;
+  border-radius: 6px;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .activity-time {
   font-size: 12px;
   color: #b0aea5;

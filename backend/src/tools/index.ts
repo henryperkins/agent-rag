@@ -8,6 +8,7 @@ import { retrieveWithAdaptiveRefinement } from '../azure/adaptiveRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
+import { selectRetrievalStrategy } from '../retrieval/selectStrategy.js';
 import { getReasoningOptions } from '../config/reasoning.js';
 import type {
   ActivityStep,
@@ -420,11 +421,8 @@ export async function retrieveTool(args: {
   const baseTop = top || config.RAG_TOP_K;
   const searchFields = ['page_chunk'];
   const selectFields = ['id', 'page_chunk', 'page_number'];
-  const retrievalStrategy = config.RETRIEVAL_STRATEGY;
-  const knowledgeAgentPreferred =
-    (retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid') &&
-    Array.isArray(messages) &&
-    messages.length > 0;
+  const retrievalStrategy = selectRetrievalStrategy(config, messages);
+  const knowledgeAgentPreferred = retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid';
 
   const buildDiagnostics = (): AgenticRetrievalResponse['diagnostics'] => {
     const diagnostics: AgenticRetrievalResponse['diagnostics'] = {
@@ -645,7 +643,7 @@ export async function retrieveTool(args: {
           ? (async () => {
               knowledgeAgentAttempted = true;
               return await handleKnowledgeAgentRetrieval({
-                messages,
+                messages: messages ?? [],
                 query,
                 filter,
                 correlationId,

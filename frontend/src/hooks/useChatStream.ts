@@ -235,7 +235,23 @@ export function useChatStream() {
                 return true;
               });
 
-              const nextActivity = nonInsights.length ? nonInsights : prev.activity;
+              const existingKeys = new Map<string, number>();
+              prev.activity.forEach((step, index) => {
+                const key = `${step.type}:${step.timestamp ?? step.description}`;
+                existingKeys.set(key, index);
+              });
+
+              const mergedActivity = [...prev.activity];
+              nonInsights.forEach((step) => {
+                const key = `${step.type}:${step.timestamp ?? step.description}`;
+                if (existingKeys.has(key)) {
+                  mergedActivity[existingKeys.get(key)!] = step;
+                } else {
+                  existingKeys.set(key, mergedActivity.length);
+                  mergedActivity.push(step);
+                }
+              });
+
               const nextInsights = newInsights.length ? [...prev.insights, ...newInsights] : prev.insights;
 
               console.log('[DEBUG] useChatStream: Processing activity event:', {
@@ -248,7 +264,7 @@ export function useChatStream() {
 
               return {
                 ...prev,
-                activity: nextActivity,
+                activity: mergedActivity.length ? mergedActivity : prev.activity,
                 insights: nextInsights
               };
             });

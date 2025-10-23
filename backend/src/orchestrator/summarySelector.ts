@@ -3,6 +3,7 @@ import { createEmbeddings } from '../azure/openaiClient.js';
 import type { SummaryBullet } from './memoryStore.js';
 import type { SummarySelectionStats } from '../../../shared/types.js';
 import { cosineSimilarity } from '../utils/vector-ops.js';
+import { dedupeSummaryBullets } from './summaries/dedupe.js';
 
 export interface SummarySelection {
   selected: SummaryBullet[];
@@ -18,23 +19,6 @@ function fallbackRecency(candidates: SummaryBullet[], maxItems: number): Summary
     text: entry.text,
     embedding: entry.embedding ? [...entry.embedding] : undefined
   }));
-}
-
-function dedupeCandidates(candidates: SummaryBullet[]): SummaryBullet[] {
-  const deduped: SummaryBullet[] = [];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const text = candidate.text?.trim();
-    if (!text) {
-      continue;
-    }
-    if (seen.has(text)) {
-      continue;
-    }
-    seen.add(text);
-    deduped.push({ text, embedding: candidate.embedding ? [...candidate.embedding] : undefined });
-  }
-  return deduped;
 }
 
 function buildStats(options: {
@@ -85,7 +69,7 @@ export async function selectSummaryBullets(
   maxItems: number,
   options: { semanticEnabled?: boolean } = {}
 ): Promise<SummarySelection> {
-  const normalizedCandidates = dedupeCandidates(candidates);
+  const normalizedCandidates = dedupeSummaryBullets(candidates);
   const useSemantic = options.semanticEnabled ?? config.ENABLE_SEMANTIC_SUMMARY;
 
   if (!normalizedCandidates.length || maxItems <= 0) {

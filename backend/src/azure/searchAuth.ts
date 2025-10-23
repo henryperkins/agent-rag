@@ -1,61 +1,37 @@
 import { DefaultAzureCredential } from '@azure/identity';
+import {
+  type ManagedIdentityToken,
+  apiKeyOrManagedIdentityHeaders,
+  TOKEN_EXPIRY_SLOP_MS,
+} from '../auth/tokenManager.js';
 import { config } from '../config/app.js';
 
 const credential = new DefaultAzureCredential();
+const SEARCH_SCOPE = 'https://search.azure.com/.default';
+const SEARCH_CACHE_KEY = 'azure-search';
 
-interface CachedToken {
-  token: string;
-  expiresOnTimestamp: number;
-}
-
-let cachedSearchToken: CachedToken | null = null;
-let tokenRefreshPromise: Promise<CachedToken> | null = null;
-
-function isExpiringSoon(cached: CachedToken): boolean {
-  const now = Date.now();
-  return cached.expiresOnTimestamp - now <= 120000;
-}
-
-async function refreshSearchToken(): Promise<CachedToken> {
-  const scope = 'https://search.azure.com/.default';
-  const tokenResponse = await credential.getToken(scope);
+async function refreshSearchToken(): Promise<ManagedIdentityToken> {
+  const tokenResponse = await credential.getToken(SEARCH_SCOPE);
 
   if (!tokenResponse?.token) {
     throw new Error('Failed to obtain Azure Search token for managed identity authentication');
   }
 
-  const newToken: CachedToken = {
-    token: tokenResponse.token,
-    expiresOnTimestamp: tokenResponse.expiresOnTimestamp
-  };
+  const fallbackExpiry = Date.now() + 15 * 60 * 1000;
 
-  cachedSearchToken = newToken;
-  return newToken;
+  return {
+    token: tokenResponse.token,
+    expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? fallbackExpiry,
+  };
 }
 
 export async function getSearchAuthHeaders(): Promise<Record<string, string>> {
-  if (config.AZURE_SEARCH_API_KEY) {
-    return { 'api-key': config.AZURE_SEARCH_API_KEY };
-  }
-
-  // Check if we have a valid cached token
-  if (cachedSearchToken && !isExpiringSoon(cachedSearchToken)) {
-    return { Authorization: `Bearer ${cachedSearchToken.token}` };
-  }
-
-  // If a refresh is already in progress, wait for it
-  if (tokenRefreshPromise) {
-    const token = await tokenRefreshPromise;
-    return { Authorization: `Bearer ${token.token}` };
-  }
-
-  // Start a new refresh and cache the promise
-  tokenRefreshPromise = refreshSearchToken().finally(() => {
-    tokenRefreshPromise = null;
+  return apiKeyOrManagedIdentityHeaders({
+    apiKey: config.AZURE_SEARCH_API_KEY,
+    refresher: refreshSearchToken,
+    cacheKey: SEARCH_CACHE_KEY,
+    expirySkewMs: TOKEN_EXPIRY_SLOP_MS,
   });
-
-  const token = await tokenRefreshPromise;
-  return { Authorization: `Bearer ${token.token}` };
 }
 
 export async function getSearchJsonHeaders(): Promise<Record<string, string>> {

@@ -1,3 +1,4 @@
+import { Fragment, type ReactNode } from 'react';
 import type { ActivityStep } from '../types';
 
 interface ActivityPanelProps {
@@ -24,6 +25,67 @@ function getStatusIcon(status: 'complete' | 'running' | 'waiting' | 'failed') {
 
 export function ActivityPanel({ activity, status, critique, isStreaming }: ActivityPanelProps) {
   const items = activity;
+
+  const formatKey = (key: string) =>
+    key
+      .replace(/_/g, ' ')
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\w/, (c) => c.toUpperCase());
+
+  const renderValue = (value: unknown): ReactNode => {
+    if (value === null || value === undefined) {
+      return '—';
+    }
+    if (typeof value === 'boolean') {
+      return value ? 'Yes' : 'No';
+    }
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      return value.toString();
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '—';
+      }
+      const simpleValues = value.every((item) => item === null || ['string', 'number', 'boolean'].includes(typeof item));
+      if (simpleValues) {
+        return value.map((item) => (item === null ? '—' : String(item))).join(', ');
+      }
+      return <pre className="activity-json">{JSON.stringify(value, null, 2)}</pre>;
+    }
+    return <pre className="activity-json">{JSON.stringify(value, null, 2)}</pre>;
+  };
+
+  const renderDescription = (description: string): ReactNode => {
+    const trimmed = description.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+        if (typeof parsed === 'object' && !Array.isArray(parsed) && parsed !== null) {
+          return (
+            <dl className="activity-detail">
+              {Object.entries(parsed).map(([key, value]) => (
+                <Fragment key={key}>
+                  <dt>{formatKey(key)}</dt>
+                  <dd>{renderValue(value)}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          );
+        }
+        return <pre className="activity-json">{JSON.stringify(parsed, null, 2)}</pre>;
+      } catch (_error) {
+        // fall through to raw string rendering
+      }
+    }
+
+    return <span>{description}</span>;
+  };
+
   return (
     <section className="activity-panel">
       <header>
@@ -46,7 +108,7 @@ export function ActivityPanel({ activity, status, critique, isStreaming }: Activ
                 <div className="timeline-marker" aria-hidden>{marker}</div>
                 <div className="timeline-content">
                   <h4 style={{ margin: 0, fontSize: 13, textTransform: isInsight ? 'none' : 'capitalize' }}>{headingLabel}</h4>
-                  <div className={`activity-description${isInsight ? ' activity-description-insight' : ''}`}>{step.description}</div>
+                  <div className={`activity-description${isInsight ? ' activity-description-insight' : ''}`}>{renderDescription(step.description)}</div>
                   {step.timestamp && <div className="activity-time">{step.timestamp}</div>}
                 </div>
               </div>

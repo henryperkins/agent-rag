@@ -273,48 +273,126 @@ export async function executeSearch(
 // High-Level Search Functions
 // ============================================================================
 
-/**
- * Hybrid Search with Semantic Ranking (Recommended)
- * Combines vector similarity + keyword matching + L2 semantic reranking
- */
-export async function hybridSemanticSearch(
-  query: string,
-  options: {
-    indexName?: string;
-    top?: number;
-    filter?: string;
-    semanticConfig?: string;
-    rerankerThreshold?: number;
-    searchFields?: string[];
-    selectFields?: string[];
-    sessionId?: string;
-    correlationId?: string;
-    signal?: AbortSignal;
-  } = {}
-): Promise<DirectSearchResponse> {
-  const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
+type SearchMode = 'hybrid' | 'vector' | 'keyword';
 
-  // Generate query vector
-  const queryVector = await embedText(query, { signal: options.signal });
+interface BaseDirectSearchOptions {
+  indexName?: string;
+  top?: number;
+  filter?: string;
+  signal?: AbortSignal;
+  correlationId?: string;
+}
 
-  // Build hybrid semantic query
-  const builder = new SearchQueryBuilder(query)
-    .asHybrid(queryVector, ['page_embedding_text_3_large'])
-    .withSemanticRanking(options.semanticConfig || 'default')
-    .take(options.top || config.RAG_TOP_K * 2) // Get more for reranking
-    .selectFields(options.selectFields || ['id', 'page_chunk', 'page_number'])
-    .searchInFields(options.searchFields || ['page_chunk'])
-    .highlightFields(['page_chunk']);
+interface HybridSearchOptions extends BaseDirectSearchOptions {
+  mode: 'hybrid';
+  semanticConfig?: string;
+  rerankerThreshold?: number;
+  searchFields?: string[];
+  selectFields?: string[];
+  sessionId?: string;
+  vectorFields?: string[];
+}
 
-  if (options.filter) {
-    builder.withFilter(options.filter);
-    if (isRestrictiveFilter(options.filter)) {
-      builder.withVectorFilterMode('preFilter');
+interface VectorSearchOptions extends BaseDirectSearchOptions {
+  mode: 'vector';
+  vectorFields?: string[];
+}
+
+interface KeywordSearchOptions extends BaseDirectSearchOptions {
+  mode: 'keyword';
+  searchFields?: string[];
+  semanticRanking?: boolean;
+}
+
+type UnifiedSearchOptions = HybridSearchOptions | VectorSearchOptions | KeywordSearchOptions;
+
+const DEFAULT_VECTOR_FIELDS = ['page_embedding_text_3_large'];
+const DEFAULT_SELECT_FIELDS = ['id', 'page_chunk', 'page_number'];
+const DEFAULT_SEARCH_FIELDS = ['page_chunk'];
+
+function mapSearchResults(results: SearchResult[], mode: SearchMode): Reference[] {
+  return results.map((result, idx) => ({
+    id: result.id || result.chunk_id || `result_${idx}`,
+    title: result.title || `Page ${result.page_number || idx + 1}`,
+    content: result.content || result.page_chunk || result.chunk || '',
+    chunk: result.chunk || result.page_chunk,
+    page_number: result.page_number,
+    url: mode === 'hybrid' ? undefined : result.url,
+    score: result['@search.rerankerScore'] ?? result['@search.score'],
+    metadata: result.metadata,
+    highlights: result['@search.highlights'],
+    captions: result['@search.captions']
+  }));
+}
+
+async function runDirectSearch(query: string, options: UnifiedSearchOptions): Promise<DirectSearchResponse> {
+  const indexName = options.indexName ?? config.AZURE_SEARCH_INDEX_NAME;
+  const top = options.top ?? config.RAG_TOP_K;
+
+  let queryVector: number[] | undefined;
+  const ensureQueryVector = async () => {
+    if (!queryVector) {
+      queryVector = await embedText(query, { signal: options.signal });
     }
-  }
+    return queryVector;
+  };
 
-  if (options.rerankerThreshold !== undefined) {
-    builder.withRerankerThreshold(options.rerankerThreshold);
+  let builder: SearchQueryBuilder;
+
+  switch (options.mode) {
+    case 'vector': {
+      const vector = await ensureQueryVector();
+      builder = new SearchQueryBuilder('*')
+        .withVector(vector, options.vectorFields ?? DEFAULT_VECTOR_FIELDS)
+        .take(top)
+        .selectFields(DEFAULT_SELECT_FIELDS);
+
+      if (options.filter) {
+        builder.withFilter(options.filter);
+      }
+      break;
+    }
+    case 'keyword': {
+      builder = new SearchQueryBuilder(query)
+        .take(top)
+        .selectFields(DEFAULT_SELECT_FIELDS)
+        .searchInFields(options.searchFields ?? DEFAULT_SEARCH_FIELDS)
+        .highlightFields(['page_chunk']);
+
+      if (options.semanticRanking) {
+        builder.withSemanticRanking('default');
+      }
+      if (options.filter) {
+        builder.withFilter(options.filter);
+      }
+      break;
+    }
+    case 'hybrid': {
+      const vector = await ensureQueryVector();
+      builder = new SearchQueryBuilder(query)
+        .asHybrid(vector, options.vectorFields ?? DEFAULT_VECTOR_FIELDS)
+        .withSemanticRanking(options.semanticConfig ?? 'default')
+        .take(top * 2)
+        .selectFields(options.selectFields ?? DEFAULT_SELECT_FIELDS)
+        .searchInFields(options.searchFields ?? DEFAULT_SEARCH_FIELDS)
+        .highlightFields(['page_chunk']);
+
+      if (options.filter) {
+        builder.withFilter(options.filter);
+        if (isRestrictiveFilter(options.filter)) {
+          builder.withVectorFilterMode('preFilter');
+        }
+      }
+
+      if (options.rerankerThreshold !== undefined) {
+        builder.withRerankerThreshold(options.rerankerThreshold);
+      }
+      break;
+    }
+    default: {
+      const mode = (options as { mode: string }).mode;
+      throw new Error(`Unsupported search mode: ${mode}`);
+    }
   }
 
   const response = await executeSearch(indexName, builder, {
@@ -322,27 +400,18 @@ export async function hybridSemanticSearch(
     correlationId: options.correlationId
   });
 
-  const top = options.top || config.RAG_TOP_K;
-  const rawResults = response.value;
+  let references = mapSearchResults(response.value, options.mode);
 
-  const mappedReferences: Reference[] = rawResults.map((result, idx) => ({
-    id: result.id || result.chunk_id || `result_${idx}`,
-    title: `Page ${result.page_number || idx + 1}`,
-    content: result.content || result.page_chunk || result.chunk || '',
-    chunk: result.chunk || result.page_chunk,
-    page_number: result.page_number,
-    url: undefined,
-    score: result['@search.rerankerScore'] || result['@search.score'],
-    metadata: result.metadata,
-    highlights: result['@search.highlights'],
-    captions: result['@search.captions']
-  }));
-  const enforcement = enforceRerankerThreshold(mappedReferences, options.rerankerThreshold, {
-    sessionId: options.sessionId,
-    correlationId: options.correlationId,
-    source: 'hybrid_semantic'
-  });
-  const references = enforcement.references.slice(0, top);
+  if (options.mode === 'hybrid') {
+    const enforcement = enforceRerankerThreshold(references, options.rerankerThreshold, {
+      sessionId: options.sessionId,
+      correlationId: options.correlationId,
+      source: 'hybrid_semantic'
+    });
+    references = enforcement.references.slice(0, top);
+  } else {
+    references = references.slice(0, top);
+  }
 
   return {
     references,
@@ -353,49 +422,25 @@ export async function hybridSemanticSearch(
 }
 
 /**
+ * Hybrid Search with Semantic Ranking (Recommended)
+ * Combines vector similarity + keyword matching + L2 semantic reranking
+ */
+export async function hybridSemanticSearch(
+  query: string,
+  options: Omit<HybridSearchOptions, 'mode'> = {}
+): Promise<DirectSearchResponse> {
+  return runDirectSearch(query, { mode: 'hybrid', ...options });
+}
+
+/**
  * Pure Vector Search
  * Best for semantic similarity without keyword matching
  */
 export async function vectorSearch(
   query: string,
-  options: {
-    indexName?: string;
-    top?: number;
-    filter?: string;
-    vectorFields?: string[];
-    signal?: AbortSignal;
-    correlationId?: string;
-  } = {}
+  options: Omit<VectorSearchOptions, 'mode'> = {}
 ): Promise<DirectSearchResponse> {
-  const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
-  const queryVector = await embedText(query, { signal: options.signal });
-
-  const builder = new SearchQueryBuilder('*')
-    .withVector(queryVector, options.vectorFields || ['page_embedding_text_3_large'])
-    .take(options.top || config.RAG_TOP_K)
-    .selectFields(['id', 'page_chunk', 'page_number']);
-
-  if (options.filter) {
-    builder.withFilter(options.filter);
-  }
-
-  const response = await executeSearch(indexName, builder, {
-    signal: options.signal,
-    correlationId: options.correlationId
-  });
-
-  const references: Reference[] = response.value.map((result, idx) => ({
-    id: result.id || `result_${idx}`,
-    title: result.title || `Page ${result.page_number || idx + 1}`,
-    content: result.content || result.page_chunk || result.chunk || '',
-    chunk: result.chunk || result.page_chunk,
-    page_number: result.page_number,
-    url: result.url,
-    score: result['@search.score'],
-    metadata: result.metadata
-  }));
-
-  return { references, totalResults: response['@odata.count'] };
+  return runDirectSearch(query, { mode: 'vector', ...options });
 }
 
 /**
@@ -404,48 +449,7 @@ export async function vectorSearch(
  */
 export async function keywordSearch(
   query: string,
-  options: {
-    indexName?: string;
-    top?: number;
-    filter?: string;
-    searchFields?: string[];
-    semanticRanking?: boolean;
-    signal?: AbortSignal;
-    correlationId?: string;
-  } = {}
+  options: Omit<KeywordSearchOptions, 'mode'> = {}
 ): Promise<DirectSearchResponse> {
-  const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
-
-  const builder = new SearchQueryBuilder(query)
-    .take(options.top || config.RAG_TOP_K)
-    .selectFields(['id', 'page_chunk', 'page_number'])
-    .searchInFields(options.searchFields || ['page_chunk'])
-    .highlightFields(['page_chunk']);
-
-  if (options.semanticRanking) {
-    builder.withSemanticRanking('default');
-  }
-
-  if (options.filter) {
-    builder.withFilter(options.filter);
-  }
-
-  const response = await executeSearch(indexName, builder, {
-    signal: options.signal,
-    correlationId: options.correlationId
-  });
-
-  const references: Reference[] = response.value.map((result, idx) => ({
-    id: result.id || `result_${idx}`,
-    title: result.title || `Page ${result.page_number || idx + 1}`,
-    content: result.content || result.page_chunk || result.chunk || '',
-    chunk: result.chunk || result.page_chunk,
-    page_number: result.page_number,
-    url: result.url,
-    score: result['@search.rerankerScore'] || result['@search.score'],
-    metadata: result.metadata,
-    highlights: result['@search.highlights']
-  }));
-
-  return { references, totalResults: response['@odata.count'] };
+  return runDirectSearch(query, { mode: 'keyword', ...options });
 }

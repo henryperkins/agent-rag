@@ -1,4 +1,5 @@
 import { DefaultAzureCredential } from '@azure/identity';
+import { apiKeyOrManagedIdentityHeaders, type ManagedIdentityToken } from '../auth/tokenManager.js';
 import { config, isDevelopment } from '../config/app.js';
 
 const credential = new DefaultAzureCredential();
@@ -13,7 +14,7 @@ function sanitizeAzureError(status: number, statusText: string, body: string): s
   // In production, only expose status code and generic message
   return `${status} ${statusText}`;
 }
-const scope = 'https://cognitiveservices.azure.com/.default';
+const OPENAI_SCOPE = 'https://cognitiveservices.azure.com/.default';
 const baseUrl = `${config.AZURE_OPENAI_ENDPOINT.replace(/\/+$/, '')}/openai/${config.AZURE_OPENAI_API_VERSION}`;
 const normalizedQuery = config.AZURE_OPENAI_API_QUERY.replace(/^\?+/, '');
 const query = normalizedQuery ? `?${normalizedQuery}` : '';
@@ -24,58 +25,28 @@ function withQuery(path: string) {
   return `${baseUrl}${path}${path.includes('?') ? `&${normalizedQuery}` : query}`;
 }
 
-let cachedBearer:
-  | {
-      token: string;
-      expiresOnTimestamp: number;
-    }
-  | null = null;
-let openaiTokenRefreshPromise: Promise<{ token: string; expiresOnTimestamp: number }> | null = null;
+const OPENAI_TOKEN_CACHE_KEY = 'azure-openai';
 
-function isTokenExpiringSoon(cached: { expiresOnTimestamp: number }): boolean {
-  const now = Date.now();
-  return cached.expiresOnTimestamp - now <= 120000;
-}
-
-async function refreshOpenAIToken(): Promise<{ token: string; expiresOnTimestamp: number }> {
-  const tokenResponse = await credential.getToken(scope);
+async function refreshOpenAIToken(): Promise<ManagedIdentityToken> {
+  const tokenResponse = await credential.getToken(OPENAI_SCOPE);
   if (!tokenResponse?.token) {
     throw new Error('Failed to obtain Azure AD token for Azure OpenAI.');
   }
 
-  const now = Date.now();
-  const newToken = {
-    token: tokenResponse.token,
-    expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? now + 15 * 60 * 1000
-  };
+  const fallbackExpiry = Date.now() + 15 * 60 * 1000;
 
-  cachedBearer = newToken;
-  return newToken;
+  return {
+    token: tokenResponse.token,
+    expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? fallbackExpiry,
+  };
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
-  if (config.AZURE_OPENAI_API_KEY) {
-    return { 'api-key': config.AZURE_OPENAI_API_KEY };
-  }
-
-  // Check if we have a valid cached token
-  if (cachedBearer && !isTokenExpiringSoon(cachedBearer)) {
-    return { Authorization: `Bearer ${cachedBearer.token}` };
-  }
-
-  // If a refresh is already in progress, wait for it
-  if (openaiTokenRefreshPromise) {
-    const token = await openaiTokenRefreshPromise;
-    return { Authorization: `Bearer ${token.token}` };
-  }
-
-  // Start a new refresh and cache the promise
-  openaiTokenRefreshPromise = refreshOpenAIToken().finally(() => {
-    openaiTokenRefreshPromise = null;
+  return apiKeyOrManagedIdentityHeaders({
+    apiKey: config.AZURE_OPENAI_API_KEY,
+    refresher: refreshOpenAIToken,
+    cacheKey: OPENAI_TOKEN_CACHE_KEY,
   });
-
-  const token = await openaiTokenRefreshPromise;
-  return { Authorization: `Bearer ${token.token}` };
 }
 
 async function embeddingAuthHeaders(): Promise<Record<string, string>> {

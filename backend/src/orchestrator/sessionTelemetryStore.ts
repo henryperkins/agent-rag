@@ -18,6 +18,7 @@ import {
   sanitizeAndRedactOptional,
   sanitizeAndRedactText
 } from '../utils/sanitize-text.js';
+import { mapToTelemetryResult } from './telemetry/mapResult.js';
 
 type SessionMode = 'sync' | 'stream';
 
@@ -420,12 +421,7 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
         tokens: payload?.tokens,
         trimmed: payload?.trimmed,
         results: Array.isArray(payload?.results)
-          ? payload.results.map((result: any) => ({
-              id: result.id,
-              title: result.title,
-              url: result.url,
-              rank: result.rank
-            }))
+          ? payload.results.map((result: any) => mapToTelemetryResult(result))
           : undefined
       };
       break;

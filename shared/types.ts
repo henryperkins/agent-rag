@@ -433,7 +433,11 @@ export interface OrchestratorTools {
     features?: FeatureOverrideMap;
   }) => Promise<AgenticRetrievalResponse>;
   lazyRetrieve?: (args: { query: string; filter?: string; top?: number }) => Promise<AgenticRetrievalResponse>;
-  webSearch: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
+  webSearch: (args: {
+    query: string;
+    count?: number;
+    mode?: 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract';
+  }) => Promise<WebSearchResponse>;
   answer: (args: {
     question: string;
     context: string;
