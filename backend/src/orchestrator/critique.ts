@@ -13,6 +13,19 @@ export interface CritiqueOptions {
 
 export async function evaluateAnswer({ draft, evidence, question }: CritiqueOptions): Promise<CriticReport> {
   try {
+    if (config.NODE_ENV === 'development') {
+      console.debug('[DEBUG] Critic evaluating answer:', {
+        draftLength: draft.length,
+        draftPreview: draft.substring(0, 200),
+        evidenceLength: evidence.length,
+        evidenceLinesCount: evidence.split('\n').length,
+        questionLength: question.length,
+        hasCitations: /\[\d+\]/.test(draft),
+        isIDontKnow:
+          draft.toLowerCase().includes('i do not know') || draft.toLowerCase().includes("i don't know")
+      });
+    }
+
     const systemPrompt = `You are a critical evaluator assessing draft answers for quality.
 
 EVALUATION CRITERIA:
@@ -64,6 +77,16 @@ Return ONLY valid JSON matching the schema. Be strict: prefer revise when uncert
     let coverage =
       typeof parsed.coverage === 'number' && Number.isFinite(parsed.coverage) ? parsed.coverage : 0;
     coverage = Math.max(0, Math.min(1, coverage));
+
+    if (config.NODE_ENV === 'development') {
+      console.debug('[DEBUG] Critic result:', {
+        grounded,
+        coverage,
+        parsedAction: parsed.action,
+        issues: parsed.issues,
+        rawParsed: parsed
+      });
+    }
 
     const issues = Array.isArray(parsed.issues) ? [...parsed.issues] : [];
     const parsedAction = parsed.action === 'revise' ? 'revise' : 'accept';

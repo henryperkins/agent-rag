@@ -6,7 +6,9 @@ import type {
   WebResult,
   WebSearchResponse,
   LazyReference,
-  FeatureOverrideMap
+  FeatureOverrideMap,
+  AgenticRetrievalDiagnostics,
+  KnowledgeAgentGroundingSummary
 } from '../../../shared/types.js';
 import { retrieveTool, webSearchTool, lazyRetrieveTool } from '../tools/index.js';
 import type { SalienceNote } from './compact.js';
@@ -29,10 +31,15 @@ export interface DispatchResult {
   webContextTokens: number;
   webContextTrimmed: boolean;
   summaryTokens?: number;
-  source: 'direct' | 'fallback_vector';
-  retrievalMode: 'direct' | 'lazy';
+  source: 'direct' | 'fallback_vector' | 'knowledge_agent';
+  retrievalMode: 'direct' | 'lazy' | 'knowledge_agent';
+  strategy: 'direct' | 'knowledge_agent' | 'hybrid';
   escalated: boolean;
   adaptiveStats?: AdaptiveRetrievalStats;
+  diagnostics?: AgenticRetrievalDiagnostics;
+  knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
+  retrievalThresholdUsed?: number;
+  retrievalThresholdHistory?: number[];
 }
 
 interface DispatchOptions {
@@ -57,6 +64,7 @@ interface DispatchOptions {
       summaryTokens?: number;
       mode?: 'direct' | 'lazy';
       fullContentAvailable?: boolean;
+      diagnostics?: AgenticRetrievalDiagnostics;
     }>;
     lazyRetrieve?: (args: { query: string; filter?: string; top?: number }) => Promise<{
       response: string;
@@ -66,6 +74,7 @@ interface DispatchOptions {
       summaryTokens?: number;
       mode?: 'direct' | 'lazy';
       fullContentAvailable?: boolean;
+      diagnostics?: AgenticRetrievalDiagnostics;
     }>;
     webSearch?: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
   };
@@ -143,12 +152,17 @@ export async function dispatchTools({
   const webResults: WebResult[] = [];
   const retrievalSnippets: string[] = [];
   let adaptiveStats: AdaptiveRetrievalStats | undefined;
-  let source: 'direct' | 'fallback_vector' = 'direct';
-  let retrievalMode: 'direct' | 'lazy' = 'direct';
+  let source: 'direct' | 'fallback_vector' | 'knowledge_agent' = 'direct';
+  let retrievalMode: 'direct' | 'lazy' | 'knowledge_agent' = 'direct';
+  let strategy: 'direct' | 'knowledge_agent' | 'hybrid' = 'direct';
   let summaryTokens: number | undefined;
   const confidence = typeof plan.confidence === 'number' ? plan.confidence : 1;
   const threshold = config.PLANNER_CONFIDENCE_DUAL_RETRIEVAL;
   const escalated = confidence < threshold;
+  let diagnostics: AgenticRetrievalDiagnostics | undefined;
+  let knowledgeAgentGrounding: KnowledgeAgentGroundingSummary | undefined;
+  let retrievalThresholdUsed: number | undefined;
+  let retrievalThresholdHistory: number[] | undefined;
 
   const queryFallback = latestUserQuery(messages);
   const retrieve = tools?.retrieve ?? retrieveTool;
@@ -196,17 +210,33 @@ export async function dispatchTools({
         });
 
         // Fallback to direct retrieval
-        retrieval = await retrieve({ query, features: featureStates });
+        retrieval = await retrieve({ query, messages, features: featureStates });
       }
     } else {
-      retrieval = await retrieve({ query, features: featureStates });
+      retrieval = await retrieve({ query, messages, features: featureStates });
+    }
+
+    if (retrieval && (retrieval as any).knowledgeAgentGrounding) {
+      knowledgeAgentGrounding = (retrieval as any).knowledgeAgentGrounding as KnowledgeAgentGroundingSummary;
+    }
+    if (typeof (retrieval as any).thresholdUsed === 'number') {
+      retrievalThresholdUsed = (retrieval as any).thresholdUsed as number;
+    }
+    if (Array.isArray((retrieval as any).thresholdHistory)) {
+      retrievalThresholdHistory = [...((retrieval as any).thresholdHistory as number[])];
     }
 
     references.push(...(retrieval.references ?? []));
     if ('lazyReferences' in retrieval && Array.isArray(retrieval.lazyReferences) && retrieval.lazyReferences.length) {
       lazyReferences.push(...retrieval.lazyReferences);
       summaryTokens = retrieval.summaryTokens;
-      retrievalMode = retrieval.mode === 'lazy' ? 'lazy' : 'direct';
+      retrievalMode =
+        retrieval.mode === 'lazy' || retrieval.mode === 'knowledge_agent'
+          ? retrieval.mode
+          : 'direct';
+    }
+    if (retrieval.diagnostics) {
+      diagnostics = retrieval.diagnostics;
     }
 
     activity.push(
@@ -225,6 +255,15 @@ export async function dispatchTools({
     }
     if (retrieval.activity?.some((step) => step.type === 'fallback_search')) {
       source = 'fallback_vector';
+    }
+    if (retrieval.mode === 'knowledge_agent') {
+      source = 'knowledge_agent';
+      retrievalMode = 'knowledge_agent';
+    }
+    if (retrieval.strategy) {
+      strategy = retrieval.strategy;
+    } else if (retrieval.mode === 'knowledge_agent') {
+      strategy = 'knowledge_agent';
     }
     if (retrieval as any && (retrieval as any).adaptiveStats) {
       adaptiveStats = (retrieval as any).adaptiveStats as AdaptiveRetrievalStats;
@@ -557,7 +596,26 @@ export async function dispatchTools({
   const salienceText = salience.map((note, idx) => `[Salience ${idx + 1}] ${note.fact}`).join('\n');
   const primaryReferences = lazyReferences.length ? lazyReferences : references;
   const referenceText = primaryReferences
-    .map((ref, idx) => `[${idx + 1}] ${ref.content ?? ''}`)
+    .map((ref, idx) => {
+      const candidates: Array<string | undefined> = [
+        ref.content,
+        ref.chunk,
+        'summary' in ref ? ref.summary : undefined,
+        Array.isArray(ref.captions) ? ref.captions.map((caption) => caption.text).filter(Boolean).join(' ') : undefined,
+        ref.highlights
+          ? Object.values(ref.highlights)
+              .flat()
+              .filter((value): value is string => typeof value === 'string')
+              .join(' ')
+          : undefined
+      ];
+      const body = candidates.find((text) => typeof text === 'string' && text.trim().length > 0);
+      if (!body) {
+        return undefined;
+      }
+      return `[${idx + 1}] ${body}`;
+    })
+    .filter((segment): segment is string => Boolean(segment && segment.trim()))
     .join('\n\n');
 
   const referenceBlock = lazyReferences.length ? '' : referenceText;
@@ -584,7 +642,12 @@ export async function dispatchTools({
     summaryTokens,
     source,
     retrievalMode,
+    strategy,
     escalated,
-    adaptiveStats
+    adaptiveStats,
+    diagnostics,
+    knowledgeAgentGrounding,
+    retrievalThresholdUsed,
+    retrievalThresholdHistory
   };
 }

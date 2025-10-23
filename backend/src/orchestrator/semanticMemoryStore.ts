@@ -1,9 +1,8 @@
-import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import type { Database as SqliteDatabase } from 'better-sqlite3';
 import { generateEmbedding } from '../azure/directSearch.js';
 import { config } from '../config/app.js';
 import { cosineSimilarity } from '../utils/vector-ops.js';
+import { openSqliteDatabase } from '../utils/sqlite-utils.js';
 
 export type MemoryType = 'episodic' | 'semantic' | 'procedural' | 'preference';
 
@@ -32,13 +31,6 @@ export interface RecallOptions {
   maxAgeDays?: number;
 }
 
-function ensureDirectory(path: string) {
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
-
 function toFloat32Array(buffer: Buffer) {
   return Array.from(
     new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / Float32Array.BYTES_PER_ELEMENT)
@@ -46,7 +38,7 @@ function toFloat32Array(buffer: Buffer) {
 }
 
 export class SemanticMemoryStore {
-  private db: Database.Database | null = null;
+  private db: SqliteDatabase | null = null;
   private dbPath: string;
 
   constructor(dbPath: string = config.SEMANTIC_MEMORY_DB_PATH) {
@@ -55,10 +47,7 @@ export class SemanticMemoryStore {
 
   private ensureInitialized() {
     if (!this.db) {
-      const absolutePath = resolve(this.dbPath);
-      ensureDirectory(absolutePath);
-      this.db = new Database(absolutePath);
-      this.db.pragma('journal_mode = WAL');
+      this.db = openSqliteDatabase(this.dbPath, { enableWal: true });
       this.initialize();
     }
   }

@@ -11,6 +11,7 @@ vi.mock('../utils/resilience.js', () => ({
 const directSearch = await import('../azure/directSearch.js');
 const { config } = await import('../config/app.js');
 const { lazyHybridSearch, loadFullContent, identifyLoadCandidates } = await import('../azure/lazyRetrieval.js');
+const { resetRerankerThresholdWarnings } = await import('../utils/reranker-threshold.js');
 
 describe('lazy retrieval helpers', () => {
   beforeEach(() => {
@@ -18,6 +19,7 @@ describe('lazy retrieval helpers', () => {
     config.RAG_TOP_K = 3;
     config.LAZY_PREFETCH_COUNT = 5;
     (directSearch.hybridSemanticSearch as unknown as Mock).mockReset();
+    resetRerankerThresholdWarnings();
   });
 
   it('returns summaries with loadFull callbacks', async () => {
@@ -34,6 +36,20 @@ describe('lazy retrieval helpers', () => {
     expect(result.references).toHaveLength(2);
     expect(result.references[0].summary).toContain('Full content 1');
     expect(typeof result.references[0].loadFull).toBe('function');
+  });
+
+  it('filters references below the reranker threshold', async () => {
+    (directSearch.hybridSemanticSearch as unknown as Mock).mockResolvedValueOnce({
+      references: [
+        { id: 'doc-1', content: 'High score content', score: 2.9 },
+        { id: 'doc-2', content: 'Low score content', score: 1.1 }
+      ]
+    });
+
+    const result = await lazyHybridSearch({ query: 'threshold test', top: 3, rerankerThreshold: 2.5 });
+
+    expect(result.references).toHaveLength(1);
+    expect(result.references[0].id).toBe('doc-1');
   });
 
   it('loads full content for selected references', async () => {

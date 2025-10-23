@@ -13,9 +13,7 @@ import { DefaultAzureCredential } from '@azure/identity';
 import type { Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import { getSearchAuthHeaders } from './searchAuth.js';
-
-// Track reranker threshold warnings per session to avoid log spam
-const thresholdWarningCache = new Set<string>();
+import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
 
 // ============================================================================
 // Types
@@ -369,6 +367,7 @@ export async function hybridSemanticSearch(
     searchFields?: string[];
     selectFields?: string[];
     sessionId?: string;
+    correlationId?: string;
   } = {}
 ): Promise<DirectSearchResponse> {
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
@@ -399,44 +398,9 @@ export async function hybridSemanticSearch(
   const response = await executeSearch(indexName, builder);
 
   const top = options.top || config.RAG_TOP_K;
-  let results = response.value;
+  const rawResults = response.value;
 
-  if (
-    options.rerankerThreshold !== undefined &&
-    results.length > 0 &&
-    results[0]?.['@search.rerankerScore'] !== undefined
-  ) {
-    const threshold = options.rerankerThreshold;
-    const scores = results.map((r) => r['@search.rerankerScore'] ?? 0);
-    const filtered = results.filter(
-      (r) => (r['@search.rerankerScore'] ?? 0) >= (threshold ?? 0)
-    );
-
-    if (filtered.length > 0) {
-      results = filtered;
-    } else if (results.length > 0) {
-      const maxScore = Math.max(...scores);
-      const minScore = Math.min(...scores);
-      const avgScore = scores.reduce((sum, s) => sum + s, 0) / scores.length;
-
-      // Only log warning once per session to avoid spam
-      const sessionKey = options.sessionId || 'default';
-      if (!thresholdWarningCache.has(sessionKey)) {
-        thresholdWarningCache.add(sessionKey);
-        console.warn(
-          `[Session ${sessionKey}] Hybrid search results below reranker threshold ${threshold}. Using unfiltered results. ` +
-          `Score distribution: max=${maxScore.toFixed(2)}, avg=${avgScore.toFixed(2)}, min=${minScore.toFixed(2)}, ` +
-          `count=${scores.length}`
-        );
-      }
-    }
-  }
-
-  // Limit to final top k
-  results = results.slice(0, top);
-
-  // Convert to references
-  const references: Reference[] = results.map((result, idx) => ({
+  const mappedReferences: Reference[] = rawResults.map((result, idx) => ({
     id: result.id || result.chunk_id || `result_${idx}`,
     title: `Page ${result.page_number || idx + 1}`,
     content: result.content || result.page_chunk || result.chunk || '',
@@ -448,6 +412,12 @@ export async function hybridSemanticSearch(
     highlights: result['@search.highlights'],
     captions: result['@search.captions']
   }));
+  const enforcement = enforceRerankerThreshold(mappedReferences, options.rerankerThreshold, {
+    sessionId: options.sessionId,
+    correlationId: options.correlationId,
+    source: 'hybrid_semantic'
+  });
+  const references = enforcement.references.slice(0, top);
 
   return {
     references,

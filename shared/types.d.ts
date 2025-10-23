@@ -50,6 +50,24 @@ export interface AgenticRetrievalResponse {
     response: string;
     references: Reference[];
     activity: ActivityStep[];
+    lazyReferences?: Reference[];
+    summaryTokens?: number;
+    mode?: 'direct' | 'lazy' | 'knowledge_agent';
+    strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
+    knowledgeAgentAnswer?: string;
+    fullContentAvailable?: boolean;
+    fallbackAttempts?: number;
+    minDocumentsRequired?: number;
+    fallbackTriggered?: boolean;
+    adaptiveStats?: unknown;
+    knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
+    thresholdUsed?: number;
+    thresholdHistory?: number[];
+}
+export interface KnowledgeAgentGroundingSummary {
+    mapping: Record<string, string>;
+    citationMap: Record<string, string[]>;
+    unmatched: string[];
 }
 export interface WebResult {
     id: string;
@@ -97,6 +115,7 @@ export interface ChatResponse {
             issues?: string[];
         }>;
         summary_selection?: SummarySelectionStats;
+        retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent';
     };
 }
 export interface TraceEvent {
@@ -109,7 +128,7 @@ export interface TraceEvent {
     error?: string;
 }
 export interface RetrievalDiagnostics {
-    attempted: 'knowledge_agent' | 'fallback_vector';
+    attempted: 'direct' | 'lazy' | 'fallback_vector' | 'knowledge_agent';
     succeeded: boolean;
     retryCount: number;
     documents: number;
@@ -117,8 +136,11 @@ export interface RetrievalDiagnostics {
     minScore?: number;
     maxScore?: number;
     thresholdUsed?: number;
+    thresholdHistory?: number[];
     fallbackReason?: string;
     escalated?: boolean;
+    mode?: 'direct' | 'lazy' | 'knowledge_agent';
+    strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
 }
 export interface SessionTrace {
     sessionId: string;
@@ -160,6 +182,9 @@ export interface SessionTrace {
     };
     summarySelection?: SummarySelectionStats;
     events: TraceEvent[];
+    knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
+    rerankerThresholdUsed?: number;
+    rerankerThresholdHistory?: number[];
     error?: string;
 }
 export interface OrchestratorTools {

@@ -57,7 +57,9 @@ function toAgentMessages(messages: ChatMessage[]): AgentMessage[] {
 }
 
 function activityStepKey(step: ActivityStep): string {
-  return `${step.type}:${step.timestamp ?? step.description}`;
+  const timestamp = step.timestamp ?? '';
+  const description = step.description ?? '';
+  return `${step.type}:${timestamp}:${description}`;
 }
 
 function toThoughtMessage(step: ActivityStep): ChatMessage {
@@ -148,6 +150,7 @@ function ChatApp() {
   );
   const [featureSources, setFeatureSources] = useState<Partial<Record<FeatureFlag, FeatureSource>>>({});
   const seenInsightKeys = useRef<Set<string>>(new Set());
+  const prevInsightsRef = useRef<ActivityStep[]>();
 
   const chatMutation = useChat();
   const stream = useChatStream();
@@ -203,17 +206,34 @@ function ChatApp() {
 
   const appendInsightSteps = useCallback(
     (steps: ActivityStep[] | undefined) => {
+      console.log('[DEBUG] appendInsightSteps called:', {
+        stepsProvided: !!steps,
+        stepsLength: steps?.length ?? 0,
+        steps
+      });
+
       if (!steps || steps.length === 0) {
+        console.log('[DEBUG] appendInsightSteps: Early return (no steps)');
         return;
       }
+
+      let processedCount = 0;
+      let skippedNonInsight = 0;
+      let skippedAlreadySeen = 0;
+      let addedCount = 0;
+
       setMessages((prev) => {
         let next: ChatMessage[] | undefined;
         for (const step of steps) {
+          processedCount++;
           if (step.type !== 'insight') {
+            skippedNonInsight++;
             continue;
           }
           const key = activityStepKey(step);
           if (seenInsightKeys.current.has(key)) {
+            skippedAlreadySeen++;
+            console.log('[DEBUG] Skipping already seen insight:', key);
             continue;
           }
           seenInsightKeys.current.add(key);
@@ -221,7 +241,18 @@ function ChatApp() {
             next = [...prev];
           }
           next.push(toThoughtMessage(step));
+          addedCount++;
+          console.log('[DEBUG] Added insight to messages:', { key, description: step.description });
         }
+
+        console.log('[DEBUG] appendInsightSteps summary:', {
+          processed: processedCount,
+          skippedNonInsight,
+          skippedAlreadySeen,
+          added: addedCount,
+          seenKeysSize: seenInsightKeys.current.size
+        });
+
         return next ?? prev;
       });
     },
@@ -340,6 +371,8 @@ function ChatApp() {
           webContext: chatMutation.data.metadata.web_context,
           summarySelection: chatMutation.data.metadata.summary_selection,
           evaluation: chatMutation.data.metadata.evaluation,
+          retrieval: chatMutation.data.metadata.retrieval,
+          diagnostics: chatMutation.data.metadata.diagnostics,
           // Preserve fields needed for SessionHealthDashboard metrics
           retrieval_time_ms: chatMutation.data.metadata.retrieval_time_ms,
           critic_iterations: chatMutation.data.metadata.critic_iterations,
@@ -355,12 +388,30 @@ function ChatApp() {
   const routeDetails = mode === 'stream' ? stream.route : chatMutation.data?.metadata?.route;
   const responsesDetails = mode === 'stream' ? stream.responses : chatMutation.data?.metadata?.responses;
   const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
+  const retrievalDetails = mode === 'stream' ? stream.retrieval : chatMutation.data?.metadata?.retrieval;
+  const diagnosticsDetails = mode === 'stream' ? stream.diagnostics : chatMutation.data?.metadata?.diagnostics;
   const featureMetadata = mode === 'stream' ? stream.features : chatMutation.data?.metadata?.features;
 
   useEffect(() => {
     if (mode !== 'stream') {
       return;
     }
+
+    const insightsChanged = prevInsightsRef.current !== stream.insights;
+    const referenceId = stream.insights ? `ref_${(stream.insights as any).__reactInternalInstance || 'unknown'}` : 'null';
+
+    console.log('[DEBUG] useEffect for insights fired:', {
+      count: stream.insights?.length ?? 0,
+      insightsChanged,
+      prevInsightsLength: prevInsightsRef.current?.length ?? 0,
+      currentInsightsLength: stream.insights?.length ?? 0,
+      referenceId,
+      mode,
+      isStreaming: stream.isStreaming,
+      insights: stream.insights
+    });
+
+    prevInsightsRef.current = stream.insights;
     appendInsightSteps(stream.insights);
   }, [mode, stream.insights, appendInsightSteps]);
 
@@ -461,11 +512,17 @@ function ChatApp() {
           features: featureMetadata,
           evaluation: evaluationDetails,
           responses: responsesDetails,
+          retrieval: retrievalDetails,
+          diagnostics: diagnosticsDetails,
           traceId: typeof chatMutation.data?.metadata?.trace_id === 'string'
             ? chatMutation.data.metadata.trace_id
             : undefined,
           trace: traceDetails,
-          webContext: webContextDetails
+          webContext: webContextDetails,
+          insights:
+            mode === 'stream'
+              ? stream.insights
+              : chatMutation.data?.activity?.filter((step) => step.type === 'insight')
         }}
       />
     </div>

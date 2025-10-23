@@ -41,7 +41,11 @@ export function sanitizeInput(request: FastifyRequest, reply: FastifyReply, done
       let content = msg.content.replace(SCRIPT_REGEX, '');
       content = content.replace(/<\/?(code|pre)>/gi, '`');
       content = content.replace(HTML_TAG_REGEX, '');
-      content = content.replace(/\s+/g, ' ').trim();
+      content = content.replace(/\r\n?/g, '\n');
+      content = content.replace(/\u00a0/g, ' ');
+      const lines = content.split('\n').map((line) => line.replace(/\s+$/g, ''));
+      content = lines.join('\n');
+      content = content.replace(/\n{3,}/g, '\n\n').trim();
 
       sanitized.push({
         role: msg.role,

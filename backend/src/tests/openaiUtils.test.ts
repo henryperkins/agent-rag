@@ -48,4 +48,32 @@ describe('extractOutputText', () => {
 
     expect(extractOutputText(response)).toBe(JSON.stringify({ grounded: false, coverage: 0.1 }));
   });
+
+  it('collects JSON found in tool call arguments', () => {
+    const response = {
+      output: [
+        {
+          type: 'tool_call',
+          arguments: '{"confidence":"correct"}'
+        }
+      ]
+    };
+
+    expect(extractOutputText(response)).toBe('{"confidence":"correct"}');
+  });
+
+  it('serializes parsed content payloads', () => {
+    const response = {
+      output: [
+        {
+          type: 'tool_result',
+          parsed: { confidence: 'ambiguous', action: 'refine_documents' }
+        }
+      ]
+    };
+
+    expect(extractOutputText(response)).toBe(
+      JSON.stringify({ confidence: 'ambiguous', action: 'refine_documents' })
+    );
+  });
 });

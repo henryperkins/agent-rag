@@ -298,6 +298,53 @@
   list-style: disc;
 }
 
+.insight-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.insight-log-item {
+  border: 1px solid rgba(79, 70, 229, 0.2);
+  border-radius: 6px;
+  padding: 10px;
+  background: rgba(79, 70, 229, 0.05);
+}
+
+.insight-log-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #4f46e5;
+}
+
+.insight-log-icon {
+  font-size: 14px;
+}
+
+.insight-log-stage {
+  letter-spacing: 0.08em;
+}
+
+.insight-log-time {
+  margin-left: auto;
+  font-weight: 400;
+  color: #6366f1;
+  letter-spacing: normal;
+}
+
+.insight-log-text {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 1080px) {
   .health-dashboard {
     grid-template-columns: 1fr;

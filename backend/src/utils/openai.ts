@@ -47,6 +47,27 @@ function collectText(node: any, buffer: string[]) {
     }
   }
 
+  if (node.arguments !== undefined) {
+    const args = node.arguments;
+    if (typeof args === 'string') {
+      if (args.trim().length > 0) {
+        buffer.push(args);
+      }
+    } else {
+      const serialized = stringifyJson(args);
+      if (serialized) {
+        buffer.push(serialized);
+      }
+    }
+  }
+
+  if (node.parsed !== undefined) {
+    const parsedString = stringifyJson(node.parsed);
+    if (parsedString) {
+      buffer.push(parsedString);
+    }
+  }
+
   if (Array.isArray((node as { content?: unknown[] }).content)) {
     for (const part of (node as { content: unknown[] }).content) {
       collectText(part, buffer);
@@ -83,15 +104,54 @@ export function extractOutputText(response: any): string {
   return buffer.join('');
 }
 
-function collectReasoning(node: any, summaries: string[]) {
+function normalizeReasoningText(value: string): string | null {
+  const collapsed = value.replace(/\s+/g, ' ').trim();
+  if (!collapsed) {
+    return null;
+  }
+
+  const lower = collapsed.toLowerCase();
+  if (
+    lower === 'summary_text' ||
+    lower === 'reasoning' ||
+    lower === 'insight' ||
+    lower.startsWith('response.reasoning')
+  ) {
+    return null;
+  }
+
+  // Skip strings that are effectively numeric/marker noise
+  if (!/[a-z]/i.test(collapsed) && collapsed.length <= 3) {
+    return null;
+  }
+
+  return collapsed;
+}
+
+function pushSummaryText(value: unknown, summaries: string[], seen: Set<string>) {
+  if (typeof value !== 'string') {
+    return;
+  }
+  const normalized = normalizeReasoningText(value);
+  if (!normalized || seen.has(normalized)) {
+    return;
+  }
+  seen.add(normalized);
+  summaries.push(normalized);
+}
+
+function collectReasoning(node: any, summaries: string[], seen: Set<string>) {
   if (!node) {
     return;
   }
 
   if (Array.isArray(node)) {
-    for (const item of node) {
-      collectReasoning(item, summaries);
-    }
+    for (const item of node) collectReasoning(item, summaries, seen);
+    return;
+  }
+
+  if (typeof node === 'string') {
+    pushSummaryText(node, summaries, seen);
     return;
   }
 
@@ -99,19 +159,89 @@ function collectReasoning(node: any, summaries: string[]) {
     return;
   }
 
-  if (node.type === 'reasoning' && Array.isArray(node.summary)) {
-    for (const part of node.summary) {
-      if (part && typeof part === 'object') {
-        const text = (part as { text?: unknown }).text;
-        if (typeof text === 'string' && text.trim().length > 0) {
-          summaries.push(text.trim());
+  const record = node as Record<string, unknown>;
+
+  if (record.summary !== undefined) {
+    const summary = record.summary;
+    if (typeof summary === 'string') {
+      pushSummaryText(summary, summaries, seen);
+    } else if (Array.isArray(summary)) {
+      for (const part of summary) {
+        if (!part) {
+          continue;
+        }
+        if (typeof part === 'string') {
+          pushSummaryText(part, summaries, seen);
+        } else if (typeof part === 'object') {
+          const text = (part as { text?: unknown }).text;
+          if (typeof text === 'string') {
+            pushSummaryText(text, summaries, seen);
+          } else {
+            collectReasoning(part, summaries, seen);
+          }
         }
       }
+    } else if (summary && typeof summary === 'object') {
+      collectReasoning(summary, summaries, seen);
     }
   }
 
-  for (const value of Object.values(node)) {
-    collectReasoning(value, summaries);
+  if (typeof record.text === 'string') {
+    pushSummaryText(record.text, summaries, seen);
+  }
+
+  if (typeof record.delta === 'string') {
+    pushSummaryText(record.delta, summaries, seen);
+  } else if (record.delta && typeof record.delta === 'object') {
+    collectReasoning(record.delta, summaries, seen);
+  }
+
+  if (record.reasoning !== undefined && record.reasoning !== record) {
+    collectReasoning(record.reasoning, summaries, seen);
+  }
+
+  if (typeof (record as { thought?: unknown }).thought === 'string') {
+    pushSummaryText((record as { thought: string }).thought, summaries, seen);
+  }
+
+  if (record.thinking !== undefined) {
+    collectReasoning(record.thinking, summaries, seen);
+  }
+
+  if (record.steps !== undefined) {
+    collectReasoning(record.steps, summaries, seen);
+  }
+
+  if (record.part !== undefined && record.part !== record) {
+    collectReasoning(record.part, summaries, seen);
+  }
+
+  const skipKeys = new Set([
+    'summary',
+    'delta',
+    'reasoning',
+    'text',
+    'part',
+    'thought',
+    'thinking',
+    'steps',
+    'type',
+    'obfuscation',
+    'item_id',
+    'output_index',
+    'content_index',
+    'summary_index',
+    'id',
+    'event_id',
+    'index',
+    'role'
+  ]);
+
+  for (const [key, value] of Object.entries(record)) {
+    if (skipKeys.has(key)) {
+      continue;
+    }
+    collectReasoning(value, summaries, seen);
   }
 }
 
@@ -120,6 +250,7 @@ export function extractReasoningSummary(response: any): string[] | undefined {
     return undefined;
   }
   const summaries: string[] = [];
-  collectReasoning(response, summaries);
+  const seen = new Set<string>();
+  collectReasoning(response, summaries, seen);
   return summaries.length > 0 ? summaries : undefined;
 }

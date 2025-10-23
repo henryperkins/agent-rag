@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Last Updated**: October 18, 2025
+**Last Updated**: October 22, 2025
 **Total Documents**: 29 (+ 13 archived)
 **Repository**: Agent-RAG
 **Recent Additions**: UNIFIED_ROADMAP_2025.md + SUMMARY - Merges TODO Phase 2 + MCP integration priorities
@@ -91,10 +91,11 @@
 
 #### Audits & Reports
 
-| Document                                                                     | Status | Description                              | Notes                                        |
-| ---------------------------------------------------------------------------- | ------ | ---------------------------------------- | -------------------------------------------- |
-| [CODEBASE_AUDIT_2025-10-10-REVISED.md](CODEBASE_AUDIT_2025-10-10-REVISED.md) | ✅     | API Implementation & Documentation Audit | Oct 10, 2025 - Quality assured               |
-| [audit-report-corrected.md](audit-report-corrected.md)                       | ✅     | Latest comprehensive audit (CURRENT)     | Oct 18, 2025 - Replaces older audit versions |
+| Document                                                                                                                 | Status | Description                                 | Notes                                        |
+| ------------------------------------------------------------------------------------------------------------------------ | ------ | ------------------------------------------- | -------------------------------------------- |
+| [CODEBASE_AUDIT_2025-10-10-REVISED.md](CODEBASE_AUDIT_2025-10-10-REVISED.md)                                             | ✅     | API Implementation & Documentation Audit    | Oct 10, 2025 - Quality assured               |
+| [audit-report-corrected.md](audit-report-corrected.md)                                                                   | ✅     | Latest comprehensive audit (CURRENT)        | Oct 18, 2025 - Replaces older audit versions |
+| [AGENTIC_RAG_BACKEND_QUALITY_AUDIT_REPORT_2025-10-22.md](archive/AGENTIC_RAG_BACKEND_QUALITY_AUDIT_REPORT_2025-10-22.md) | ✅     | Agentic RAG backend quality audit (CURRENT) | Oct 22, 2025 - Backend audit                 |
 
 **Archived Audit Reports**: `COMPREHENSIVE_AUDIT_REPORT*.md`, `audit-report.md` → See `docs/archive/`
 

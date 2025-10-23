@@ -1,10 +1,9 @@
-import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import type { Database as SqliteDatabase } from 'better-sqlite3';
 import type { AgentMessage, FeatureOverrideMap } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import type { SalienceNote } from '../orchestrator/compact.js';
 import { sanitizeFeatureOverrides } from '../config/features.js';
+import { openSqliteDatabase } from '../utils/sqlite-utils.js';
 
 export interface StoredSummaryBullet {
   text: string;
@@ -31,13 +30,6 @@ export interface SessionFeatureSnapshot {
   updatedAt: string;
 }
 
-function ensureDirectory(path: string) {
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
-
 interface MemoryFallbackState {
   transcripts: Map<string, SessionSnapshot>;
   memories: Map<string, SessionMemorySnapshot>;
@@ -45,16 +37,12 @@ interface MemoryFallbackState {
 }
 
 export class SessionStore {
-  private db: Database.Database | null = null;
+  private db: SqliteDatabase | null = null;
   private fallback: MemoryFallbackState | null = null;
 
   constructor(dbPath: string = config.SESSION_DB_PATH) {
-    const absolute = resolve(dbPath);
-    ensureDirectory(absolute);
-
     try {
-      this.db = new Database(absolute);
-      this.db.pragma('journal_mode = WAL');
+      this.db = openSqliteDatabase(dbPath, { enableWal: true });
       this.initialize();
     } catch (error) {
       console.warn('SessionStore: falling back to in-memory storage (better-sqlite3 unavailable)', error);

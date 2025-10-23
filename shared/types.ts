@@ -62,6 +62,23 @@ export interface LazyRetrievalResponse {
   fullContentAvailable: boolean;
 }
 
+export interface KnowledgeAgentDiagnostic {
+  correlationId: string;
+  attempted: boolean;
+  fallbackTriggered: boolean;
+  requestId?: string;
+  statusCode?: number;
+  errorMessage?: string;
+  failurePhase?: 'invocation' | 'zero_results' | 'partial_results';
+  grounding?: KnowledgeAgentGroundingSummary;
+}
+
+export interface AgenticRetrievalDiagnostics {
+  correlationId?: string;
+  knowledgeAgent?: KnowledgeAgentDiagnostic;
+  fallbackAttempts?: number;
+}
+
 export interface ActivityStep {
   type: string;
   description: string;
@@ -181,12 +198,24 @@ export interface AgenticRetrievalResponse {
   activity: ActivityStep[];
   lazyReferences?: LazyReference[];
   summaryTokens?: number;
-  mode?: 'direct' | 'lazy';
+  mode?: 'direct' | 'lazy' | 'knowledge_agent';
+  strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
+  knowledgeAgentAnswer?: string;
   fullContentAvailable?: boolean;
   fallbackAttempts?: number;
   minDocumentsRequired?: number;
   fallbackTriggered?: boolean;
   adaptiveStats?: AdaptiveRetrievalStats;
+  diagnostics?: AgenticRetrievalDiagnostics;
+  knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
+  thresholdUsed?: number;
+  thresholdHistory?: number[];
+}
+
+export interface KnowledgeAgentGroundingSummary {
+  mapping: Record<string, string>;
+  citationMap: Record<string, string[]>;
+  unmatched: string[];
 }
 
 export interface WebResult {
@@ -248,9 +277,10 @@ export interface ChatResponse {
     }>;
     summary_selection?: SummarySelectionStats;
     route?: RouteMetadata;
-    retrieval_mode?: 'direct' | 'lazy';
+    retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent';
     lazy_summary_tokens?: number;
     retrieval?: RetrievalDiagnostics;
+    diagnostics?: AgenticRetrievalDiagnostics;
     responses?: Array<{ attempt: number; responseId?: string }>;
     semantic_memory?: {
       recalled: number;
@@ -288,7 +318,7 @@ export interface TraceEvent {
 }
 
 export interface RetrievalDiagnostics {
-  attempted: 'direct' | 'lazy' | 'fallback_vector';
+  attempted: 'direct' | 'lazy' | 'fallback_vector' | 'knowledge_agent';
   succeeded: boolean;
   retryCount: number;
   documents: number;
@@ -296,15 +326,19 @@ export interface RetrievalDiagnostics {
   minScore?: number;
   maxScore?: number;
   thresholdUsed?: number;
+  thresholdHistory?: number[];
   fallbackReason?: string;
   fallback_reason?: string;
   escalated?: boolean;
-  mode?: 'direct' | 'lazy';
+  mode?: 'direct' | 'lazy' | 'knowledge_agent';
   summaryTokens?: number;
+  strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
   highlightedDocuments?: number;
   fallbackAttempts?: number;
   minDocumentsRequired?: number;
   fallbackTriggered?: boolean;
+  correlationId?: string;
+  knowledgeAgent?: KnowledgeAgentDiagnostic;
 }
 
 export interface SessionTrace {
@@ -368,6 +402,9 @@ export interface SessionTrace {
   };
   error?: string;
   evaluation?: SessionEvaluation;
+  knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
+  rerankerThresholdUsed?: number;
+  rerankerThresholdHistory?: number[];
 }
 
 export interface OrchestratorTools {

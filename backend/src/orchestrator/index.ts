@@ -21,7 +21,7 @@ import { getPlan } from './plan.js';
 import { dispatchTools } from './dispatch.js';
 import { evaluateAnswer } from './critique.js';
 import { config } from '../config/app.js';
-import { createResponseStream } from '../azure/openaiClient.js';
+import { createResponseStream, type Includable } from '../azure/openaiClient.js';
 import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { getTracer, traced } from './telemetry.js';
 import { loadMemory, upsertMemory } from './memoryStore.js';
@@ -37,7 +37,9 @@ import { loadFullContent, identifyLoadCandidates } from '../azure/lazyRetrieval.
 import { trackCitationUsage } from './citationTracker.js';
 import { resolveFeatureToggles, type FeatureGates } from '../config/features.js';
 import { sanitizeUserField } from '../utils/session.js';
+import { extractReasoningSummary } from '../utils/openai.js';
 import { getReasoningOptions } from '../config/reasoning.js';
+import { validateCitationIntegrity } from '../utils/citation-validator.js';
 
 type ExecMode = 'sync' | 'stream';
 
@@ -195,7 +197,8 @@ async function generateAnswer(
   lazyRefs: LazyReference[] = [],
   previousResponseId?: string,
   sessionId?: string,
-  intentHint?: string
+  intentHint?: string,
+  citations?: Reference[]
 ): Promise<GenerateAnswerResult> {
   const routePromptHint = routeConfig.systemPromptHints ? `${routeConfig.systemPromptHints}\n\n` : '';
   const basePrompt = `${routePromptHint}Respond using ONLY the provided context. Cite evidence inline as [1], [2], etc. Say "I do not know" if grounding is insufficient.`;
@@ -303,6 +306,14 @@ async function generateAnswer(
       return '';
     };
 
+    const reasoningConfig = getReasoningOptions('synthesis');
+    const includeFields: Includable[] = [];
+
+    // Request reasoning content if reasoning is enabled
+    if (reasoningConfig) {
+      includeFields.push('reasoning.encrypted_content');
+    }
+
     const reader = await createResponseStream({
       messages: [
         { role: 'system', content: basePrompt },
@@ -312,7 +323,8 @@ async function generateAnswer(
       model: modelDeployment,
       max_output_tokens: routeConfig.maxTokens,
       parallel_tool_calls: config.RESPONSES_PARALLEL_TOOL_CALLS,
-      reasoning: getReasoningOptions('synthesis'),
+      reasoning: reasoningConfig,
+      include: includeFields.length > 0 ? includeFields : undefined,
       // NOTE: Azure OpenAI doesn't support stream_options.include_usage yet
       // stream_options: { include_usage: config.RESPONSES_STREAM_INCLUDE_USAGE },
       textFormat: { type: 'text' },
@@ -332,6 +344,130 @@ async function generateAnswer(
     const decoder = new TextDecoder();
     let successfulChunks = 0;
     let responseId: string | undefined;
+    const reasoningSnippets: string[] = [];
+    const seenReasoning = new Set<string>();
+    const reasoningBuffers = new Map<string, string>();
+
+    const publishReasoningSnippet = (raw: string | undefined) => {
+      if (typeof raw !== 'string') {
+        return;
+      }
+      const normalized = raw.replace(/\s+/g, ' ').trim();
+      if (!normalized || seenReasoning.has(normalized)) {
+        return;
+      }
+      seenReasoning.add(normalized);
+      reasoningSnippets.push(normalized);
+      emit?.('activity', {
+        steps: [
+          {
+            type: 'insight',
+            description: `[Synthesis] ${normalized}`,
+            timestamp: new Date().toISOString()
+          }
+        ]
+      });
+    };
+
+    const publishFromPayload = (payload: unknown) => {
+      const summary = extractReasoningSummary(payload);
+      if (!summary?.length) {
+        return;
+      }
+      for (const entry of summary) {
+        publishReasoningSnippet(entry);
+      }
+    };
+
+    const reasoningKey = (event: Record<string, unknown>) => {
+      const itemId = typeof event.item_id === 'string' ? event.item_id : 'primary';
+      const outputIndex =
+        typeof event.output_index === 'number' && Number.isFinite(event.output_index)
+          ? event.output_index
+          : 0;
+      const summaryIndex =
+        typeof event.summary_index === 'number' && Number.isFinite(event.summary_index)
+          ? event.summary_index
+          : 0;
+      const contentIndex =
+        typeof event.content_index === 'number' && Number.isFinite(event.content_index)
+          ? event.content_index
+          : 0;
+      return `${itemId}:${outputIndex}:${summaryIndex}:${contentIndex}`;
+    };
+
+    const mergeIntoBuffer = (key: string, fragment: string) => {
+      const existing = reasoningBuffers.get(key) ?? '';
+      reasoningBuffers.set(key, `${existing}${fragment}`);
+    };
+
+    const flushBuffer = (key: string, tail?: string) => {
+      const existing = reasoningBuffers.get(key);
+      const combined = `${existing ?? ''}${tail ?? ''}`.replace(/\s+/g, ' ').trim();
+      reasoningBuffers.delete(key);
+      if (!combined) {
+        return;
+      }
+      publishReasoningSnippet(combined);
+    };
+
+    const publishResponseEvents = (response: Record<string, unknown>) => {
+      if (!response || !Array.isArray(response.output)) {
+        return;
+      }
+      for (const item of response.output as unknown[]) {
+        publishFromPayload(item);
+      }
+    };
+
+    const handleReasoningEvent = (event: Record<string, unknown>): boolean => {
+      const type = typeof event.type === 'string' ? event.type : undefined;
+      if (!type) {
+        return false;
+      }
+
+      if (type === 'response.reasoning_summary_text.delta') {
+        const key = reasoningKey(event);
+        if (typeof event.delta === 'string') {
+          mergeIntoBuffer(key, event.delta);
+        } else if (event.delta) {
+          const fragments = extractReasoningSummary(event.delta);
+          if (fragments?.length) {
+            mergeIntoBuffer(key, fragments.join(' '));
+          }
+        }
+        return true;
+      }
+
+      if (type === 'response.reasoning_summary_text.done') {
+        const key = reasoningKey(event);
+        if (typeof event.text === 'string') {
+          flushBuffer(key, event.text);
+        } else {
+          const fragments = extractReasoningSummary(event.text ?? event);
+          if (fragments?.length) {
+            flushBuffer(key, fragments.join(' '));
+          } else {
+            flushBuffer(key);
+          }
+        }
+        return true;
+      }
+
+      if (
+        type === 'response.reasoning_summary.delta' ||
+        type === 'response.reasoning_summary.done' ||
+        type === 'response.reasoning_summary_part.added' ||
+        type === 'response.reasoning_summary_part.done' ||
+        type === 'response.reasoning.delta' ||
+        type === 'response.reasoning.done'
+      ) {
+        publishFromPayload(event);
+        return true;
+      }
+
+      return false;
+    };
 
     emit?.('status', { stage });
 
@@ -351,7 +487,20 @@ async function generateAnswer(
 
       try {
         const delta = JSON.parse(payload);
-        const type = delta.type as string | undefined;
+        const type = typeof delta.type === 'string' ? delta.type : undefined;
+
+        if (delta && typeof delta === 'object') {
+          if (!handleReasoningEvent(delta as Record<string, unknown>)) {
+            publishFromPayload(delta);
+          }
+        }
+
+        if (delta?.reasoning) {
+          publishFromPayload(delta.reasoning);
+        }
+        if (delta?.response?.reasoning) {
+          publishFromPayload(delta.response.reasoning);
+        }
 
         if (type === 'response.output_text.delta') {
           const content =
@@ -373,16 +522,19 @@ async function generateAnswer(
         }
 
         if (type === 'response.output_text.done') {
-          const text =
-            extractStreamText(delta.text) ||
-            extractStreamText(delta.delta) ||
-            extractStreamText(delta.response);
           if (typeof delta?.response?.id === 'string') {
             responseId = delta.response.id;
           }
           if (typeof (delta as Record<string, unknown>)?.id === 'string') {
             responseId = (delta as Record<string, unknown>).id as string;
           }
+          if (delta.response) {
+            publishFromPayload(delta.response);
+          }
+          const text =
+            extractStreamText(delta.text) ||
+            extractStreamText(delta.delta) ||
+            extractStreamText(delta.response);
           if (text) {
             answer += text;
             emit?.('token', { content: text });
@@ -390,8 +542,17 @@ async function generateAnswer(
           return;
         }
 
-        if (type === 'response.output_item.added') {
-          const text = extractStreamText(delta.output_item);
+        if (
+          type === 'response.output_item.added' ||
+          type === 'response.output_item.delta' ||
+          type === 'response.output_item.done'
+        ) {
+          const item = delta.output_item ?? delta.delta ?? delta;
+          publishFromPayload(item);
+          if (item && typeof item === 'object' && (item as { type?: string }).type === 'reasoning') {
+            return;
+          }
+          const text = extractStreamText(item);
           if (typeof delta?.response?.id === 'string') {
             responseId = delta.response.id;
           }
@@ -404,6 +565,12 @@ async function generateAnswer(
         }
 
         if (type === 'response.delta') {
+          if (delta.delta) {
+            publishFromPayload(delta.delta);
+          }
+          if (delta.response) {
+            publishFromPayload(delta.response);
+          }
           const text = extractStreamText(delta.delta);
           if (typeof delta?.response?.id === 'string') {
             responseId = delta.response.id;
@@ -416,14 +583,16 @@ async function generateAnswer(
           return;
         }
 
-        // NOTE: This handler is for Chat Completions API with stream_options.include_usage=true
-        // Responses API provides usage in response.completed event instead (see below)
-        if (type === 'response.usage' || delta?.response?.usage) {
+        if (type === 'response.usage') {
           const usage = delta.response?.usage ?? delta.usage;
           if (usage) {
             emit?.('usage', usage);
           }
           return;
+        }
+
+        if (delta?.response?.usage) {
+          emit?.('usage', delta.response.usage);
         }
 
         if (type === 'response.completed') {
@@ -433,9 +602,15 @@ async function generateAnswer(
           if (typeof delta.response?.id === 'string') {
             responseId = delta.response.id;
           }
-          // Extract usage from response.completed event (Responses API built-in)
+          publishFromPayload(delta.response);
+          for (const key of [...reasoningBuffers.keys()]) {
+            flushBuffer(key);
+          }
           if (delta.response?.usage) {
             emit?.('usage', delta.response.usage);
+          }
+          if (delta.response?.output) {
+            publishResponseEvents(delta.response);
           }
           completed = true;
         }
@@ -486,7 +661,26 @@ async function generateAnswer(
       throw new Error('Streaming failed: no valid chunks received');
     }
 
-    return { answer, events: [], usedFullContent, contextText: activeContext, responseId, reasoningSummary: undefined };
+    const hasCitations = Array.isArray(citations) && citations.length > 0;
+    if (hasCitations) {
+      const citationValid = validateCitationIntegrity(answer, citations);
+      if (!citationValid) {
+        const failureMessage = 'I do not know. (Citation validation failed)';
+        emit?.('warning', {
+          type: 'citation_integrity',
+          message: 'Invalid citations detected in streamed response.'
+        });
+        if (successfulChunks > 0) {
+          emit?.('token', {
+            content: '\n\n[System Notice: Citation validation failed. Response rejected.]'
+          });
+        }
+        answer = failureMessage;
+      }
+    }
+
+    const reasoningSummary = reasoningSnippets.length > 0 ? reasoningSnippets.join(' ') : undefined;
+    return { answer, events: [], usedFullContent, contextText: activeContext, responseId, reasoningSummary };
   }
 
   emit?.('status', { stage });
@@ -852,7 +1046,10 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
             summaryTokens: undefined,
             source: 'direct' as const,
             retrievalMode: 'direct' as const,
-            escalated: false
+            strategy: 'direct' as const,
+            escalated: false,
+            adaptiveStats: undefined,
+            diagnostics: undefined
           };
         }
 
@@ -891,7 +1088,16 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const scoreValues = dispatch.references
     .map((ref) => ref.score)
     .filter((score): score is number => typeof score === 'number');
-  const attemptedMode: 'direct' | 'lazy' | 'fallback_vector' = dispatch.retrievalMode === 'lazy' ? 'lazy' : dispatch.source;
+  const attemptedMode: 'direct' | 'lazy' | 'fallback_vector' | 'knowledge_agent' =
+    dispatch.retrievalMode === 'lazy'
+      ? 'lazy'
+      : dispatch.strategy === 'knowledge_agent' || dispatch.strategy === 'hybrid'
+      ? 'knowledge_agent'
+      : dispatch.source === 'knowledge_agent'
+      ? 'knowledge_agent'
+      : dispatch.source === 'fallback_vector'
+      ? 'fallback_vector'
+      : 'direct';
   const retrievalDiagnostics: RetrievalDiagnostics = {
     attempted: attemptedMode,
     succeeded: dispatch.references.length > 0,
@@ -900,12 +1106,25 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     meanScore: average(scoreValues),
     minScore: min(scoreValues),
     maxScore: max(scoreValues),
-    thresholdUsed: config.RERANKER_THRESHOLD,
+    thresholdUsed: dispatch.retrievalThresholdUsed ?? config.RERANKER_THRESHOLD,
     fallbackReason: dispatch.source === 'fallback_vector' ? 'direct_search_fallback' : undefined,
     escalated: dispatch.escalated,
     mode: dispatch.retrievalMode,
-    summaryTokens: dispatch.summaryTokens
+    summaryTokens: dispatch.summaryTokens,
+    strategy: dispatch.strategy
   };
+  if (dispatch.diagnostics?.correlationId) {
+    retrievalDiagnostics.correlationId = dispatch.diagnostics.correlationId;
+  }
+  if (dispatch.diagnostics?.knowledgeAgent) {
+    retrievalDiagnostics.knowledgeAgent = dispatch.diagnostics.knowledgeAgent;
+  }
+  if (typeof dispatch.diagnostics?.fallbackAttempts === 'number') {
+    retrievalDiagnostics.fallbackAttempts = dispatch.diagnostics.fallbackAttempts;
+  }
+  if (dispatch.retrievalThresholdHistory && dispatch.retrievalThresholdHistory.length > 0) {
+    retrievalDiagnostics.thresholdHistory = dispatch.retrievalThresholdHistory;
+  }
 
   const highlightedDocuments = dispatch.references.filter((ref) => {
     if (!ref.highlights) {
@@ -918,8 +1137,18 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     retrievalDiagnostics.highlightedDocuments = highlightedDocuments;
   }
 
+  if (
+    (dispatch.strategy === 'knowledge_agent' || dispatch.strategy === 'hybrid') &&
+    dispatch.source !== 'knowledge_agent' &&
+    retrievalDiagnostics.fallbackReason === undefined
+  ) {
+    retrievalDiagnostics.fallbackReason = 'knowledge_agent_fallback';
+  }
   if (dispatch.references.length < config.RETRIEVAL_MIN_DOCS) {
-    retrievalDiagnostics.fallbackReason = retrievalDiagnostics.fallbackReason ?? 'insufficient_documents';
+    const isKnowledgeAgentMode = dispatch.retrievalMode === 'knowledge_agent';
+    if (!isKnowledgeAgentMode && retrievalDiagnostics.fallbackReason !== 'knowledge_agent_fallback') {
+      retrievalDiagnostics.fallbackReason = retrievalDiagnostics.fallbackReason ?? 'insufficient_documents';
+    }
   }
 
   const combinedSegments = [dispatch.contextText, dispatch.webContextText];
@@ -971,7 +1200,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
           lazyReferenceState,
           previousResponseId,
           options.sessionId,
-          intent
+          intent,
+          combinedCitations
         )
       );
       answer = answerResult.answer;
@@ -1086,7 +1316,8 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         lazyReferenceState,
         previousResponseId,
         options.sessionId,
-        intent
+        intent,
+        combinedCitations
       )
     );
     answer = answerResult.answer;
@@ -1194,8 +1425,10 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     contextBudget,
     critic,
     retrieval: retrievalDiagnostics,
+    diagnostics: dispatch.diagnostics,
     route: routeMetadata,
     retrievalMode: dispatch.retrievalMode,
+    retrievalStrategy: dispatch.strategy,
     lazySummaryTokens: dispatch.summaryTokens,
     adaptiveRetrieval: dispatch.adaptiveStats,
     semanticMemory: semanticMemorySummary,
@@ -1203,6 +1436,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     summarySelection: summaryStats,
     webContext: webContextSummary,
     evaluation,
+    knowledgeAgentGrounding: dispatch.knowledgeAgentGrounding,
+    rerankerThresholdUsed: dispatch.retrievalThresholdUsed,
+    rerankerThresholdHistory: dispatch.retrievalThresholdHistory,
     responses: responseHistory
   } as const;
 
@@ -1228,11 +1464,15 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       retrieval_mode: telemetrySnapshot.retrievalMode,
       lazy_summary_tokens: telemetrySnapshot.lazySummaryTokens,
       retrieval: telemetrySnapshot.retrieval,
+      diagnostics: telemetrySnapshot.diagnostics,
       responses: telemetrySnapshot.responses,
       adaptive_retrieval: telemetrySnapshot.adaptiveRetrieval,
       semantic_memory: telemetrySnapshot.semanticMemory,
       query_decomposition: telemetrySnapshot.queryDecomposition,
       web_context: telemetrySnapshot.webContext,
+      knowledge_agent_grounding: telemetrySnapshot.knowledgeAgentGrounding,
+      reranker_threshold_used: telemetrySnapshot.rerankerThresholdUsed,
+      reranker_threshold_history: telemetrySnapshot.rerankerThresholdHistory,
       critique_history: critiqueHistory.map((entry) => ({
         attempt: entry.attempt,
         coverage: entry.coverage,
@@ -1278,6 +1518,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     queryDecomposition: queryDecompositionSummary,
     events: [],
     evaluation,
+    rerankerThresholdUsed: dispatch.retrievalThresholdUsed,
+    rerankerThresholdHistory: dispatch.retrievalThresholdHistory,
+    knowledgeAgentGrounding: dispatch.knowledgeAgentGrounding,
     error: undefined
   };
   if (webContextSummary) {

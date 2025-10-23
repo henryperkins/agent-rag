@@ -71,7 +71,7 @@ export const CRAGEvaluationSchema = {
               items: { type: 'string' }
             }
           },
-          required: ['documentIndex', 'score', 'relevantSentences']
+          required: ['documentIndex', 'score']
         }
       }
     },

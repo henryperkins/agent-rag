@@ -16,6 +16,8 @@ export type {
   AgenticRetrievalResponse,
   TraceEvent,
   RetrievalDiagnostics,
+  AgenticRetrievalDiagnostics,
+  KnowledgeAgentDiagnostic,
   SessionTrace,
   SessionEvaluation,
   OrchestratorTools,

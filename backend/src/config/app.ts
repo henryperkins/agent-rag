@@ -23,6 +23,12 @@ const envSchema = z.object({
   AZURE_SEARCH_INDEX_NAME: z.string().default('earth_at_night'),
   AZURE_SEARCH_API_KEY: z.string().optional(),
   AZURE_KNOWLEDGE_AGENT_NAME: z.string().default('earth-knowledge-agent'),
+  RETRIEVAL_STRATEGY: z.enum(['direct', 'knowledge_agent', 'hybrid']).default('direct'),
+  KNOWLEDGE_AGENT_INCLUDE_ACTIVITY: z.coerce.boolean().default(true),
+  KNOWLEDGE_AGENT_INCLUDE_REFERENCES: z.coerce.boolean().default(true),
+  KNOWLEDGE_AGENT_INCLUDE_SOURCE_DATA: z.coerce.boolean().default(true),
+  KNOWLEDGE_AGENT_ATTEMPT_FAST_PATH: z.coerce.boolean().default(false),
+  KNOWLEDGE_AGENT_TOP_K: z.coerce.number().default(5),
 
   AZURE_OPENAI_ENDPOINT: z.string().url(),
   // v1 path segment is required for Responses API; coerce any value to 'v1'
@@ -99,7 +105,8 @@ const envSchema = z.object({
   MAX_TOKENS_FACTUAL: z.coerce.number().default(3000), // Increased from 600
   MAX_TOKENS_CONVERSATIONAL: z.coerce.number().default(1500), // Increased from 400
   REASONING_DEFAULT_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
-  REASONING_DEFAULT_SUMMARY: z.enum(['none', 'auto', 'concise', 'detailed']).default('auto'),
+  // GPT-5 only supports 'detailed' for reasoning.summary - do not use 'auto' or 'concise'
+  REASONING_DEFAULT_SUMMARY: z.enum(['none', 'auto', 'concise', 'detailed']).default('detailed'),
   REASONING_INTENT_EFFORT: z.enum(['low', 'medium', 'high']).optional(),
   REASONING_INTENT_SUMMARY: z.enum(['none', 'auto', 'concise', 'detailed']).optional(),
   REASONING_PLANNER_EFFORT: z.enum(['low', 'medium', 'high']).optional(),

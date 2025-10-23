@@ -292,8 +292,8 @@ export async function createKnowledgeAgent(): Promise<void> {
     knowledgeSources: [
       {
         name: knowledgeSourceName,
-        includeReferences: true,
-        includeReferenceSourceData: true,
+        includeReferences: config.KNOWLEDGE_AGENT_INCLUDE_REFERENCES,
+        includeReferenceSourceData: config.KNOWLEDGE_AGENT_INCLUDE_SOURCE_DATA,
         // Finer-grained source-level controls per audit recommendations
         maxSubQueries: 3,
         alwaysQuerySource: false
@@ -301,7 +301,8 @@ export async function createKnowledgeAgent(): Promise<void> {
     ],
     outputConfiguration: {
       modality: 'answerSynthesis',
-      includeActivity: true
+      includeActivity: config.KNOWLEDGE_AGENT_INCLUDE_ACTIVITY,
+      attemptFastPath: config.KNOWLEDGE_AGENT_ATTEMPT_FAST_PATH
     },
     requestLimits: {
       maxRuntimeInSeconds: 45

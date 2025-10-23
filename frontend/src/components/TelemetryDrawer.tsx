@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
+  ActivityStep,
+  AgenticRetrievalDiagnostics,
   CriticReport,
   FeatureSelectionMetadata,
+  RetrievalDiagnostics,
   RouteMetadata,
   SessionEvaluation,
   SummarySelectionStats,
@@ -15,6 +18,7 @@ export enum TelemetryTab {
   Plan = 'plan',
   Context = 'context',
   Critique = 'critique',
+  Insights = 'insights',
   Features = 'features',
   Trace = 'trace'
 }
@@ -31,6 +35,8 @@ export interface TelemetryDataBundle {
   features?: FeatureSelectionMetadata;
   evaluation?: SessionEvaluation;
   responses?: Array<{ attempt: number; responseId?: string }>;
+  retrieval?: RetrievalDiagnostics;
+  diagnostics?: AgenticRetrievalDiagnostics;
   traceId?: string;
   trace?: Record<string, unknown>;
   webContext?: {
@@ -39,6 +45,7 @@ export interface TelemetryDataBundle {
     trimmed?: boolean;
     results?: Array<{ id?: string; title?: string; url?: string; rank?: number }>;
   };
+  insights?: ActivityStep[];
 }
 
 interface TelemetryDrawerProps {
@@ -167,6 +174,68 @@ export function TelemetryDrawer({ open, onClose, data }: TelemetryDrawerProps) {
                 )}
               </div>
             )}
+            {(data?.diagnostics || data?.retrieval) && (
+              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                <h4 style={{ margin: '8px 0 0' }}>Retrieval Diagnostics</h4>
+                {data.diagnostics?.correlationId && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontFamily: 'monospace', fontSize: 12 }}>
+                    <span>Correlation ID:</span>
+                    <code style={{ flex: 1, padding: '4px 8px', background: 'var(--bg-secondary)', borderRadius: 4 }}>
+                      {data.diagnostics.correlationId}
+                    </code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(data.diagnostics?.correlationId ?? '')}
+                      style={{ padding: '4px 8px', fontSize: 11 }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                )}
+                {typeof data.diagnostics?.fallbackAttempts === 'number' && (
+                  <div style={{ fontSize: 12 }}>
+                    Fallback Attempts: <strong>{data.diagnostics.fallbackAttempts}</strong>
+                  </div>
+                )}
+                {data.diagnostics?.knowledgeAgent && (
+                  <div style={{ display: 'grid', gap: 6, padding: 12, background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                    <h5 style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>Knowledge Agent</h5>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11 }}>
+                      <span className={`badge ${data.diagnostics.knowledgeAgent.attempted ? 'badge-success' : 'badge-neutral'}`}>
+                        {data.diagnostics.knowledgeAgent.attempted ? '✓ Attempted' : '○ Not Attempted'}
+                      </span>
+                      {data.diagnostics.knowledgeAgent.fallbackTriggered && (
+                        <span className="badge badge-warning">⚠ Fallback Triggered</span>
+                      )}
+                    </div>
+                    {data.diagnostics.knowledgeAgent.requestId && (
+                      <div style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                        <span style={{ opacity: 0.7 }}>Request ID:</span> {data.diagnostics.knowledgeAgent.requestId}
+                      </div>
+                    )}
+                    {data.diagnostics.knowledgeAgent.correlationId && (
+                      <div style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                        <span style={{ opacity: 0.7 }}>Correlation ID:</span> {data.diagnostics.knowledgeAgent.correlationId}
+                      </div>
+                    )}
+                    {data.diagnostics.knowledgeAgent.statusCode && (
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ opacity: 0.7 }}>Status Code:</span> <strong>{data.diagnostics.knowledgeAgent.statusCode}</strong>
+                      </div>
+                    )}
+                    {data.diagnostics.knowledgeAgent.failurePhase && (
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ opacity: 0.7 }}>Failure Phase:</span> <strong>{data.diagnostics.knowledgeAgent.failurePhase}</strong>
+                      </div>
+                    )}
+                    {data.diagnostics.knowledgeAgent.errorMessage && (
+                      <div style={{ fontSize: 11, color: 'var(--text-error)', marginTop: 4 }}>
+                        {data.diagnostics.knowledgeAgent.errorMessage}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {data?.plan && (
               <div style={{ display: 'grid', gap: 8 }}>
                 <h4 style={{ margin: '8px 0 0' }}>Steps</h4>
@@ -228,6 +297,35 @@ export function TelemetryDrawer({ open, onClose, data }: TelemetryDrawerProps) {
                 </details>
               )}
             </div>
+          </div>
+        )}
+
+        {tab === TelemetryTab.Insights && (
+          <div className="telemetry-panel">
+            {data?.insights?.length ? (
+              <ul className="insight-log">
+                {data.insights.map((insight, idx) => {
+                  const description = insight.description ?? '';
+                  const match = description.match(/^\[(.*?)\]\s*(.*)$/);
+                  const stage = match?.[1] ?? insight.type ?? 'insight';
+                  const text = match?.[2] ?? description;
+                  return (
+                    <li key={`${stage}-${idx}`} className="insight-log-item">
+                      <div className="insight-log-header">
+                        <span className="insight-log-icon" aria-hidden>💭</span>
+                        <span className="insight-log-stage">{stage}</span>
+                        {insight.timestamp && (
+                          <span className="insight-log-time">{new Date(insight.timestamp).toLocaleTimeString()}</span>
+                        )}
+                      </div>
+                      <p className="insight-log-text">{text}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="sidebar-empty">No reasoning summaries captured.</p>
+            )}
           </div>
         )}
 

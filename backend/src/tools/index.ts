@@ -1,22 +1,89 @@
+import { randomUUID } from 'node:crypto';
 import { withRetry } from '../utils/resilience.js';
 import { hybridSemanticSearch, vectorSearch, isRestrictiveFilter } from '../azure/directSearch.js';
 import { federatedSearch } from '../azure/multiIndexSearch.js';
 import { lazyHybridSearch } from '../azure/lazyRetrieval.js';
+import { invokeKnowledgeAgent } from '../azure/knowledgeAgent.js';
 import { retrieveWithAdaptiveRefinement } from '../azure/adaptiveRetrieval.js';
 import { webSearchTool } from './webSearch.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
 import { getReasoningOptions } from '../config/reasoning.js';
+import { shouldUseFastPath } from '../orchestrator/fastPath.js';
 import type {
   ActivityStep,
   AdaptiveRetrievalStats,
   Reference,
   LazyReference,
   FeatureOverrideMap,
-  AgenticRetrievalResponse
+  AgenticRetrievalResponse,
+  AgentMessage,
+  KnowledgeAgentGroundingSummary
 } from '../../../shared/types.js';
 import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 import { sanitizeUserField } from '../utils/session.js';
+import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
+import { validateCitationIntegrity } from '../utils/citation-validator.js';
+
+function buildKnowledgeAgentActivityHistory(
+  messages: AgentMessage[] | undefined,
+  query: string
+): Array<{ role: string; content: string }> {
+  const history: Array<{ role: string; content: string }> = Array.isArray(messages)
+    ? messages
+        .map((message) => ({
+          role: message.role,
+          content: (message.content ?? '').toString()
+        }))
+        .filter((entry) => entry.content && entry.content.trim().length > 0)
+    : [];
+
+  const trimmedQuery = query.trim();
+  if (
+    trimmedQuery.length > 0 &&
+    (history.length === 0 ||
+      history[history.length - 1].role !== 'user' ||
+      history[history.length - 1].content.trim() !== trimmedQuery)
+  ) {
+    history.push({ role: 'user', content: trimmedQuery });
+  }
+
+  // Keep only the most recent 30 turns to avoid oversized payloads
+  const MAX_MESSAGES = 30;
+  if (history.length > MAX_MESSAGES) {
+    return history.slice(history.length - MAX_MESSAGES);
+  }
+  return history;
+}
+
+function mergeKnowledgeAgentReferences(
+  knowledgeRefs: Reference[],
+  directRefs: Reference[],
+  limit: number
+): Reference[] {
+  if (!knowledgeRefs.length) {
+    return directRefs.slice(0, limit);
+  }
+
+  const combined: Reference[] = [];
+  const seen = new Set<string>();
+
+  const push = (ref: Reference) => {
+    const key =
+      ref.id ??
+      `${ref.url ?? ''}|${ref.page_number ?? ''}|${(ref.content ?? '').slice(0, 64)}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    combined.push(ref);
+  };
+
+  knowledgeRefs.forEach(push);
+  directRefs.forEach(push);
+
+  return combined.slice(0, limit);
+}
 
 export const toolSchemas = {
   retrieve: {
@@ -74,59 +141,110 @@ export const toolSchemas = {
 };
 
 /**
- * Direct Azure AI Search retrieval tool
+ * Retrieval tool that supports Azure Knowledge Agent and direct index search.
  *
- * IMPORTANT: This performs DIRECT INDEX SEARCH using hybrid semantic search.
- * It does NOT use Azure Knowledge Agent endpoints or pass conversational context.
- *
- * For knowledge-agent retrieval with full chat history, a separate implementation
- * would be needed that:
- * 1. Builds an "activity" array from role-tagged conversation messages
- * 2. Calls the knowledge agent endpoint with the activity array
- * 3. Targets a specific knowledge source/namespace
- *
- * Uses hybrid semantic search with full control over query parameters.
+ * When `config.RETRIEVAL_STRATEGY` is set to `knowledge_agent` or `hybrid`
+ * and conversational messages are provided, the tool will attempt to invoke
+ * the Azure Knowledge Agent endpoint with full chat history before falling
+ * back to direct index search (hybrid semantic + vector).
  */
 export async function retrieveTool(args: {
   query: string;
   filter?: string;
   top?: number;
+  messages?: AgentMessage[];
   features?: FeatureOverrideMap;
 }) {
-  const { query, filter, top, features } = args;
+  const { query, filter, top, messages, features } = args;
   const enableFederation =
     (features?.ENABLE_MULTI_INDEX_FEDERATION ?? config.ENABLE_MULTI_INDEX_FEDERATION) === true;
 
   const minDocs = config.RETRIEVAL_MIN_DOCS;
   let fallbackAttempts = 0;
   let fallbackTriggered = false;
+  const correlationId = randomUUID();
+  let knowledgeAgentFailurePhase: 'invocation' | 'zero_results' | 'partial_results' | undefined;
+  let knowledgeAgentStatusCode: number | undefined;
+  let knowledgeAgentErrorMessage: string | undefined;
+  let knowledgeAgentRequestId: string | undefined;
+  let knowledgeAgentCorrelationId = correlationId;
+  let knowledgeAgentAttempted = false;
+  let knowledgeAgentGrounding: KnowledgeAgentGroundingSummary | undefined;
+  let thresholdUsed = config.RERANKER_THRESHOLD;
+  const thresholdHistory: number[] = [];
+  const recordThreshold = (value: number) => {
+    thresholdHistory.push(value);
+    thresholdUsed = value;
+  };
 
   const baseTop = top || config.RAG_TOP_K;
   const searchFields = ['page_chunk'];
   const selectFields = ['id', 'page_chunk', 'page_number'];
+  const retrievalStrategy = config.RETRIEVAL_STRATEGY;
+  const knowledgeAgentPreferred =
+    (retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid') &&
+    Array.isArray(messages) &&
+    messages.length > 0;
 
   const withTimestamp = (step: ActivityStep): ActivityStep => ({
     ...step,
     timestamp: new Date().toISOString()
   });
 
+  const buildDiagnostics = (): AgenticRetrievalResponse['diagnostics'] => {
+    const diagnostics: AgenticRetrievalResponse['diagnostics'] = {
+      correlationId,
+      fallbackAttempts
+    };
+    if (knowledgeAgentAttempted) {
+      diagnostics.knowledgeAgent = {
+        correlationId: knowledgeAgentCorrelationId,
+        attempted: true,
+        fallbackTriggered,
+        requestId: knowledgeAgentRequestId,
+        statusCode: knowledgeAgentStatusCode,
+        errorMessage: knowledgeAgentErrorMessage,
+        failurePhase: knowledgeAgentFailurePhase
+      };
+      if (knowledgeAgentGrounding) {
+        diagnostics.knowledgeAgent.grounding = knowledgeAgentGrounding;
+      }
+    }
+    return diagnostics;
+  };
+
   const finalize = (
     references: Reference[],
     activity: ActivityStep[],
     extras: Partial<AgenticRetrievalResponse> = {}
-  ): AgenticRetrievalResponse => ({
-    response: '',
-    references,
-    activity,
-    fallbackAttempts,
-    minDocumentsRequired: minDocs,
-    fallbackTriggered,
-    ...extras
-  });
+  ): AgenticRetrievalResponse => {
+    const response: AgenticRetrievalResponse = {
+      response: '',
+      references,
+      activity,
+      fallbackAttempts,
+      minDocumentsRequired: minDocs,
+      fallbackTriggered,
+      diagnostics: extras.diagnostics ?? buildDiagnostics(),
+      ...extras
+    };
+
+    if (knowledgeAgentGrounding && response.knowledgeAgentGrounding === undefined) {
+      response.knowledgeAgentGrounding = knowledgeAgentGrounding;
+    }
+    if (response.thresholdUsed === undefined) {
+      response.thresholdUsed = thresholdUsed;
+    }
+    if (!response.thresholdHistory) {
+      response.thresholdHistory = thresholdHistory.slice();
+    }
+
+    return response;
+  };
 
   const runFallbackPipeline = async (
     existingActivity: ActivityStep[]
-  ): Promise<{ references: Reference[]; activity: ActivityStep[] }> => {
+  ): Promise<{ references: Reference[]; activity: ActivityStep[]; threshold: number }> => {
     fallbackTriggered = true;
     const activity = [...existingActivity];
 
@@ -137,16 +255,22 @@ export async function retrieveTool(args: {
       filter,
       rerankerThreshold: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
       searchFields,
-      selectFields
+      selectFields,
+      correlationId
     });
+    recordThreshold(config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD);
     activity.push(
       withTimestamp({
         type: 'fallback_search',
-        description: `Hybrid semantic fallback returned ${fallbackResult.references.length} result(s) (threshold: ${config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD}).`
+        description: `[correlation=${correlationId}] Hybrid semantic fallback returned ${fallbackResult.references.length} result(s) (threshold: ${config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD}).`
       })
     );
     if (fallbackResult.references.length >= minDocs) {
-      return { references: fallbackResult.references.slice(0, baseTop), activity };
+      return {
+        references: fallbackResult.references.slice(0, baseTop),
+        activity,
+        threshold: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD
+      };
     }
 
     // Stage 2: relax threshold and expand top-k
@@ -157,16 +281,22 @@ export async function retrieveTool(args: {
       filter,
       rerankerThreshold: 0,
       searchFields,
-      selectFields
+      selectFields,
+      correlationId
     });
+    recordThreshold(0);
     activity.push(
       withTimestamp({
         type: 'fallback_search',
-        description: `Hybrid semantic fallback (threshold 0, top=${expandedTop}) returned ${relaxedResult.references.length} result(s).`
+        description: `[correlation=${correlationId}] Hybrid semantic fallback (threshold 0, top=${expandedTop}) returned ${relaxedResult.references.length} result(s).`
       })
     );
     if (relaxedResult.references.length >= minDocs) {
-      return { references: relaxedResult.references.slice(0, baseTop), activity };
+      return {
+        references: relaxedResult.references.slice(0, baseTop),
+        activity,
+        threshold: 0
+      };
     }
 
     // Stage 3: pure vector fallback
@@ -175,17 +305,193 @@ export async function retrieveTool(args: {
       top: baseTop,
       filter
     });
+    recordThreshold(0);
     activity.push(
       withTimestamp({
         type: 'fallback_search',
-        description: `Vector-only fallback returned ${vectorResult.references.length} result(s).`
+        description: `[correlation=${correlationId}] Vector-only fallback returned ${vectorResult.references.length} result(s).`
       })
     );
-    return { references: vectorResult.references, activity };
+    return { references: vectorResult.references, activity, threshold: 0 };
   };
 
   try {
     return await withRetry('direct-search', async (_signal) => {
+      knowledgeAgentGrounding = undefined;
+      let knowledgeAgentReferences: Reference[] = [];
+      const knowledgeAgentActivity: ActivityStep[] = [];
+      let knowledgeAgentAnswer: string | undefined;
+
+      if (knowledgeAgentPreferred) {
+        const activityHistory = buildKnowledgeAgentActivityHistory(messages, query);
+        if (activityHistory.length) {
+          knowledgeAgentAttempted = true;
+          try {
+            // Detect if query is simple enough for fast path (bypass LLM query planning)
+            const useFastPath = shouldUseFastPath(query);
+
+            const agentResult = await invokeKnowledgeAgent({
+              activity: activityHistory,
+              top: baseTop,
+              filter,
+              attemptFastPath: useFastPath,
+              correlationId
+            });
+
+            knowledgeAgentGrounding = agentResult.grounding;
+            knowledgeAgentCorrelationId = agentResult.correlationId ?? correlationId;
+            knowledgeAgentRequestId = agentResult.requestId ?? knowledgeAgentRequestId;
+
+            if (Array.isArray(agentResult.activity) && agentResult.activity.length) {
+              knowledgeAgentActivity.push(...agentResult.activity);
+            }
+
+            if (knowledgeAgentGrounding) {
+              const mappedCount = Object.keys(knowledgeAgentGrounding.mapping ?? {}).length;
+              const unmatchedCount = knowledgeAgentGrounding.unmatched.length;
+              knowledgeAgentActivity.push(
+                withTimestamp({
+                  type: 'knowledge_agent_grounding',
+                  description: `Unified grounding mapped ${mappedCount} id(s); unmatched ${unmatchedCount}.`
+                })
+              );
+            }
+
+            knowledgeAgentReferences = (agentResult.references ?? []).slice(
+              0,
+              Math.max(baseTop * 2, baseTop)
+            );
+            knowledgeAgentAnswer = agentResult.answer;
+            knowledgeAgentFailurePhase = undefined;
+            knowledgeAgentStatusCode = undefined;
+            knowledgeAgentErrorMessage = undefined;
+
+            if (knowledgeAgentReferences.some((ref) => typeof ref.score === 'number')) {
+              const enforcement = enforceRerankerThreshold(
+                knowledgeAgentReferences,
+                config.RERANKER_THRESHOLD,
+                {
+                  correlationId: knowledgeAgentCorrelationId,
+                  source: 'knowledge_agent'
+                }
+              );
+              knowledgeAgentReferences = enforcement.references;
+            }
+            recordThreshold(config.RERANKER_THRESHOLD);
+
+            const summaryDescription = `Knowledge agent returned ${knowledgeAgentReferences.length} result(s). [correlation=${knowledgeAgentCorrelationId}]`;
+            knowledgeAgentActivity.push(
+              withTimestamp({
+                type: 'knowledge_agent_search',
+                description: summaryDescription
+              })
+            );
+
+            if (knowledgeAgentReferences.length >= minDocs) {
+              console.info(
+                JSON.stringify({
+                  event: 'knowledge_agent.success',
+                  correlationId: knowledgeAgentCorrelationId,
+                  requestId: knowledgeAgentRequestId,
+                  documents: knowledgeAgentReferences.length,
+                  minDocs
+                })
+              );
+              const successExtras: Partial<AgenticRetrievalResponse> = {
+                response: knowledgeAgentAnswer ?? '',
+                mode: 'knowledge_agent',
+                strategy: retrievalStrategy,
+                knowledgeAgentAnswer
+              };
+              if (knowledgeAgentGrounding) {
+                successExtras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+              }
+              return finalize(knowledgeAgentReferences.slice(0, baseTop), knowledgeAgentActivity, successExtras);
+            }
+
+            fallbackTriggered = true;
+            if (!knowledgeAgentReferences.length) {
+              knowledgeAgentFailurePhase = 'zero_results';
+              const description = `Knowledge agent returned 0 result(s); falling back to direct search. [correlation=${knowledgeAgentCorrelationId}]`;
+              knowledgeAgentActivity.push(
+                withTimestamp({
+                  type: 'knowledge_agent_fallback',
+                  description
+                })
+              );
+              console.warn(
+                JSON.stringify({
+                  event: 'knowledge_agent.fallback',
+                  correlationId: knowledgeAgentCorrelationId,
+                  requestId: knowledgeAgentRequestId,
+                  reason: 'zero_results',
+                  minDocs,
+                  returned: 0
+                })
+              );
+            } else {
+              knowledgeAgentFailurePhase = 'partial_results';
+              const description = `Knowledge agent returned ${knowledgeAgentReferences.length} result(s); supplementing with direct search. [correlation=${knowledgeAgentCorrelationId}]`;
+              knowledgeAgentActivity.push(
+                withTimestamp({
+                  type: 'knowledge_agent_partial',
+                  description
+                })
+              );
+              console.warn(
+                JSON.stringify({
+                  event: 'knowledge_agent.fallback',
+                  correlationId: knowledgeAgentCorrelationId,
+                  requestId: knowledgeAgentRequestId,
+                  reason: 'insufficient_results',
+                  minDocs,
+                  returned: knowledgeAgentReferences.length
+                })
+              );
+            }
+          } catch (agentError) {
+            fallbackTriggered = true;
+            knowledgeAgentFailurePhase = 'invocation';
+            const errorCorrelation = (agentError as { correlationId?: string }).correlationId;
+            if (errorCorrelation) {
+              knowledgeAgentCorrelationId = errorCorrelation;
+            }
+            knowledgeAgentStatusCode =
+              typeof (agentError as { status?: number }).status === 'number'
+                ? (agentError as { status: number }).status
+                : typeof (agentError as { statusCode?: number }).statusCode === 'number'
+                ? (agentError as { statusCode: number }).statusCode
+                : undefined;
+            knowledgeAgentErrorMessage =
+              agentError instanceof Error ? agentError.message : String(agentError);
+            knowledgeAgentRequestId =
+              (agentError as { requestId?: string }).requestId ?? knowledgeAgentRequestId;
+            const errorDescription = `Knowledge agent failed [correlation=${knowledgeAgentCorrelationId}${
+              knowledgeAgentStatusCode ? ` status=${knowledgeAgentStatusCode}` : ''
+            }]: ${knowledgeAgentErrorMessage ?? 'Unknown error'}`;
+
+            knowledgeAgentActivity.push(
+              withTimestamp({
+                type: 'knowledge_agent_error',
+                description: errorDescription
+              })
+            );
+
+            console.error(
+              JSON.stringify({
+                event: 'knowledge_agent.failure',
+                correlationId: knowledgeAgentCorrelationId,
+                requestId: knowledgeAgentRequestId,
+                statusCode: knowledgeAgentStatusCode,
+                message: knowledgeAgentErrorMessage,
+                fallbackTriggered: true,
+                activityHistoryLength: activityHistory.length
+              })
+            );
+          }
+        }
+      }
+
       if (enableFederation) {
         try {
           const federated = await federatedSearch(query, {
@@ -193,19 +499,26 @@ export async function retrieveTool(args: {
             filter
           });
 
-          if (federated.references.length) {
-            const federatedActivity: ActivityStep[] = [
-              withTimestamp({
-                type: 'federated_search',
-                description: `Federated search returned ${federated.references.length} result(s).`
-              })
-            ];
-            return finalize(federated.references, federatedActivity);
-          }
-        } catch (federationError) {
-          console.warn('Federated search failed, falling back to single-index retrieval:', federationError);
+        if (federated.references.length) {
+          const federatedActivity: ActivityStep[] = [
+            withTimestamp({
+              type: 'federated_search',
+              description: `Federated search returned ${federated.references.length} result(s).`
+            })
+          ];
+          return finalize(federated.references, federatedActivity);
         }
+      } catch (federationError) {
+        console.warn(
+          JSON.stringify({
+            event: 'federated_search.failure',
+            correlationId,
+            message: federationError instanceof Error ? federationError.message : String(federationError),
+            stack: federationError instanceof Error ? federationError.stack : undefined
+          })
+        );
       }
+    }
 
       const enableAdaptive =
         (features?.ENABLE_ADAPTIVE_RETRIEVAL ?? config.ENABLE_ADAPTIVE_RETRIEVAL) === true;
@@ -222,6 +535,14 @@ export async function retrieveTool(args: {
           1,
           config.ADAPTIVE_MAX_ATTEMPTS
         );
+
+        if (knowledgeAgentReferences.length) {
+          adaptiveResult.references = mergeKnowledgeAgentReferences(
+            knowledgeAgentReferences,
+            adaptiveResult.references ?? [],
+            baseTop
+          );
+        }
 
         const attempts = adaptiveResult.attempts ?? [];
         const initial = adaptiveResult.initialQuality ?? adaptiveResult.quality;
@@ -262,6 +583,7 @@ export async function retrieveTool(args: {
         };
 
         const adaptiveActivity: ActivityStep[] = [
+          ...knowledgeAgentActivity,
           withTimestamp({
             type: 'adaptive_search',
             description: `Adaptive retrieval returned ${adaptiveResult.references.length} result(s) (coverage=${adaptiveResult.quality.coverage.toFixed(
@@ -280,15 +602,39 @@ export async function retrieveTool(args: {
         }
 
         if (adaptiveResult.references.length >= minDocs) {
-          return finalize(adaptiveResult.references, adaptiveActivity, {
-            adaptiveStats
-          });
+          const extras: Partial<AgenticRetrievalResponse> = { adaptiveStats };
+          if (knowledgeAgentGrounding) {
+            extras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+          }
+          if (knowledgeAgentAttempted) {
+            extras.strategy = retrievalStrategy;
+            if (knowledgeAgentAnswer) {
+              extras.knowledgeAgentAnswer = knowledgeAgentAnswer;
+            }
+          }
+          return finalize(adaptiveResult.references.slice(0, baseTop), adaptiveActivity, extras);
         }
 
         const fallbackOutcome = await runFallbackPipeline(adaptiveActivity);
-        return finalize(fallbackOutcome.references, fallbackOutcome.activity, {
-          adaptiveStats
-        });
+        const mergedFallback = knowledgeAgentReferences.length
+          ? mergeKnowledgeAgentReferences(
+              knowledgeAgentReferences,
+              fallbackOutcome.references,
+              baseTop
+            )
+          : fallbackOutcome.references.slice(0, baseTop);
+        const fallbackExtras: Partial<AgenticRetrievalResponse> = { adaptiveStats };
+        if (knowledgeAgentGrounding) {
+          fallbackExtras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+        }
+        if (knowledgeAgentAttempted) {
+          fallbackExtras.strategy = retrievalStrategy;
+          if (knowledgeAgentAnswer) {
+            fallbackExtras.knowledgeAgentAnswer = knowledgeAgentAnswer;
+          }
+        }
+        thresholdUsed = fallbackOutcome.threshold;
+        return finalize(mergedFallback, fallbackOutcome.activity, fallbackExtras);
       }
 
       const activity: ActivityStep[] = [];
@@ -304,10 +650,12 @@ export async function retrieveTool(args: {
       const result = await hybridSemanticSearch(query, {
         top: baseTop,
         filter,
-        rerankerThreshold: config.RERANKER_THRESHOLD,
-        searchFields,
-        selectFields
-      });
+      rerankerThreshold: config.RERANKER_THRESHOLD,
+      searchFields,
+      selectFields,
+      correlationId
+    });
+    recordThreshold(config.RERANKER_THRESHOLD);
 
       if (
         typeof result.coverage === 'number' &&
@@ -324,27 +672,71 @@ export async function retrieveTool(args: {
       }
 
       const primaryActivity: ActivityStep[] = [
+        ...knowledgeAgentActivity,
         withTimestamp({
           type: 'search',
-          description: `Hybrid semantic search returned ${result.references.length} result(s) (threshold: ${config.RERANKER_THRESHOLD}).`
+          description: `[correlation=${correlationId}] Hybrid semantic search returned ${result.references.length} result(s) (threshold: ${config.RERANKER_THRESHOLD}).`
         }),
         ...activity
       ];
 
+      if (knowledgeAgentReferences.length) {
+        result.references = mergeKnowledgeAgentReferences(
+          knowledgeAgentReferences,
+          result.references,
+          baseTop
+        );
+      }
+
       if (result.references.length >= minDocs) {
-        return finalize(result.references, primaryActivity);
+        const extras: Partial<AgenticRetrievalResponse> = {};
+        if (knowledgeAgentGrounding) {
+          extras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+        }
+        if (knowledgeAgentAttempted) {
+          extras.strategy = retrievalStrategy;
+          if (knowledgeAgentAnswer) {
+            extras.knowledgeAgentAnswer = knowledgeAgentAnswer;
+          }
+        }
+        return finalize(result.references, primaryActivity, extras);
       }
 
       console.log(
         `Insufficient results (${result.references.length}); attempting fallback retrieval pipeline.`
       );
       const fallbackOutcome = await runFallbackPipeline(primaryActivity);
-      return finalize(fallbackOutcome.references, fallbackOutcome.activity);
+      const mergedFallback = knowledgeAgentReferences.length
+        ? mergeKnowledgeAgentReferences(
+            knowledgeAgentReferences,
+            fallbackOutcome.references,
+            baseTop
+          )
+        : fallbackOutcome.references.slice(0, baseTop);
+      const extras: Partial<AgenticRetrievalResponse> = {};
+      if (knowledgeAgentGrounding) {
+        extras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+      }
+      if (knowledgeAgentAttempted) {
+        extras.strategy = retrievalStrategy;
+        if (knowledgeAgentAnswer) {
+          extras.knowledgeAgentAnswer = knowledgeAgentAnswer;
+        }
+      }
+      thresholdUsed = fallbackOutcome.threshold;
+      return finalize(mergedFallback, fallbackOutcome.activity, extras);
     });
   } catch (error) {
     fallbackTriggered = true;
     fallbackAttempts += 1;
-    console.warn('Hybrid semantic search failed, falling back to pure vector search:', error);
+    console.error(
+      JSON.stringify({
+        event: 'hybrid_search.failure',
+        correlationId,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      })
+    );
     const vectorResult = await vectorSearch(query, {
       top: baseTop,
       filter
@@ -352,9 +744,10 @@ export async function retrieveTool(args: {
     const fallbackActivity: ActivityStep[] = [
       withTimestamp({
         type: 'fallback_search',
-        description: `Vector-only fallback returned ${vectorResult.references.length} result(s).`
+        description: `[correlation=${correlationId}] Vector-only fallback returned ${vectorResult.references.length} result(s).`
       })
     ];
+    recordThreshold(0);
     return finalize(vectorResult.references, fallbackActivity);
   }
 }
@@ -464,9 +857,22 @@ export async function answerTool(args: {
 
   const responseId = (response as { id?: string } | undefined)?.id;
   const reasoningSummary = extractReasoningSummary(response);
+  if (config.NODE_ENV === 'development') {
+    console.debug('[DEBUG] Extracted reasoning summary:', {
+      found: !!reasoningSummary,
+      count: reasoningSummary?.length ?? 0,
+      summaries: reasoningSummary,
+      responseId,
+      responseKeys: response ? Object.keys(response) : []
+    });
+  }
   const hasCitations = Array.isArray(args.citations) && args.citations.length > 0;
-  if (hasCitations && !/\[\d+\]/.test(answer)) {
-    answer = 'I do not know. (No grounded citations available)';
+  if (hasCitations) {
+    if (!/\[\d+\]/.test(answer)) {
+      answer = 'I do not know. (No grounded citations available)';
+    } else if (!validateCitationIntegrity(answer, args.citations ?? [])) {
+      answer = 'I do not know. (Citation validation failed)';
+    }
   }
 
   const usage = (response as { usage?: unknown } | undefined)?.usage;

@@ -43,11 +43,12 @@ export interface SessionTelemetryRecord {
   };
   toolUsage?: {
     references?: number;
-  webResults?: number;
+    webResults?: number;
   };
   contextBudget?: Record<string, number>;
   citations?: Reference[];
   activity?: ActivityStep[];
+  insights?: ActivityStep[];
   critic?: CriticReport;
   answer?: string;
   metadata?: ChatResponse['metadata'];
@@ -409,6 +410,23 @@ function recordEvent(state: SessionTelemetryRecord, event: string, data: unknown
     case 'activity': {
       const steps = sanitizeActivitySteps((sanitized as any)?.steps);
       state.activity = steps ? clone(steps) : [];
+      if (steps && steps.length) {
+        const insightSteps = steps.filter((step) => step.type === 'insight');
+        if (insightSteps.length) {
+          const existing = state.insights ? [...state.insights] : [];
+          const seen = new Set(
+            existing.map((step) => `${step.type}:${step.timestamp ?? ''}:${step.description ?? ''}`)
+          );
+          for (const step of insightSteps) {
+            const key = `${step.type}:${step.timestamp ?? ''}:${step.description ?? ''}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              existing.push(clone(step));
+            }
+          }
+          state.insights = existing;
+        }
+      }
       break;
     }
     case 'critique': {
@@ -548,6 +566,12 @@ export function createSessionRecorder(options: {
         state.citations = clone(response.citations);
         const activity = sanitizeActivitySteps(response.activity);
         state.activity = activity ? clone(activity) : [];
+        if (activity && activity.length) {
+          const insights = activity.filter((step) => step.type === 'insight');
+          state.insights = insights.length ? clone(insights) : undefined;
+        } else {
+          state.insights = undefined;
+        }
         state.metadata = clone(response.metadata);
       if (response.metadata?.summary_selection) {
         state.summarySelection = clone(response.metadata.summary_selection);

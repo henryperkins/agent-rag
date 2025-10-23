@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { createResponse } from '../azure/openaiClient.js';
 import { extractOutputText, extractReasoningSummary } from '../utils/openai.js';
 import { CRAGEvaluationSchema } from './schemas.js';
@@ -27,6 +28,21 @@ export interface CRAGResult {
   activity: ActivityStep[];
   shouldTriggerWebSearch: boolean;
 }
+
+const CRAGEvaluationValidator = z.object({
+  confidence: z.enum(['correct', 'ambiguous', 'incorrect']),
+  action: z.enum(['use_documents', 'refine_documents', 'web_fallback']),
+  reasoning: z.string(),
+  relevanceScores: z
+    .array(
+      z.object({
+        documentIndex: z.number().int().min(0),
+        score: z.number().min(0).max(1),
+        relevantSentences: z.array(z.string()).optional()
+      })
+    )
+    .optional()
+});
 
 // ============================================================================
 // Core Evaluator
@@ -103,15 +119,35 @@ For each document, assign a relevance score (0-1) and optionally identify releva
     });
 
     const evaluationText = extractOutputText(response);
-    if (!evaluationText || typeof evaluationText !== 'string') {
-      throw new Error('Empty evaluation payload');
+    const normalizedEvaluationText = typeof evaluationText === 'string' ? evaluationText.trim() : '';
+    if (!normalizedEvaluationText) {
+      const status = response?.status ?? 'unknown';
+      const reason = response?.incomplete_details?.reason;
+      const errorMessage = response?.error?.message;
+      const detailSegments = [
+        status ? `status=${status}${reason ? `:${reason}` : ''}` : null,
+        errorMessage ? `error=${errorMessage}` : null
+      ].filter(Boolean);
+      const detailSuffix = detailSegments.length > 0 ? ` (${detailSegments.join(', ')})` : '';
+      throw new Error(`Empty evaluation payload${detailSuffix}`);
     }
 
     let evaluation: CRAGEvaluation;
     try {
-      evaluation = JSON.parse(evaluationText) as CRAGEvaluation;
+      const rawEvaluation = JSON.parse(normalizedEvaluationText);
+      const parsedEvaluation = CRAGEvaluationValidator.safeParse(rawEvaluation);
+      if (!parsedEvaluation.success) {
+        throw parsedEvaluation.error;
+      }
+      evaluation = parsedEvaluation.data as CRAGEvaluation;
     } catch (parseError: any) {
-      throw new Error(`Invalid evaluation JSON: ${parseError?.message ?? String(parseError)}`);
+      const message =
+        parseError instanceof Error
+          ? parseError.message
+          : typeof parseError === 'string'
+          ? parseError
+          : JSON.stringify(parseError);
+      throw new Error(`Invalid evaluation JSON: ${message}`);
     }
 
     // Only extract reasoning summaries if reasoning config is enabled
