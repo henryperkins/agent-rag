@@ -180,8 +180,8 @@ vi.mock('better-sqlite3', () => {
   return { default: MockDatabase };
 });
 
-vi.mock('../azure/directSearch.js', () => ({
-  generateEmbedding: vi.fn(async (text: string) => {
+vi.mock('../utils/embeddings.js', () => ({
+  embedText: vi.fn(async (text: string) => {
     const normalized = text.toLowerCase();
     return [
       normalized.length || 1,

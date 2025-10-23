@@ -260,29 +260,34 @@ export async function retrieveTool(args: {
   ): Promise<{ references: Reference[]; activity: ActivityStep[]; threshold: number }> => {
     fallbackTriggered = true;
     const activity = [...existingActivity];
+    const fallbackThreshold = config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD;
+    const thresholdFloor = Math.max(
+      Math.min(config.RETRIEVAL_MIN_RERANKER_THRESHOLD, fallbackThreshold),
+      0
+    );
 
     // Stage 1: lower reranker threshold
     fallbackAttempts += 1;
     const fallbackResult = await hybridSemanticSearch(query, {
       top: baseTop,
       filter,
-      rerankerThreshold: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
+      rerankerThreshold: fallbackThreshold,
       searchFields,
       selectFields,
       correlationId
     });
-    recordThreshold(config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD);
+    recordThreshold(fallbackThreshold);
     activity.push(
       withTimestamp({
         type: 'fallback_search',
-        description: `[correlation=${correlationId}] Hybrid semantic fallback returned ${fallbackResult.references.length} result(s) (threshold: ${config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD}).`
+        description: `[correlation=${correlationId}] Hybrid semantic fallback returned ${fallbackResult.references.length} result(s) (threshold: ${fallbackThreshold}).`
       })
     );
     if (fallbackResult.references.length >= minDocs) {
       return {
         references: fallbackResult.references.slice(0, baseTop),
         activity,
-        threshold: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD
+        threshold: fallbackThreshold
       };
     }
 
@@ -292,23 +297,23 @@ export async function retrieveTool(args: {
     const relaxedResult = await hybridSemanticSearch(query, {
       top: expandedTop,
       filter,
-      rerankerThreshold: 0,
+      rerankerThreshold: thresholdFloor,
       searchFields,
       selectFields,
       correlationId
     });
-    recordThreshold(0);
+    recordThreshold(thresholdFloor);
     activity.push(
       withTimestamp({
         type: 'fallback_search',
-        description: `[correlation=${correlationId}] Hybrid semantic fallback (threshold 0, top=${expandedTop}) returned ${relaxedResult.references.length} result(s).`
+        description: `[correlation=${correlationId}] Hybrid semantic fallback (threshold ${thresholdFloor}, top=${expandedTop}) returned ${relaxedResult.references.length} result(s).`
       })
     );
     if (relaxedResult.references.length >= minDocs) {
       return {
         references: relaxedResult.references.slice(0, baseTop),
         activity,
-        threshold: 0
+        threshold: thresholdFloor
       };
     }
 
@@ -318,14 +323,14 @@ export async function retrieveTool(args: {
       top: baseTop,
       filter
     });
-    recordThreshold(0);
+    recordThreshold(thresholdFloor);
     activity.push(
       withTimestamp({
         type: 'fallback_search',
-        description: `[correlation=${correlationId}] Vector-only fallback returned ${vectorResult.references.length} result(s).`
+        description: `[correlation=${correlationId}] Vector-only fallback returned ${vectorResult.references.length} result(s) (quality floor: ${thresholdFloor}).`
       })
     );
-    return { references: vectorResult.references, activity, threshold: 0 };
+    return { references: vectorResult.references, activity, threshold: thresholdFloor };
   };
 
   try {
@@ -750,13 +755,17 @@ export async function retrieveTool(args: {
       top: baseTop,
       filter
     });
+    const thresholdFloor = Math.max(
+      Math.min(config.RETRIEVAL_MIN_RERANKER_THRESHOLD, config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD),
+      0
+    );
     const fallbackActivity: ActivityStep[] = [
       withTimestamp({
         type: 'fallback_search',
-        description: `[correlation=${correlationId}] Vector-only fallback returned ${vectorResult.references.length} result(s).`
+        description: `[correlation=${correlationId}] Vector-only fallback returned ${vectorResult.references.length} result(s) (quality floor: ${thresholdFloor}).`
       })
     ];
-    recordThreshold(0);
+    recordThreshold(thresholdFloor);
     return finalize(vectorResult.references, fallbackActivity);
   }
 }

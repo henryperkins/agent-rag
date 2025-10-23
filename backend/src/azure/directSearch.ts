@@ -9,11 +9,11 @@
  * - Authentication via API key or Managed Identity
  */
 
-import { DefaultAzureCredential } from '@azure/identity';
 import type { Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import { getSearchAuthHeaders } from './searchAuth.js';
 import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
+import { embedText } from '../utils/embeddings.js';
 
 // ============================================================================
 // Types
@@ -86,78 +86,6 @@ export interface DirectSearchResponse {
   totalResults?: number;
   facets?: Record<string, any[]>;
   coverage?: number;
-}
-
-// ============================================================================
-// Authentication
-// ============================================================================
-
-const credential = new DefaultAzureCredential();
-const openAIEmbeddingScope = 'https://cognitiveservices.azure.com/.default';
-
-let cachedOpenAIToken:
-  | {
-      token: string;
-      expiresOnTimestamp: number;
-    }
-  | null = null;
-
-// ============================================================================
-// Embeddings Service
-// ============================================================================
-
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const endpoint = config.AZURE_OPENAI_EMBEDDING_ENDPOINT || config.AZURE_OPENAI_ENDPOINT;
-  const apiKey = config.AZURE_OPENAI_EMBEDDING_API_KEY || config.AZURE_OPENAI_API_KEY;
-
-  if (!endpoint) {
-    throw new Error('Azure OpenAI embedding endpoint required for vector search');
-  }
-
-  const url = `${endpoint}/openai/deployments/${config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT}/embeddings?api-version=2024-02-01`;
-
-  // Build auth headers
-  let authHeaders: Record<string, string>;
-  if (apiKey) {
-    authHeaders = { 'api-key': apiKey };
-  } else {
-    const now = Date.now();
-    if (cachedOpenAIToken && cachedOpenAIToken.expiresOnTimestamp - now > 120000) {
-      authHeaders = { Authorization: `Bearer ${cachedOpenAIToken.token}` };
-    } else {
-      const tokenResponse = await credential.getToken(openAIEmbeddingScope);
-      if (!tokenResponse?.token) {
-        throw new Error('Failed to obtain Azure OpenAI token for managed identity authentication');
-      }
-
-      cachedOpenAIToken = {
-        token: tokenResponse.token,
-        expiresOnTimestamp: tokenResponse.expiresOnTimestamp ?? now + 15 * 60 * 1000
-      };
-
-      authHeaders = { Authorization: `Bearer ${tokenResponse.token}` };
-    }
-  }
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeaders
-    },
-    body: JSON.stringify({
-      input: text,
-      model: config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT
-    })
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Embedding generation failed: ${response.status} ${error}`);
-  }
-
-  const data = (await response.json()) as { data: Array<{ embedding: number[] }> };
-  return data.data[0].embedding;
 }
 
 // ============================================================================
@@ -373,7 +301,7 @@ export async function hybridSemanticSearch(
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
 
   // Generate query vector
-  const queryVector = await generateEmbedding(query);
+  const queryVector = await embedText(query);
 
   // Build hybrid semantic query
   const builder = new SearchQueryBuilder(query)
@@ -441,7 +369,7 @@ export async function vectorSearch(
   } = {}
 ): Promise<DirectSearchResponse> {
   const indexName = options.indexName || config.AZURE_SEARCH_INDEX_NAME;
-  const queryVector = await generateEmbedding(query);
+  const queryVector = await embedText(query);
 
   const builder = new SearchQueryBuilder('*')
     .withVector(queryVector, options.vectorFields || ['page_embedding_text_3_large'])

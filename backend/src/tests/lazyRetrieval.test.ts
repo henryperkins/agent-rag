@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 vi.mock('../azure/directSearch.js', () => ({
   hybridSemanticSearch: vi.fn()
@@ -14,12 +14,27 @@ const { lazyHybridSearch, loadFullContent, identifyLoadCandidates } = await impo
 const { resetRerankerThresholdWarnings } = await import('../utils/reranker-threshold.js');
 
 describe('lazy retrieval helpers', () => {
+  const originalThresholds = {
+    reranker: config.RERANKER_THRESHOLD,
+    fallback: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
+    minimum: config.RETRIEVAL_MIN_RERANKER_THRESHOLD
+  };
+
   beforeEach(() => {
     config.LAZY_SUMMARY_MAX_CHARS = 120;
     config.RAG_TOP_K = 3;
     config.LAZY_PREFETCH_COUNT = 5;
+    config.RERANKER_THRESHOLD = 0;
+    config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = 0;
+    config.RETRIEVAL_MIN_RERANKER_THRESHOLD = 0;
     (directSearch.hybridSemanticSearch as unknown as Mock).mockReset();
     resetRerankerThresholdWarnings();
+  });
+
+  afterEach(() => {
+    config.RERANKER_THRESHOLD = originalThresholds.reranker;
+    config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = originalThresholds.fallback;
+    config.RETRIEVAL_MIN_RERANKER_THRESHOLD = originalThresholds.minimum;
   });
 
   it('returns summaries with loadFull callbacks', async () => {

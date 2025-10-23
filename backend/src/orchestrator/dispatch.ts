@@ -15,7 +15,7 @@ import type { SalienceNote } from './compact.js';
 import { config } from '../config/app.js';
 import { estimateTokens } from './contextBudget.js';
 import { reciprocalRankFusion, applySemanticBoost } from './reranker.js';
-import { generateEmbedding } from '../azure/directSearch.js';
+import { embedText } from '../utils/embeddings.js';
 import { filterWebResults } from '../tools/webQualityFilter.js';
 import type { FeatureGates } from '../config/features.js';
 import type { AdaptiveRetrievalStats } from '../../../shared/types.js';
@@ -597,14 +597,14 @@ export async function dispatchTools({
 
     if (features.semanticBoost) {
       try {
-        const queryEmbedding = await generateEmbedding(queryFallback);
+        const queryEmbedding = await embedText(queryFallback);
         const documentEmbeddings = new Map<string, number[]>();
         const boostCandidates = reranked.slice(0, config.RERANKING_TOP_K);
 
         for (const candidate of boostCandidates) {
           const content = candidate.content?.slice(0, 1000);
           if (content) {
-            const embedding = await generateEmbedding(content);
+            const embedding = await embedText(content);
             documentEmbeddings.set(candidate.id, embedding);
           }
         }

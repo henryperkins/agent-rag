@@ -1,5 +1,5 @@
 import type { Database as SqliteDatabase } from 'better-sqlite3';
-import { generateEmbedding } from '../azure/directSearch.js';
+import { embedText } from '../utils/embeddings.js';
 import { config } from '../config/app.js';
 import { cosineSimilarity } from '../utils/vector-ops.js';
 import { openSqliteDatabase } from '../utils/sqlite-utils.js';
@@ -91,7 +91,7 @@ export class SemanticMemoryStore {
 
     try {
       this.ensureInitialized();
-      const embedding = await generateEmbedding(text);
+      const embedding = await embedText(text);
       const embeddingBlob = Buffer.from(new Float32Array(embedding).buffer);
       const now = new Date().toISOString();
 
@@ -132,7 +132,7 @@ export class SemanticMemoryStore {
 
     try {
       this.ensureInitialized();
-      const queryEmbedding = await generateEmbedding(query);
+      const queryEmbedding = await embedText(query);
 
       let sql = 'SELECT * FROM memories WHERE 1=1';
       const params: any[] = [];

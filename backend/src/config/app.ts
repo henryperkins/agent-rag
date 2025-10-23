@@ -88,6 +88,7 @@ const envSchema = z.object({
   PLANNER_CONFIDENCE_DUAL_RETRIEVAL: z.coerce.number().default(0.45),
   RETRIEVAL_MIN_DOCS: z.coerce.number().default(3),
   RETRIEVAL_FALLBACK_RERANKER_THRESHOLD: z.coerce.number().default(1.5),
+  RETRIEVAL_MIN_RERANKER_THRESHOLD: z.coerce.number().default(0.5),
   ENABLE_ADAPTIVE_RETRIEVAL: z.coerce.boolean().default(true), // 30-50% fewer "I don't know" responses
   ADAPTIVE_MIN_COVERAGE: z.coerce.number().default(0.4),
   ADAPTIVE_MIN_DIVERSITY: z.coerce.number().default(0.3),

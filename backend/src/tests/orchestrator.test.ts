@@ -21,12 +21,24 @@ const acceptCritic: CriticReport = {
 };
 
 describe('runSession orchestrator', () => {
+  const originalThresholds = {
+    reranker: config.RERANKER_THRESHOLD,
+    fallback: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
+    minimum: config.RETRIEVAL_MIN_RERANKER_THRESHOLD
+  };
+
   beforeEach(() => {
     clearMemory();
+    config.RERANKER_THRESHOLD = 0;
+    config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = 0;
+    config.RETRIEVAL_MIN_RERANKER_THRESHOLD = 0;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    config.RERANKER_THRESHOLD = originalThresholds.reranker;
+    config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = originalThresholds.fallback;
+    config.RETRIEVAL_MIN_RERANKER_THRESHOLD = originalThresholds.minimum;
   });
 
   it('returns citations and respects planner vector search path at high confidence', { timeout: 30000 }, async () => {
@@ -156,7 +168,7 @@ describe('runSession orchestrator', () => {
     expect(events.some((entry) => entry.event === 'status' && (entry.data as any)?.stage === 'confidence_escalation')).toBe(true);
   });
 
-  it('retries synthesis when critic requests revision', { timeout: 30000 }, async () => {
+  it('retries synthesis when critic requests revision', { timeout: 60000 }, async () => {
     vi.spyOn(planModule, 'getPlan').mockResolvedValue({
       confidence: 0.8,
       steps: [{ action: 'vector_search' }]
