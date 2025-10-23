@@ -19,12 +19,12 @@ describe('mapToTelemetryResult', () => {
     });
   });
 
-  it('returns undefined values when fields are missing', () => {
+  it('falls back to safe defaults when fields are missing', () => {
     const mapped = mapToTelemetryResult(undefined);
     expect(mapped).toEqual({
-      id: undefined,
-      title: undefined,
-      url: undefined,
+      id: '',
+      title: 'Untitled result',
+      url: '',
       rank: undefined
     });
   });
