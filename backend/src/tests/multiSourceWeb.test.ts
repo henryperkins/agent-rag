@@ -222,5 +222,51 @@ describe('Multi-Source Academic Search', () => {
       expect(result.results).toHaveLength(3);
       expect(result.totalResults).toBe(3);
     });
+
+    it('should correctly encode multi-word queries without double-encoding', async () => {
+      const arxivResponse = {
+        data: `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2401.12345v1</id>
+    <title>Quantum Computing Research</title>
+    <summary>A paper about quantum computing.</summary>
+    <author><name>Test Author</name></author>
+    <published>2024-01-15T00:00:00Z</published>
+    <link href="http://arxiv.org/abs/2401.12345v1" rel="alternate"/>
+  </entry>
+</feed>`
+      };
+
+      mockedAxios.get.mockImplementation((url: string, config?: any) => {
+        if (url.includes('semanticscholar.org')) {
+          return Promise.resolve({ data: { data: [] } });
+        } else if (url.includes('arxiv.org')) {
+          // Verify that params are passed to axios (not pre-encoded in URL)
+          // Axios will handle the encoding correctly
+          expect(config?.params).toBeDefined();
+          expect(config?.params?.search_query).toBe('all:quantum computing');
+          return Promise.resolve(arxivResponse);
+        }
+        return Promise.reject(new Error('Unknown URL'));
+      });
+
+      const result = await multiSourceAcademicSearch({
+        query: 'quantum computing',
+        maxResults: 5
+      });
+
+      // Should successfully find results with multi-word query
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].title).toBe('Quantum Computing Research');
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        expect.stringContaining('arxiv.org'),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            search_query: 'all:quantum computing'
+          })
+        })
+      );
+    });
   });
 });

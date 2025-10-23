@@ -24,6 +24,14 @@ import { sanitizeUserField } from '../utils/session.js';
 import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
 import { validateCitationIntegrity } from '../utils/citation-validator.js';
 
+/**
+ * Helper to add timestamp to activity steps
+ */
+const withTimestamp = (step: ActivityStep): ActivityStep => ({
+  ...step,
+  timestamp: new Date().toISOString()
+});
+
 function buildKnowledgeAgentMessages(
   messages: AgentMessage[] | undefined,
   query: string
@@ -82,6 +90,237 @@ function mergeKnowledgeAgentReferences(
   directRefs.forEach(push);
 
   return combined.slice(0, limit);
+}
+
+/**
+ * Handles Knowledge Agent retrieval including invocation, result processing,
+ * and fallback logic. Extracted to reduce complexity and improve testability.
+ */
+async function handleKnowledgeAgentRetrieval(params: {
+  messages: AgentMessage[];
+  query: string;
+  filter?: string;
+  correlationId: string;
+  signal: AbortSignal;
+  retryAttempt: number;
+  baseTop: number;
+  minDocs: number;
+  recordThreshold: (threshold: number) => void;
+}): Promise<{
+  references: Reference[];
+  activity: ActivityStep[];
+  answer?: string;
+  grounding?: KnowledgeAgentGroundingSummary;
+  correlationId: string;
+  requestId?: string;
+  statusCode?: number;
+  errorMessage?: string;
+  failurePhase?: 'invocation' | 'zero_results' | 'partial_results';
+  fallbackTriggered: boolean;
+}> {
+  const {
+    messages,
+    query,
+    filter,
+    correlationId,
+    signal,
+    retryAttempt,
+    baseTop,
+    minDocs,
+    recordThreshold
+  } = params;
+
+  const activity: ActivityStep[] = [];
+  let references: Reference[] = [];
+  let answer: string | undefined;
+  let grounding: KnowledgeAgentGroundingSummary | undefined;
+  let agentCorrelationId = correlationId;
+  let requestId: string | undefined;
+  let statusCode: number | undefined;
+  let errorMessage: string | undefined;
+  let failurePhase: 'invocation' | 'zero_results' | 'partial_results' | undefined;
+  let fallbackTriggered = false;
+
+  const agentMessages = buildKnowledgeAgentMessages(messages, query);
+  if (!agentMessages.length) {
+    return {
+      references: [],
+      activity,
+      correlationId: agentCorrelationId,
+      fallbackTriggered: false
+    };
+  }
+
+  try {
+    const agentResult = await invokeKnowledgeAgent({
+      messages: agentMessages,
+      filter,
+      correlationId,
+      signal,
+      retryAttempt
+    });
+
+    grounding = agentResult.grounding;
+    agentCorrelationId = agentResult.correlationId ?? correlationId;
+    requestId = agentResult.requestId;
+
+    if (Array.isArray(agentResult.activity) && agentResult.activity.length) {
+      activity.push(...agentResult.activity);
+    }
+
+    if (grounding) {
+      const mappedCount = Object.keys(grounding.mapping ?? {}).length;
+      const unmatchedCount = grounding.unmatched.length;
+      activity.push(
+        withTimestamp({
+          type: 'knowledge_agent_grounding',
+          description: `Unified grounding mapped ${mappedCount} id(s); unmatched ${unmatchedCount}.`
+        })
+      );
+    }
+
+    references = (agentResult.references ?? []).slice(0, Math.max(baseTop * 2, baseTop));
+    answer = agentResult.answer;
+
+    // Apply reranker threshold if scores are present
+    if (references.some((ref) => typeof ref.score === 'number')) {
+      const enforcement = enforceRerankerThreshold(references, config.RERANKER_THRESHOLD, {
+        correlationId: agentCorrelationId,
+        source: 'knowledge_agent'
+      });
+      references = enforcement.references;
+    }
+    recordThreshold(config.RERANKER_THRESHOLD);
+
+    const summaryDescription = `Knowledge agent returned ${references.length} result(s). [correlation=${agentCorrelationId}]`;
+    activity.push(
+      withTimestamp({
+        type: 'knowledge_agent_search',
+        description: summaryDescription
+      })
+    );
+
+    // Check if results meet minimum requirements
+    if (references.length >= minDocs) {
+      console.info(
+        JSON.stringify({
+          event: 'knowledge_agent.success',
+          correlationId: agentCorrelationId,
+          requestId,
+          documents: references.length,
+          minDocs
+        })
+      );
+      // Return with fallbackTriggered: false to indicate success
+      return {
+        references,
+        activity,
+        answer,
+        grounding,
+        correlationId: agentCorrelationId,
+        requestId,
+        fallbackTriggered: false
+      };
+    }
+
+    // Insufficient results - trigger fallback
+    fallbackTriggered = true;
+
+    if (!references.length) {
+      failurePhase = 'zero_results';
+      const description = `Knowledge agent returned 0 result(s); falling back to direct search. [correlation=${agentCorrelationId}]`;
+      activity.push(
+        withTimestamp({
+          type: 'knowledge_agent_fallback',
+          description
+        })
+      );
+      console.warn(
+        JSON.stringify({
+          event: 'knowledge_agent.fallback',
+          correlationId: agentCorrelationId,
+          requestId,
+          reason: 'zero_results',
+          minDocs,
+          returned: 0
+        })
+      );
+    } else {
+      failurePhase = 'partial_results';
+      const description = `Knowledge agent returned ${references.length} result(s); supplementing with direct search. [correlation=${agentCorrelationId}]`;
+      activity.push(
+        withTimestamp({
+          type: 'knowledge_agent_partial',
+          description
+        })
+      );
+      console.warn(
+        JSON.stringify({
+          event: 'knowledge_agent.fallback',
+          correlationId: agentCorrelationId,
+          requestId,
+          reason: 'insufficient_results',
+          minDocs,
+          returned: references.length
+        })
+      );
+    }
+  } catch (agentError) {
+    fallbackTriggered = true;
+    failurePhase = 'invocation';
+
+    const errorCorrelation = (agentError as { correlationId?: string }).correlationId;
+    if (errorCorrelation) {
+      agentCorrelationId = errorCorrelation;
+    }
+
+    statusCode =
+      typeof (agentError as { status?: number }).status === 'number'
+        ? (agentError as { status: number }).status
+        : typeof (agentError as { statusCode?: number }).statusCode === 'number'
+        ? (agentError as { statusCode: number }).statusCode
+        : undefined;
+
+    errorMessage = agentError instanceof Error ? agentError.message : String(agentError);
+    requestId = (agentError as { requestId?: string }).requestId ?? requestId;
+
+    const sanitizedError = sanitizeLogMessage(errorMessage ?? 'Unknown error');
+    const errorDescription = `Knowledge agent failed [correlation=${agentCorrelationId}${
+      statusCode ? ` status=${statusCode}` : ''
+    }]: ${sanitizedError}`;
+
+    activity.push(
+      withTimestamp({
+        type: 'knowledge_agent_error',
+        description: errorDescription
+      })
+    );
+
+    console.error(
+      JSON.stringify({
+        event: 'knowledge_agent.failure',
+        correlationId: agentCorrelationId,
+        requestId,
+        statusCode,
+        message: sanitizedError,
+        fallbackTriggered: true,
+        messagesLength: agentMessages.length
+      })
+    );
+  }
+
+  return {
+    references,
+    activity,
+    answer,
+    grounding,
+    correlationId: agentCorrelationId,
+    requestId,
+    statusCode,
+    errorMessage,
+    failurePhase,
+    fallbackTriggered
+  };
 }
 
 export const toolSchemas = {
@@ -187,11 +426,6 @@ export async function retrieveTool(args: {
     Array.isArray(messages) &&
     messages.length > 0;
 
-  const withTimestamp = (step: ActivityStep): ActivityStep => ({
-    ...step,
-    timestamp: new Date().toISOString()
-  });
-
   const buildDiagnostics = (): AgenticRetrievalResponse['diagnostics'] => {
     const diagnostics: AgenticRetrievalResponse['diagnostics'] = {
       correlationId,
@@ -236,7 +470,7 @@ export async function retrieveTool(args: {
     };
 
     response.diagnostics = response.diagnostics ?? buildDiagnostics();
-    response.diagnostics.retryCount = Math.max(response.diagnostics.retryCount ?? 0, maxRetryAttempt);
+    response.diagnostics!.retryCount = Math.max(response.diagnostics!.retryCount ?? 0, maxRetryAttempt);
 
     if (knowledgeAgentGrounding && response.knowledgeAgentGrounding === undefined && !fallbackTriggered) {
       response.knowledgeAgentGrounding = knowledgeAgentGrounding;
@@ -257,7 +491,7 @@ export async function retrieveTool(args: {
     if (fallbackTriggered) {
       response.knowledgeAgentAnswer = undefined;
       response.knowledgeAgentSummaryProvided = false;
-      response.diagnostics.knowledgeAgentSummaryProvided = false;
+      response.diagnostics!.knowledgeAgentSummaryProvided = false;
     } else if (response.knowledgeAgentSummaryProvided === undefined) {
       const candidateSummary = response.knowledgeAgentAnswer ?? knowledgeAgentAnswer;
       response.knowledgeAgentSummaryProvided = Boolean(
@@ -353,6 +587,10 @@ export async function retrieveTool(args: {
   };
 
   try {
+    // Knowledge Agent operations need 60s timeout (Azure recommendation)
+    // Regular search operations use 30s default
+    const retryTimeout = knowledgeAgentPreferred ? 60000 : 30000;
+
     return await withRetry('direct-search', async (signal, context) => {
       const retryAttempt = context?.attempt ?? 0;
       maxRetryAttempt = Math.max(maxRetryAttempt, retryAttempt);
@@ -361,172 +599,195 @@ export async function retrieveTool(args: {
       let knowledgeAgentReferences: Reference[] = [];
       const knowledgeAgentActivity: ActivityStep[] = [];
 
-      if (knowledgeAgentPreferred) {
-        const agentMessages = buildKnowledgeAgentMessages(messages, query);
-        if (agentMessages.length) {
-          knowledgeAgentAttempted = true;
-          try {
-            const agentResult = await invokeKnowledgeAgent({
-              messages: agentMessages,
-              filter,
-              correlationId,
-              signal,
-              retryAttempt
-            });
+      // Skip Knowledge Agent on retries if it aborted on first attempt
+      // to avoid wasting time retrying a consistently slow/failing endpoint
+      const skipKnowledgeAgentDueToAbort = retryAttempt > 0 && knowledgeAgentFailurePhase === 'invocation';
 
-            knowledgeAgentGrounding = agentResult.grounding;
-            knowledgeAgentCorrelationId = agentResult.correlationId ?? correlationId;
-            knowledgeAgentRequestId = agentResult.requestId;
+      if (skipKnowledgeAgentDueToAbort) {
+        console.info(
+          JSON.stringify({
+            event: 'knowledge_agent.skipped_on_retry',
+            correlationId,
+            retryAttempt,
+            reason: 'Previous invocation failed, using direct search fallback'
+          })
+        );
+      }
 
-            if (Array.isArray(agentResult.activity) && agentResult.activity.length) {
-              knowledgeAgentActivity.push(...agentResult.activity);
-            }
+      // PATTERN 3: Hybrid Retrieval - Parallel KB + Web Search
+      const enableHybridWeb =
+        (features?.ENABLE_HYBRID_WEB_RETRIEVAL ?? config.ENABLE_HYBRID_WEB_RETRIEVAL) === true;
 
-            if (knowledgeAgentGrounding) {
-              const mappedCount = Object.keys(knowledgeAgentGrounding.mapping ?? {}).length;
-              const unmatchedCount = knowledgeAgentGrounding.unmatched.length;
-              knowledgeAgentActivity.push(
-                withTimestamp({
-                  type: 'knowledge_agent_grounding',
-                  description: `Unified grounding mapped ${mappedCount} id(s); unmatched ${unmatchedCount}.`
-                })
-              );
-            }
+      // Analyze if fresh web data is needed
+      let webReferences: Reference[] = [];
+      const webActivity: ActivityStep[] = [];
+      let freshnessAnalysis: any = null;
 
-            knowledgeAgentReferences = (agentResult.references ?? []).slice(
-              0,
-              Math.max(baseTop * 2, baseTop)
-            );
-            knowledgeAgentAnswer = agentResult.answer;
-            knowledgeAgentFailurePhase = undefined;
-            knowledgeAgentStatusCode = undefined;
-            knowledgeAgentErrorMessage = undefined;
+      if (enableHybridWeb) {
+        const { analyzeFreshness } = await import('../utils/freshness-detector.js');
+        const conversationContext = messages?.map((m) => m.content).filter(Boolean) || [];
+        freshnessAnalysis = analyzeFreshness(query, conversationContext);
 
-            if (knowledgeAgentReferences.some((ref) => typeof ref.score === 'number')) {
-              const enforcement = enforceRerankerThreshold(
-                knowledgeAgentReferences,
-                config.RERANKER_THRESHOLD,
-                {
-                  correlationId: knowledgeAgentCorrelationId,
-                  source: 'knowledge_agent'
-                }
-              );
-              knowledgeAgentReferences = enforcement.references;
-            }
-            recordThreshold(config.RERANKER_THRESHOLD);
+        console.info(
+          JSON.stringify({
+            event: 'freshness_analysis',
+            correlationId,
+            needsFreshData: freshnessAnalysis.needsFreshData,
+            confidence: freshnessAnalysis.confidence,
+            signals: freshnessAnalysis.signals
+          })
+        );
+      }
 
-            const summaryDescription = `Knowledge agent returned ${knowledgeAgentReferences.length} result(s). [correlation=${knowledgeAgentCorrelationId}]`;
-            knowledgeAgentActivity.push(
-              withTimestamp({
-                type: 'knowledge_agent_search',
-                description: summaryDescription
-              })
-            );
+      // Run KB retrieval and Web search in parallel if needed
+      const kbPromise =
+        knowledgeAgentPreferred && !skipKnowledgeAgentDueToAbort
+          ? (async () => {
+              knowledgeAgentAttempted = true;
+              return await handleKnowledgeAgentRetrieval({
+                messages,
+                query,
+                filter,
+                correlationId,
+                signal,
+                retryAttempt,
+                baseTop,
+                minDocs,
+                recordThreshold
+              });
+            })()
+          : null;
 
-            if (knowledgeAgentReferences.length >= minDocs) {
-              console.info(
-                JSON.stringify({
-                  event: 'knowledge_agent.success',
-                  correlationId: knowledgeAgentCorrelationId,
-                  requestId: knowledgeAgentRequestId,
-                  documents: knowledgeAgentReferences.length,
-                  minDocs
-                })
-              );
-              const successExtras: Partial<AgenticRetrievalResponse> = {
-                response: knowledgeAgentAnswer ?? '',
-                mode: 'knowledge_agent',
-                strategy: retrievalStrategy,
-                knowledgeAgentAnswer
-              };
-              if (knowledgeAgentGrounding) {
-                successExtras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+      const webPromise =
+        enableHybridWeb && freshnessAnalysis?.needsFreshData
+          ? (async () => {
+              try {
+                const { webSearchTool } = await import('./webSearch.js');
+                const { convertWebResultsToReferences } = await import('./webSearch.js');
+
+                webActivity.push(
+                  withTimestamp({
+                    type: 'hybrid_web_search',
+                    description: `Parallel web search triggered (freshness confidence: ${(freshnessAnalysis.confidence * 100).toFixed(0)}%)`
+                  })
+                );
+
+                const webSearchMode = freshnessAnalysis.confidence > 0.7 ? 'hyperbrowser_extract' : 'hyperbrowser_scrape';
+
+                const webResults = await webSearchTool({
+                  query,
+                  count: 5,
+                  mode: webSearchMode
+                });
+
+                return convertWebResultsToReferences(webResults.results);
+              } catch (error) {
+                console.warn(
+                  JSON.stringify({
+                    event: 'hybrid_web_search.failure',
+                    correlationId,
+                    message: error instanceof Error ? error.message : String(error)
+                  })
+                );
+                return [];
               }
-              return finalize(knowledgeAgentReferences.slice(0, baseTop), knowledgeAgentActivity, successExtras);
-            }
+            })()
+          : null;
 
-            fallbackTriggered = true;
-            if (!knowledgeAgentReferences.length) {
-              knowledgeAgentFailurePhase = 'zero_results';
-              const description = `Knowledge agent returned 0 result(s); falling back to direct search. [correlation=${knowledgeAgentCorrelationId}]`;
-              knowledgeAgentActivity.push(
-                withTimestamp({
-                  type: 'knowledge_agent_fallback',
-                  description
-                })
-              );
-              console.warn(
-                JSON.stringify({
-                  event: 'knowledge_agent.fallback',
-                  correlationId: knowledgeAgentCorrelationId,
-                  requestId: knowledgeAgentRequestId,
-                  reason: 'zero_results',
-                  minDocs,
-                  returned: 0
-                })
-              );
-            } else {
-              knowledgeAgentFailurePhase = 'partial_results';
-              const description = `Knowledge agent returned ${knowledgeAgentReferences.length} result(s); supplementing with direct search. [correlation=${knowledgeAgentCorrelationId}]`;
-              knowledgeAgentActivity.push(
-                withTimestamp({
-                  type: 'knowledge_agent_partial',
-                  description
-                })
-              );
-              console.warn(
-                JSON.stringify({
-                  event: 'knowledge_agent.fallback',
-                  correlationId: knowledgeAgentCorrelationId,
-                  requestId: knowledgeAgentRequestId,
-                  reason: 'insufficient_results',
-                  minDocs,
-                  returned: knowledgeAgentReferences.length
-                })
-              );
-            }
-          } catch (agentError) {
-            fallbackTriggered = true;
-            knowledgeAgentFailurePhase = 'invocation';
-            const errorCorrelation = (agentError as { correlationId?: string }).correlationId;
-            if (errorCorrelation) {
-              knowledgeAgentCorrelationId = errorCorrelation;
-            }
-            knowledgeAgentStatusCode =
-              typeof (agentError as { status?: number }).status === 'number'
-                ? (agentError as { status: number }).status
-                : typeof (agentError as { statusCode?: number }).statusCode === 'number'
-                ? (agentError as { statusCode: number }).statusCode
-                : undefined;
-            knowledgeAgentErrorMessage =
-              agentError instanceof Error ? agentError.message : String(agentError);
-            knowledgeAgentRequestId =
-              (agentError as { requestId?: string }).requestId ?? knowledgeAgentRequestId;
-            const sanitizedError = sanitizeLogMessage(knowledgeAgentErrorMessage ?? 'Unknown error');
-            const errorDescription = `Knowledge agent failed [correlation=${knowledgeAgentCorrelationId}${
-              knowledgeAgentStatusCode ? ` status=${knowledgeAgentStatusCode}` : ''
-            }]: ${sanitizedError}`;
+      // Wait for parallel operations while preserving tuple ordering
+      const [kaResultRaw, webResultsRaw] = await Promise.all([
+        kbPromise ?? Promise.resolve(null),
+        webPromise ?? Promise.resolve(null)
+      ]);
+      let kaResult: Awaited<ReturnType<typeof handleKnowledgeAgentRetrieval>> | null = null;
 
-            knowledgeAgentActivity.push(
-              withTimestamp({
-                type: 'knowledge_agent_error',
-                description: errorDescription
-              })
-            );
+      // Process Knowledge Agent results
+      if (kaResultRaw && typeof kaResultRaw === 'object' && 'references' in kaResultRaw) {
+        kaResult = kaResultRaw as Awaited<ReturnType<typeof handleKnowledgeAgentRetrieval>>;
+        knowledgeAgentReferences = kaResult.references;
+        knowledgeAgentActivity.push(...kaResult.activity);
+        knowledgeAgentAnswer = kaResult.answer;
+        knowledgeAgentGrounding = kaResult.grounding;
+        knowledgeAgentCorrelationId = kaResult.correlationId;
+        knowledgeAgentRequestId = kaResult.requestId;
+        knowledgeAgentStatusCode = kaResult.statusCode;
+        knowledgeAgentErrorMessage = kaResult.errorMessage;
+        knowledgeAgentFailurePhase = kaResult.failurePhase;
 
-            console.error(
-              JSON.stringify({
-                event: 'knowledge_agent.failure',
-                correlationId: knowledgeAgentCorrelationId,
-                requestId: knowledgeAgentRequestId,
-                statusCode: knowledgeAgentStatusCode,
-                message: sanitizedError,
-                fallbackTriggered: true,
-                messagesLength: agentMessages.length
-              })
-            );
-          }
+        if (kaResult.fallbackTriggered) {
+          fallbackTriggered = true;
         }
+      }
+
+      // Process web results
+      if (Array.isArray(webResultsRaw) && webResultsRaw.length > 0) {
+        webReferences = webResultsRaw;
+        webActivity.push(
+          withTimestamp({
+            type: 'hybrid_web_results',
+            description: `Web search returned ${webReferences.length} result(s)`
+          })
+        );
+      }
+
+      // Merge KB and Web results if both available
+      if (enableHybridWeb && knowledgeAgentReferences.length > 0 && webReferences.length > 0) {
+        const { mergeKBAndWebResults } = await import('../utils/result-merger.js');
+        const { shouldPreferFreshSources } = await import('../utils/freshness-detector.js');
+
+        const preferFresh = shouldPreferFreshSources(freshnessAnalysis);
+
+        const merged = mergeKBAndWebResults(knowledgeAgentReferences, webReferences, {
+          preferFresh,
+          maxResults: baseTop
+        });
+
+        const activity: ActivityStep[] = [...knowledgeAgentActivity, ...webActivity];
+        activity.push(
+          withTimestamp({
+            type: 'hybrid_merge',
+            description: `Merged KB (${knowledgeAgentReferences.length}) + Web (${webReferences.length}) → ${merged.references.length} results (duplicates: ${merged.stats.duplicatesRemoved})`
+          })
+        );
+
+        const hybridExtras: Partial<AgenticRetrievalResponse> = {
+          response: knowledgeAgentAnswer ?? '',
+          mode: 'hybrid_kb_web',
+          strategy: retrievalStrategy,
+          knowledgeAgentAnswer,
+          freshnessAnalysis,
+          mergeStats: merged.stats
+        };
+
+        if (knowledgeAgentGrounding) {
+          hybridExtras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+        }
+
+        return finalize(merged.references, activity, hybridExtras);
+      }
+
+      // If only KB results available, return them if sufficient
+      if (kaResult && 'fallbackTriggered' in kaResult && !kaResult.fallbackTriggered && knowledgeAgentReferences.length >= minDocs) {
+        const successExtras: Partial<AgenticRetrievalResponse> = {
+          response: knowledgeAgentAnswer ?? '',
+          mode: 'knowledge_agent',
+          strategy: retrievalStrategy,
+          knowledgeAgentAnswer
+        };
+        if (knowledgeAgentGrounding) {
+          successExtras.knowledgeAgentGrounding = knowledgeAgentGrounding;
+        }
+        const activity: ActivityStep[] = [...knowledgeAgentActivity];
+        return finalize(knowledgeAgentReferences.slice(0, baseTop), activity, successExtras);
+      }
+
+      // If only web results available, return them
+      if (webReferences.length > 0 && (!kaResult || knowledgeAgentReferences.length === 0)) {
+        const activity: ActivityStep[] = [...webActivity];
+        return finalize(webReferences.slice(0, baseTop), activity, {
+          mode: 'web_only',
+          freshnessAnalysis
+        });
       }
 
       if (enableFederation) {
@@ -764,7 +1025,7 @@ export async function retrieveTool(args: {
       }
       thresholdUsed = fallbackOutcome.threshold;
       return finalize(mergedFallback, fallbackOutcome.activity, extras);
-    });
+    }, { timeoutMs: retryTimeout });
   } catch (error) {
     fallbackTriggered = true;
     fallbackAttempts += 1;

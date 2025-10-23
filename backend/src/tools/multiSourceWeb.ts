@@ -109,7 +109,7 @@ async function searchArxiv(
   options: { maxResults?: number; start?: number } = {}
 ): Promise<ArxivEntry[]> {
   const params = {
-    search_query: `all:${encodeURIComponent(query)}`,
+    search_query: `all:${query}`,
     start: options.start || 0,
     max_results: options.maxResults || 10
   };

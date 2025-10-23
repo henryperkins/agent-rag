@@ -96,8 +96,9 @@ export async function performSearchRequest(
         queryHash
       })
     );
+    // Use sanitized error in thrown message to prevent leaking sensitive details to clients
     const error = new Error(
-      `${operation} failed: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ''}`
+      `${operation} failed: ${response.status} ${response.statusText}${sanitizedError ? ` - ${sanitizedError}` : ''}`
     );
     (error as { status?: number }).status = response.status;
     (error as { correlationId?: string }).correlationId = correlationId;

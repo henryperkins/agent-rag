@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { WebResult, WebSearchResponse } from '../../../shared/types.js';
+import type { WebResult, WebSearchResponse, Reference } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import { withRetry } from '../utils/resilience.js';
 
 interface WebSearchArgs {
   query: string;
   count?: number;
-  mode?: 'summary' | 'full';
+  mode?: 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract';
+  hyperbrowserMode?: 'scrape' | 'extract';
 }
 
 function buildResultId(item: any) {
@@ -112,5 +113,156 @@ export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchRespo
       fetchedAt
     })) ?? [];
 
+  // If Hyperbrowser mode is requested, enhance results
+  if (searchMode === 'hyperbrowser_scrape' || searchMode === 'hyperbrowser_extract') {
+    return await enhanceWithHyperbrowser(results, query, searchMode);
+  }
+
   return { results };
+}
+
+/**
+ * Enhances Google search results with Hyperbrowser scraping or extraction
+ */
+async function enhanceWithHyperbrowser(
+  googleResults: WebResult[],
+  query: string,
+  mode: 'hyperbrowser_scrape' | 'hyperbrowser_extract'
+): Promise<WebSearchResponse> {
+  let mcp__hyperbrowser__scrape_webpage: any;
+  let mcp__hyperbrowser__extract_structured_data: any;
+
+  try {
+    // @ts-expect-error MCP tools are optional and may not be available
+    const mcpTools = await import('../../../mcp-tools.js');
+    mcp__hyperbrowser__scrape_webpage = mcpTools.mcp__hyperbrowser__scrape_webpage;
+    mcp__hyperbrowser__extract_structured_data = mcpTools.mcp__hyperbrowser__extract_structured_data;
+  } catch {
+    // MCP tools not available
+  }
+
+  // Check if Hyperbrowser MCP is available
+  if (!mcp__hyperbrowser__scrape_webpage && mode === 'hyperbrowser_scrape') {
+    console.warn('Hyperbrowser MCP not available, falling back to Google snippets');
+    return { results: googleResults };
+  }
+
+  if (!mcp__hyperbrowser__extract_structured_data && mode === 'hyperbrowser_extract') {
+    console.warn('Hyperbrowser MCP not available, falling back to Google snippets');
+    return { results: googleResults };
+  }
+
+  try {
+    if (mode === 'hyperbrowser_scrape') {
+      // Scrape top 3 results for full content
+      const scrapedResults = await Promise.all(
+        googleResults.slice(0, 3).map(async (result) => {
+          try {
+            const scraped = await mcp__hyperbrowser__scrape_webpage!({
+              url: result.url,
+              outputFormat: ['markdown']
+            });
+
+            return {
+              ...result,
+              body: scraped.markdown || result.snippet,
+              metadata: scraped.metadata,
+              scrapedAt: new Date().toISOString()
+            };
+          } catch (error) {
+            console.warn(
+              `Failed to scrape ${result.url}:`,
+              error instanceof Error ? error.message : String(error)
+            );
+            return result; // Fallback to original snippet
+          }
+        })
+      );
+
+      // Keep remaining results as-is
+      return {
+        results: [...scrapedResults, ...googleResults.slice(3)]
+      };
+    } else {
+      // Extract structured data from top results
+      const extractSchema = {
+        type: 'object',
+        properties: {
+          mainContent: { type: 'string', description: 'The main content of the page' },
+          keyPoints: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Key points or takeaways from the content'
+          },
+          facts: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                claim: { type: 'string' },
+                context: { type: 'string' }
+              }
+            },
+            description: 'Factual claims found in the content'
+          },
+          metadata: {
+            type: 'object',
+            properties: {
+              author: { type: 'string' },
+              publishDate: { type: 'string' },
+              lastUpdated: { type: 'string' }
+            }
+          }
+        },
+        required: ['mainContent']
+      };
+
+      const extracted = await mcp__hyperbrowser__extract_structured_data!({
+        urls: googleResults.slice(0, 3).map((r) => r.url),
+        prompt: `Extract the main content, key points, and factual information related to: ${query}`,
+        schema: extractSchema
+      });
+
+      // Convert extracted data back to WebResult format
+      const enhancedResults = googleResults.slice(0, 3).map((result, index) => ({
+        ...result,
+        body: extracted[index]?.mainContent || result.snippet,
+        keyPoints: extracted[index]?.keyPoints,
+        facts: extracted[index]?.facts,
+        metadata: extracted[index]?.metadata,
+        extractedAt: new Date().toISOString()
+      }));
+
+      return {
+        results: [...enhancedResults, ...googleResults.slice(3)]
+      };
+    }
+  } catch (error) {
+    console.error(
+      'Hyperbrowser enhancement failed:',
+      error instanceof Error ? error.message : String(error)
+    );
+    return { results: googleResults }; // Fallback to original results
+  }
+}
+
+/**
+ * Converts Hyperbrowser scraped content to Reference format for RAG pipeline
+ */
+export function convertWebResultsToReferences(webResults: WebResult[]): Reference[] {
+  return webResults.map((result) => ({
+    id: result.id,
+    title: result.title,
+    content: result.body || result.snippet,
+    url: result.url,
+    score: result.relevance,
+    page_number: undefined,
+    metadata: {
+      source: 'web_search',
+      fetchedAt: result.fetchedAt,
+      scrapedAt: (result as any).scrapedAt,
+      extractedAt: (result as any).extractedAt,
+      rank: result.rank
+    }
+  }));
 }

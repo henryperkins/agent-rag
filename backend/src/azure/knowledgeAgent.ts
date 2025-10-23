@@ -938,7 +938,7 @@ export async function invokeKnowledgeAgent(
       }
     }
 
-    const baseError = error instanceof Error ? error : new Error(String(error));
+    const originalError = error instanceof Error ? error : new Error(String(error));
     const truncatedBody = body.length > 512 ? `${body.slice(0, 512)}…` : body;
     const diagnostics: string[] = [];
     if (status !== undefined) diagnostics.push(`status=${status}`);
@@ -946,9 +946,12 @@ export async function invokeKnowledgeAgent(
     if (correlationFromError) diagnostics.push(`correlationId=${correlationFromError}`);
     if (requestIdFromError) diagnostics.push(`requestId=${requestIdFromError}`);
 
-    if (diagnostics.length) {
-      baseError.message = `${baseError.message} (${diagnostics.join(', ')})`;
-    }
+    // Create a new Error with enhanced message instead of mutating the original
+    const enhancedMessage = diagnostics.length
+      ? `${originalError.message} (${diagnostics.join(', ')})`
+      : originalError.message;
+    const baseError = new Error(enhancedMessage);
+    baseError.stack = originalError.stack;
 
     if (status !== undefined) {
       (baseError as { status?: number }).status = status;

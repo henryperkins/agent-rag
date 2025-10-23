@@ -90,7 +90,23 @@ export async function assessComplexity(question: string): Promise<ComplexityAsse
       ]
     });
 
-    const parsed = JSON.parse(extractOutputText(response) || '{}');
+    const rawOutput = extractOutputText(response) || '{}';
+    let parsed: any = {};
+
+    try {
+      parsed = JSON.parse(rawOutput);
+    } catch (parseError) {
+      console.warn('Failed to parse complexity assessment JSON:', {
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+        rawOutput: rawOutput.slice(0, 200)
+      });
+      // Try to extract reasoning field with regex fallback
+      const reasoningMatch = rawOutput.match(/"reasoning"\s*:\s*"([^"]+)"/);
+      if (reasoningMatch) {
+        parsed = { reasoning: reasoningMatch[1] };
+      }
+    }
+
     const reasoningSummary = extractReasoningSummary(response);
 
     return {

@@ -73,10 +73,11 @@ const envSchema = z.object({
 
   WEB_CONTEXT_MAX_TOKENS: z.coerce.number().default(30000), // Increased from 8000 (GPT-5: 272K input)
   WEB_RESULTS_MAX: z.coerce.number().default(15), // Increased from 6
-  WEB_SEARCH_MODE: z.enum(['summary', 'full']).default('full'),
+  WEB_SEARCH_MODE: z.enum(['summary', 'full', 'hyperbrowser_scrape', 'hyperbrowser_extract']).default('full'),
   WEB_SAFE_MODE: z.enum(['off', 'active', 'high']).default('off'),
   WEB_DEFAULT_RECENCY: z.string().default(''),
   WEB_EMBEDDING_BATCH_SIZE: z.coerce.number().default(16),
+  ENABLE_HYBRID_WEB_RETRIEVAL: z.coerce.boolean().default(false), // Parallel KB + web search for fresh content
 
   CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(40000), // Increased from 1800 (GPT-5: 272K input)
   CONTEXT_SUMMARY_TOKEN_CAP: z.coerce.number().default(10000), // Increased from 600

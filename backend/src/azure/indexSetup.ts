@@ -111,6 +111,7 @@ export async function createIndexAndIngest(): Promise<void> {
           azureOpenAIParameters: {
             resourceUri: config.AZURE_OPENAI_EMBEDDING_ENDPOINT || config.AZURE_OPENAI_ENDPOINT,
             deploymentId: config.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+            apiKey: config.AZURE_OPENAI_EMBEDDING_API_KEY ?? config.AZURE_OPENAI_API_KEY,
             modelName: 'text-embedding-3-large',
             authIdentity: null
           }
@@ -307,7 +308,8 @@ export async function createKnowledgeAgent(): Promise<void> {
       attemptFastPath: config.KNOWLEDGE_AGENT_ATTEMPT_FAST_PATH
     },
     requestLimits: {
-      maxRuntimeInSeconds: 45
+      maxRuntimeInSeconds: 60,  // Azure recommended timeout for agentic operations
+      maxOutputSize: 5000  // Minimum recommended value per docs
     }
   };
 

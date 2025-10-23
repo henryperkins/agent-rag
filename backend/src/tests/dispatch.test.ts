@@ -125,4 +125,64 @@ describe('dispatchTools confidence escalation', () => {
       config.ENABLE_CRAG = originalCrag;
     }
   });
+
+  it('bypasses lazy retrieval when Knowledge Agent strategy is configured', { timeout: 30000 }, async () => {
+    const plan: PlanSummary = {
+      confidence: 0.9,
+      steps: [{ action: 'vector_search' }]
+    };
+
+    const originalStrategy = config.RETRIEVAL_STRATEGY;
+    const originalCrag = config.ENABLE_CRAG;
+    config.RETRIEVAL_STRATEGY = 'knowledge_agent';
+    config.ENABLE_CRAG = false;
+
+    const retrieve = vi.fn().mockResolvedValue({
+      response: 'Knowledge agent response',
+      references: [
+        {
+          id: '1',
+          title: 'Doc',
+          content: 'Knowledge agent doc'
+        }
+      ],
+      activity: [],
+      mode: 'knowledge_agent'
+    });
+
+    const lazyRetrieve = vi.fn().mockResolvedValue({
+      response: 'Lazy response',
+      references: [],
+      activity: [],
+      mode: 'lazy'
+    });
+
+    const webSearch = vi.fn();
+    const events: Array<{ event: string; data: unknown }> = [];
+    const { gates, resolved } = resolveFeatureToggles();
+
+    try {
+      const result = await dispatchTools({
+        plan,
+        messages,
+        salience: [],
+        emit: (event, data) => {
+          events.push({ event, data });
+        },
+        tools: { retrieve, lazyRetrieve, webSearch },
+        features: gates,
+        featureStates: resolved,
+        preferLazy: true // explicitly enable lazy preference
+      });
+
+      // With knowledge_agent strategy, retrieve should be called (not lazyRetrieve)
+      // even when preferLazy is true
+      expect(retrieve).toHaveBeenCalledTimes(1);
+      expect(lazyRetrieve).not.toHaveBeenCalled();
+      expect(result.activity.some((step) => step.type === 'knowledge_agent_preferred')).toBe(true);
+    } finally {
+      config.RETRIEVAL_STRATEGY = originalStrategy;
+      config.ENABLE_CRAG = originalCrag;
+    }
+  });
 });

@@ -26,12 +26,16 @@ describe('runSession orchestrator', () => {
     fallback: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
     minimum: config.RETRIEVAL_MIN_RERANKER_THRESHOLD
   };
+  const originalFlags = {
+    enableCrag: config.ENABLE_CRAG
+  };
 
   beforeEach(() => {
     clearMemory();
     config.RERANKER_THRESHOLD = 0;
     config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = 0;
     config.RETRIEVAL_MIN_RERANKER_THRESHOLD = 0;
+    config.ENABLE_CRAG = false;
   });
 
   afterEach(() => {
@@ -39,6 +43,7 @@ describe('runSession orchestrator', () => {
     config.RERANKER_THRESHOLD = originalThresholds.reranker;
     config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = originalThresholds.fallback;
     config.RETRIEVAL_MIN_RERANKER_THRESHOLD = originalThresholds.minimum;
+    config.ENABLE_CRAG = originalFlags.enableCrag;
   });
 
   it('returns citations and respects planner vector search path at high confidence', { timeout: 30000 }, async () => {

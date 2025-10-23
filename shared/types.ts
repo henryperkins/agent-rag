@@ -15,7 +15,8 @@ export type FeatureFlag =
   | 'ENABLE_WEB_RERANKING'
   | 'ENABLE_SEMANTIC_BOOST'
   | 'ENABLE_RESPONSE_STORAGE'
-  | 'ENABLE_ADAPTIVE_RETRIEVAL';
+  | 'ENABLE_ADAPTIVE_RETRIEVAL'
+  | 'ENABLE_HYBRID_WEB_RETRIEVAL';
 
 export type FeatureOverrideMap = Partial<Record<FeatureFlag, boolean>>;
 
@@ -202,7 +203,7 @@ export interface AgenticRetrievalResponse {
   activity: ActivityStep[];
   lazyReferences?: LazyReference[];
   summaryTokens?: number;
-  mode?: 'direct' | 'lazy' | 'knowledge_agent';
+  mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
   strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
   knowledgeAgentAnswer?: string;
   fullContentAvailable?: boolean;
@@ -217,6 +218,8 @@ export interface AgenticRetrievalResponse {
   coverageChecklistCount?: number;
   contextSectionLabels?: string[];
   knowledgeAgentSummaryProvided?: boolean;
+  freshnessAnalysis?: any;
+  mergeStats?: Record<string, any>;
 }
 
 export interface KnowledgeAgentGroundingSummary {
@@ -284,7 +287,7 @@ export interface ChatResponse {
     }>;
     summary_selection?: SummarySelectionStats;
     route?: RouteMetadata;
-    retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent';
+    retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
     lazy_summary_tokens?: number;
     retrieval?: RetrievalDiagnostics;
     diagnostics?: AgenticRetrievalDiagnostics;
@@ -340,7 +343,7 @@ export interface RetrievalDiagnostics {
   fallbackReason?: string;
   fallback_reason?: string;
   escalated?: boolean;
-  mode?: 'direct' | 'lazy' | 'knowledge_agent';
+  mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
   summaryTokens?: number;
   strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
   highlightedDocuments?: number;

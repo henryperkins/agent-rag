@@ -67,7 +67,7 @@ interface DispatchOptions {
       activity: ActivityStep[];
       lazyReferences?: LazyReference[];
       summaryTokens?: number;
-      mode?: 'direct' | 'lazy' | 'knowledge_agent';
+      mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
       fullContentAvailable?: boolean;
       diagnostics?: AgenticRetrievalDiagnostics;
     }>;
@@ -77,11 +77,11 @@ interface DispatchOptions {
       activity: ActivityStep[];
       lazyReferences?: LazyReference[];
       summaryTokens?: number;
-      mode?: 'direct' | 'lazy' | 'knowledge_agent';
+      mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
       fullContentAvailable?: boolean;
       diagnostics?: AgenticRetrievalDiagnostics;
     }>;
-    webSearch?: (args: { query: string; count?: number; mode?: 'summary' | 'full' }) => Promise<WebSearchResponse>;
+    webSearch?: (args: { query: string; count?: number; mode?: 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract' }) => Promise<WebSearchResponse>;
   };
   preferLazy?: boolean;
 }
@@ -284,7 +284,14 @@ export async function dispatchTools({
     const query = retrievalStep?.query?.trim() || queryFallback;
     const wantsLazy = (preferLazy ?? features.lazyRetrieval) === true;
     const supportsLazy = typeof lazyRetrieve === 'function';
-    const useLazy = wantsLazy && supportsLazy;
+    // Disable lazy mode when Knowledge Agent is preferred (strategy=knowledge_agent or hybrid)
+    // to ensure the agentic retrieval path in retrieveTool is executed
+    const retrievalStrategy = config.RETRIEVAL_STRATEGY;
+    const knowledgeAgentPreferred =
+      (retrievalStrategy === 'knowledge_agent' || retrievalStrategy === 'hybrid') &&
+      Array.isArray(messages) &&
+      messages.length > 0;
+    const useLazy = wantsLazy && supportsLazy && !knowledgeAgentPreferred;
 
     const retrievalStart = performance.now();
     let retrieval;
@@ -344,11 +351,13 @@ export async function dispatchTools({
     activity.push(
       ...(retrieval.activity ?? []),
       {
-        type: useLazy && !lazyRetrievalFailed ? 'plan' : lazyRetrievalFailed ? 'lazy_retrieval_fallback' : 'plan',
+        type: useLazy && !lazyRetrievalFailed ? 'plan' : lazyRetrievalFailed ? 'lazy_retrieval_fallback' : knowledgeAgentPreferred ? 'knowledge_agent_preferred' : 'plan',
         description: useLazy && !lazyRetrievalFailed
           ? 'Lazy Azure AI Search retrieval executed via orchestrator.'
           : lazyRetrievalFailed
           ? 'Lazy retrieval failed, fell back to direct Azure AI Search retrieval.'
+          : knowledgeAgentPreferred
+          ? `Direct retrieval with ${retrievalStrategy} strategy (lazy mode bypassed for Knowledge Agent path).`
           : 'Direct Azure AI Search retrieval executed via orchestrator.'
       }
     );
@@ -485,7 +494,7 @@ export async function dispatchTools({
         });
       } else {
         // Use regular web search
-        search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE });
+        search = await webSearch({ query, count, mode: config.WEB_SEARCH_MODE as 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract' });
       }
       if (search.results?.length) {
         let resultsToUse = search.results;
