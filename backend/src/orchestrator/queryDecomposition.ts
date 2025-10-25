@@ -59,10 +59,9 @@ const DECOMPOSITION_SCHEMA = {
             dependencies: {
               type: 'array',
               items: { type: 'number' }
-            },
-            reasoning: { type: 'string' }
+            }
           },
-          required: ['id', 'query', 'dependencies', 'reasoning']
+          required: ['id', 'query', 'dependencies']
         }
       },
       synthesisPrompt: { type: 'string' }
@@ -158,7 +157,7 @@ Rules:
           dependencies: Array.isArray(item.dependencies)
             ? item.dependencies.map((dep: any) => Number(dep)).filter((dep: number) => Number.isFinite(dep))
             : [],
-          reasoning: String(item.reasoning ?? '').trim()
+          reasoning: `Sub-query ${idx + 1}`  // Simple placeholder since reasoning field removed from schema
         }))
       : [];
 
