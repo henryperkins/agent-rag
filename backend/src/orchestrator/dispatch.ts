@@ -343,6 +343,21 @@ export async function dispatchTools({
     }
     if ('diagnostics' in retrieval && retrieval.diagnostics) {
       diagnostics = retrieval.diagnostics;
+
+      // Emit real-time telemetry for knowledge agent fallback
+      if (diagnostics.knowledgeAgent?.fallbackTriggered) {
+        emit?.('telemetry', {
+          type: 'knowledge_agent_fallback',
+          timestamp: new Date().toISOString(),
+          data: {
+            correlationId: diagnostics.correlationId,
+            reason: diagnostics.knowledgeAgent.failurePhase,
+            requestId: diagnostics.knowledgeAgent.requestId,
+            statusCode: diagnostics.knowledgeAgent.statusCode,
+            attempted: diagnostics.knowledgeAgent.attempted
+          }
+        });
+      }
     }
 
     retrievalLatencyMs = Math.round(performance.now() - retrievalStart);
@@ -365,6 +380,17 @@ export async function dispatchTools({
     }
     if (retrieval.activity?.some((step) => step.type === 'fallback_search')) {
       source = 'fallback_vector';
+
+      // Emit real-time telemetry for vector search fallback
+      emit?.('telemetry', {
+        type: 'retrieval_fallback',
+        timestamp: new Date().toISOString(),
+        data: {
+          from: 'hybrid_semantic',
+          to: 'pure_vector',
+          reason: 'reranker_threshold_not_met'
+        }
+      });
     }
     if (retrieval.mode === 'knowledge_agent') {
       source = 'knowledge_agent';
@@ -529,22 +555,23 @@ export async function dispatchTools({
             results: search.results.map((result) => mapToTelemetryResult(result)),
             text: search.contextText
           });
+
+          // Always emit token tracking telemetry
+          emit?.('telemetry', {
+            type: 'web_context_tokens',
+            timestamp: new Date().toISOString(),
+            data: {
+              totalResults: search.results.length,
+              tokensUsed: webContextTokens,
+              tokensRequested: config.WEB_CONTEXT_MAX_TOKENS,
+              trimmed: webContextTrimmed
+            }
+          });
+
           if (webContextTrimmed) {
             activity.push({
               type: 'web_context_trim',
               description: `Web context truncated by search tool (${search.results.length} results, ${webContextTokens} tokens).`
-            });
-
-            // Emit dedicated telemetry event for web context trimming
-            emit?.('telemetry', {
-              type: 'web_context_trim',
-              timestamp: new Date().toISOString(),
-              data: {
-                totalResults: search.results.length,
-                tokensUsed: webContextTokens,
-                tokensRequested: config.WEB_CONTEXT_MAX_TOKENS,
-                trimmed: true
-              }
             });
           }
         } else {

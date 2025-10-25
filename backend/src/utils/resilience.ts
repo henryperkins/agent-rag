@@ -50,6 +50,22 @@ export async function withRetry<T>(
                     controller.abort();
                     const timeoutError = new Error(`${operation} timed out after ${timeoutMs}ms`);
                     (timeoutError as any).code = 'ETIMEDOUT';
+
+                    // Emit timeout telemetry
+                    console.error(JSON.stringify({
+                      event: 'operation.timeout',
+                      operation,
+                      attempt,
+                      timeoutMs,
+                      timestamp: new Date().toISOString()
+                    }));
+
+                    span.addEvent('operation.timeout', {
+                      operation,
+                      attempt,
+                      timeoutMs
+                    });
+
                     reject(timeoutError);
                   }, timeoutMs);
                 })
@@ -89,13 +105,34 @@ export async function withRetry<T>(
           if (!isRetryable || attempt === maxRetries) {
             span.recordException(error);
             span.setStatus({ code: SpanStatusCode.ERROR, message: error?.message });
+
+            // Emit final failure telemetry
+            console.error(JSON.stringify({
+              event: 'operation.failed',
+              operation,
+              totalAttempts: attempt + 1,
+              maxRetries,
+              finalError: error?.message ?? String(error),
+              timestamp: new Date().toISOString()
+            }));
+
             throw error;
           }
 
           attempt += 1;
           const waitTime = Math.min(initialDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
           span.addEvent('retry.wait', { attempt, waitTime });
-          console.warn(`${operation} failed (attempt ${attempt}/${maxRetries}). Retrying in ${waitTime}ms...`);
+
+          // Emit retry telemetry
+          console.warn(JSON.stringify({
+            event: 'operation.retry',
+            operation,
+            attempt,
+            maxRetries,
+            waitTime,
+            reason: error?.message ?? String(error),
+            timestamp: new Date().toISOString()
+          }));
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         }
       }

@@ -9,6 +9,7 @@ function setCommonEnv() {
   process.env.AZURE_SEARCH_API_VERSION = '2025-08-01-preview';
   process.env.AZURE_SEARCH_INDEX_NAME = 'earth_at_night';
   process.env.AZURE_KNOWLEDGE_AGENT_NAME = 'earth-knowledge-agent';
+  process.env.AZURE_KNOWLEDGE_SOURCE_NAME = 'earth-at-night-ks';
   process.env.AZURE_SEARCH_API_KEY = 'test-key';
   process.env.AZURE_OPENAI_ENDPOINT = 'https://example.openai.azure.com';
 }
@@ -49,7 +50,7 @@ describe('createKnowledgeAgent', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [ksUrl, ksOptions] = fetchMock.mock.calls[0]!;
-    expect(ksUrl).toBe(`${endpoint}/knowledgesources('earth-at-night')?api-version=2025-08-01-preview`);
+    expect(ksUrl).toBe(`${endpoint}/knowledgesources('earth-at-night-ks')?api-version=2025-08-01-preview`);
     expect(ksOptions).toMatchObject({
       method: 'PUT',
       headers: expect.objectContaining({
@@ -96,7 +97,7 @@ describe('createKnowledgeAgent', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [ksUrl] = fetchMock.mock.calls[0]!;
-    expect(ksUrl).toBe(`${endpoint}/knowledgesources('earth-at-night')?api-version=2025-08-01-preview`);
+    expect(ksUrl).toBe(`${endpoint}/knowledgesources('earth-at-night-ks')?api-version=2025-08-01-preview`);
 
     const [agentUrl] = fetchMock.mock.calls[1]!;
     expect(agentUrl).toBe(`${endpoint}/agents('earth-knowledge-agent')?api-version=2025-08-01-preview`);

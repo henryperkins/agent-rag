@@ -1,77 +1,50 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { dispatchTools } from '../orchestrator/dispatch.js';
-import type { PlanSummary } from '../../../shared/types.js';
+import type { PlanSummary, Reference, ActivityStep, AdaptiveRetrievalStats } from '../../../shared/types.js';
 
-vi.mock('../azure/adaptiveRetrieval.js', async () => {
-  return {
-    retrieveWithAdaptiveRefinement: vi.fn(async (query: string) => {
-      // Simulate 2-attempt flow with one reformulation
-      const initial = { coverage: 0.2, diversity: 0.25, authority: 0.3, freshness: 0.5 };
-      const final = { coverage: 0.88, diversity: 0.6, authority: 0.8, freshness: 0.5 };
-      const attempts = [
-        { attempt: 1, query, quality: initial, latency_ms: 25 },
-        { attempt: 2, query: `${query} site:nasa.gov`, quality: final, latency_ms: 30 }
-      ];
-      return {
-        references: [
-          { id: 'doc1', title: 'Doc1', content: 'a', score: 2.0 },
-          { id: 'doc2', title: 'Doc2', content: 'b', score: 2.2 }
-        ],
-        quality: final,
-        reformulations: ['site:nasa.gov'],
-        attempts,
-        initialQuality: initial
-      };
-    })
+// Mock adaptive retrieval results
+const mockAdaptiveRetrievalResult = () => {
+  const initial = { coverage: 0.2, diversity: 0.25, authority: 0.3, freshness: 0.5 };
+  const final = { coverage: 0.88, diversity: 0.6, authority: 0.8, freshness: 0.5 };
+  const attempts = [
+    { attempt: 1, query: 'moon landing photos', quality: initial, latency_ms: 25 },
+    { attempt: 2, query: 'moon landing photos site:nasa.gov', quality: final, latency_ms: 30 }
+  ];
+
+  const adaptiveStats: AdaptiveRetrievalStats = {
+    enabled: true,
+    attempts: 2,
+    triggered: true,
+    trigger_reason: 'both',
+    thresholds: { coverage: 0.4, diversity: 0.3 },
+    initial_quality: initial,
+    final_quality: final,
+    reformulations_count: 1,
+    reformulations_sample: ['site:nasa.gov'],
+    latency_ms_total: 55,
+    per_attempt: attempts
   };
-});
+
+  const references: Reference[] = [
+    { id: 'doc1', title: 'Doc1', content: 'a', score: 2.0 },
+    { id: 'doc2', title: 'Doc2', content: 'b', score: 2.2 },
+    { id: 'doc3', title: 'Doc3', content: 'c', score: 2.1 }
+  ];
+
+  const activity: ActivityStep[] = [
+    {
+      type: 'adaptive_search',
+      description: 'Adaptive retrieval returned 3 result(s) (coverage=0.88, diversity=0.60).',
+      timestamp: new Date().toISOString()
+    }
+  ];
+
+  return { references, activity, adaptiveStats };
+};
 
 describe('Adaptive Retrieval Telemetry', () => {
-  beforeEach(() => {
-    process.env.ENABLE_ADAPTIVE_RETRIEVAL = 'true';
-    process.env.ADAPTIVE_MIN_COVERAGE = '0.4';
-    process.env.ADAPTIVE_MIN_DIVERSITY = '0.3';
-    process.env.RETRIEVAL_STRATEGY = 'direct'; // Prevent knowledge agent calls
-
-    // Mock fetch to prevent real network calls and return proper search results
-    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-      // Handle embedding API calls
-      if (url.includes('/embeddings')) {
-        return {
-          ok: true,
-          headers: { get: vi.fn().mockReturnValue(null) },
-          json: async () => ({
-            data: [{ embedding: new Array(1536).fill(0.1) }]
-          })
-        };
-      }
-      // Handle search API calls - return documents
-      return {
-        ok: true,
-        headers: { get: vi.fn().mockReturnValue(null) },
-        json: async () => ({
-          value: [
-            {
-              chunk_id: 'doc1',
-              page_chunk: 'Moon landing content',
-              '@search.score': 2.5,
-              '@search.rerankerScore': 3.0
-            },
-            {
-              chunk_id: 'doc2',
-              page_chunk: 'Apollo mission details',
-              '@search.score': 2.3,
-              '@search.rerankerScore': 2.8
-            }
-          ]
-        })
-      };
-    });
-    vi.stubGlobal('fetch', fetchMock);
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('emits telemetry and returns adaptive stats when enabled', { timeout: 30000 }, async () => {
@@ -82,6 +55,15 @@ describe('Adaptive Retrieval Telemetry', () => {
       confidence: 0.9,
       steps: [{ action: 'vector_search', query: 'moon landing photos', k: 5 }]
     };
+
+    // Mock the retrieve tool to return adaptive retrieval results
+    const mockResult = mockAdaptiveRetrievalResult();
+    const mockRetrieve = vi.fn().mockResolvedValue({
+      response: 'Mock response',
+      references: mockResult.references,
+      activity: mockResult.activity,
+      adaptiveStats: mockResult.adaptiveStats
+    });
 
     const result = await dispatchTools({
       plan,
@@ -96,7 +78,10 @@ describe('Adaptive Retrieval Telemetry', () => {
         adaptiveRetrieval: true,
         lazyRetrieval: false
       } as any,
-      featureStates: { ENABLE_ADAPTIVE_RETRIEVAL: true }
+      featureStates: { ENABLE_ADAPTIVE_RETRIEVAL: true },
+      tools: {
+        retrieve: mockRetrieve
+      }
     });
 
     // Verify activity and references
