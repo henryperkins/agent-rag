@@ -14,10 +14,13 @@ const { lazyHybridSearch, loadFullContent, identifyLoadCandidates } = await impo
 const { resetRerankerThresholdWarnings } = await import('../utils/reranker-threshold.js');
 
 describe('lazy retrieval helpers', () => {
-  const originalThresholds = {
+  const originalConfig = {
     reranker: config.RERANKER_THRESHOLD,
     fallback: config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD,
-    minimum: config.RETRIEVAL_MIN_RERANKER_THRESHOLD
+    minimum: config.RETRIEVAL_MIN_RERANKER_THRESHOLD,
+    summaryMax: config.LAZY_SUMMARY_MAX_CHARS,
+    ragTopK: config.RAG_TOP_K,
+    prefetch: config.LAZY_PREFETCH_COUNT
   };
 
   beforeEach(() => {
@@ -32,9 +35,12 @@ describe('lazy retrieval helpers', () => {
   });
 
   afterEach(() => {
-    config.RERANKER_THRESHOLD = originalThresholds.reranker;
-    config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = originalThresholds.fallback;
-    config.RETRIEVAL_MIN_RERANKER_THRESHOLD = originalThresholds.minimum;
+    config.RERANKER_THRESHOLD = originalConfig.reranker;
+    config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = originalConfig.fallback;
+    config.RETRIEVAL_MIN_RERANKER_THRESHOLD = originalConfig.minimum;
+    config.LAZY_SUMMARY_MAX_CHARS = originalConfig.summaryMax;
+    config.RAG_TOP_K = originalConfig.ragTopK;
+    config.LAZY_PREFETCH_COUNT = originalConfig.prefetch;
   });
 
   it('returns summaries with loadFull callbacks', async () => {
@@ -54,10 +60,11 @@ describe('lazy retrieval helpers', () => {
   });
 
   it('filters references below the reranker threshold', async () => {
+    // F-005: hybridSemanticSearch now applies threshold internally, so mock should return already-filtered results
     (directSearch.hybridSemanticSearch as unknown as Mock).mockResolvedValueOnce({
       references: [
-        { id: 'doc-1', content: 'High score content', score: 2.9 },
-        { id: 'doc-2', content: 'Low score content', score: 1.1 }
+        { id: 'doc-1', content: 'High score content', score: 2.9 }
+        // doc-2 with score 1.1 is already filtered out by hybridSemanticSearch (threshold 2.5)
       ]
     });
 

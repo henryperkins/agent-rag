@@ -3,7 +3,7 @@ import { config } from '../config/app.js';
 import { hybridSemanticSearch } from './directSearch.js';
 import { withRetry } from '../utils/resilience.js';
 import { estimateTokens } from '../orchestrator/contextBudget.js';
-import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
+// F-005: Removed enforceRerankerThreshold import (no longer needed - threshold already applied in hybridSemanticSearch)
 
 export interface LazySearchOptions {
   query: string;
@@ -34,7 +34,12 @@ function buildFullContentFilter(id: string): string {
   return `id eq '${escaped}'`;
 }
 
-function createFullLoader(id: string | undefined, query: string, baseFilter?: string) {
+function createFullLoader(
+  id: string | undefined,
+  query: string,
+  baseFilter?: string,
+  rerankerThreshold?: number
+) {
   let cached: string | null = null;
 
   return async () => {
@@ -52,6 +57,8 @@ function createFullLoader(id: string | undefined, query: string, baseFilter?: st
           filter: baseFilter ? `(${baseFilter}) and ${buildFullContentFilter(id)}` : buildFullContentFilter(id),
           selectFields: ['id', 'page_chunk', 'page_number'],
           searchFields: ['page_chunk'],
+          // Use minimal threshold to ensure loader isn't filtered out by reranker
+          rerankerThreshold: rerankerThreshold ?? config.RETRIEVAL_MIN_RERANKER_THRESHOLD,
           signal
         })
       );
@@ -112,10 +119,9 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
     throw error;
   }
 
-  const enforcement = enforceRerankerThreshold(result.references, rerankerThreshold, {
-    source: 'lazy_hybrid'
-  });
-  const sliced = enforcement.references.slice(0, top);
+  // F-005: hybridSemanticSearch already applies rerankerThreshold, no need to re-enforce
+  // Previously: const enforcement = enforceRerankerThreshold(result.references, rerankerThreshold, {...})
+  const sliced = result.references.slice(0, top);
   const summaries = sliced.map((ref, index): LazyReference => {
     const summary = truncateSummary(ref.content ?? ref.chunk ?? '');
     return {
@@ -127,7 +133,7 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
       page_number: ref.page_number,
       score: ref.score,
       isSummary: true,
-      loadFull: createFullLoader(ref.id ?? `result_${index}`, query, filter)
+      loadFull: createFullLoader(ref.id ?? `result_${index}`, query, filter, rerankerThreshold)
     };
   });
 

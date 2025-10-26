@@ -21,6 +21,8 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 9
+      - name: Verify pnpm installation
+        run: pnpm --version
       - name: Install dependencies (workspace)
         run: pnpm -r install --frozen-lockfile=false
       - name: Lint
