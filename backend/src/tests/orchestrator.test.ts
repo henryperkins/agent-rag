@@ -101,6 +101,9 @@ describe('runSession orchestrator', () => {
   });
 
   it('escalates to dual retrieval when planner confidence is low', { timeout: 60000 }, async () => {
+    // Disable query decomposition to test pure confidence escalation behavior
+    vi.stubEnv('ENABLE_QUERY_DECOMPOSITION', 'false');
+
     vi.spyOn(planModule, 'getPlan').mockResolvedValue({
       confidence: 0.2,
       steps: []

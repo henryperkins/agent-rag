@@ -229,7 +229,7 @@ function buildUnifiedCitationBlock(
   };
 }
 
-function buildWebContext(results: WebResult[], maxTokens: number) {
+export function buildWebContext(results: WebResult[], maxTokens: number) {
   if (!results.length || maxTokens <= 0) {
     return {
       text: '',

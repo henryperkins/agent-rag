@@ -20,7 +20,7 @@ import { compactHistory } from './compact.js';
 import type { SalienceNote } from './compact.js';
 import { budgetSections, estimateTokens } from './contextBudget.js';
 import { getPlan } from './plan.js';
-import { dispatchTools } from './dispatch.js';
+import { dispatchTools, buildWebContext } from './dispatch.js';
 import { evaluateAnswer } from './critique.js';
 import { config } from '../config/app.js';
 import { createResponseStream, type Includable } from '../azure/openaiClient.js';
@@ -1172,15 +1172,21 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
 
       const dispatch = await traced('agent.tool.dispatch', async () => {
         if (decompositionApplied) {
+          // Build web context from decomposition web results
+          const { text: webContextText, tokens: webContextTokens, trimmed: webContextTrimmed } =
+            decompositionWebResults.length > 0
+              ? buildWebContext(decompositionWebResults, config.WEB_CONTEXT_MAX_TOKENS)
+              : { text: '', tokens: 0, trimmed: false, usedResults: [] };
+
           return {
             contextText: decompositionContextText,
             references: decompositionReferences,
             lazyReferences: [],
             activity: decompositionActivity,
             webResults: decompositionWebResults,
-            webContextText: '',
-            webContextTokens: 0,
-            webContextTrimmed: false,
+            webContextText,
+            webContextTokens,
+            webContextTrimmed,
             summaryTokens: undefined,
             source: 'direct' as const,
             retrievalMode: 'direct' as const,
