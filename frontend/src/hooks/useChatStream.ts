@@ -11,6 +11,8 @@ import type {
   SessionEvaluation,
   SummarySelectionStats
 } from '../types';
+import { API_BASE } from '../config/api';
+import { normalizeTelemetryEvent } from '../utils/telemetry';
 
 export interface StatusHistoryItem {
   stage: string;
@@ -60,67 +62,6 @@ interface StreamState {
   features?: FeatureSelectionMetadata;
 }
 
-function normalizeTelemetryEvent(data: Record<string, unknown> | undefined) {
-  if (!data) {
-    return {} as Record<string, unknown>;
-  }
-
-  const normalized: Record<string, unknown> = { ...data };
-
-  if (data.context_budget && !data.contextBudget) {
-    normalized.contextBudget = data.context_budget;
-  }
-  if (data.summary_selection && !data.summarySelection) {
-    normalized.summarySelection = data.summary_selection;
-  }
-  if (data.web_context && !data.webContext) {
-    normalized.webContext = data.web_context;
-  }
-  if (data.query_decomposition && !data.queryDecomposition) {
-    normalized.queryDecomposition = data.query_decomposition;
-  }
-  if (data.retrieval_mode && !data.retrievalMode) {
-    normalized.retrievalMode = data.retrieval_mode;
-  }
-  if (data.lazy_summary_tokens !== undefined && data.lazySummaryTokens === undefined) {
-    normalized.lazySummaryTokens = data.lazy_summary_tokens;
-  }
-  if (data.semantic_memory && !data.semanticMemory) {
-    normalized.semanticMemory = data.semantic_memory;
-  }
-  if (data.retrieval && !normalized.retrieval) {
-    const retrieval = data.retrieval as Record<string, unknown>;
-    normalized.retrieval = {
-      ...retrieval,
-      fallbackReason: retrieval.fallback_reason ?? retrieval.fallbackReason
-    };
-  }
-  if (data.diagnostics && !normalized.diagnostics) {
-    const diagnostics = data.diagnostics as Record<string, unknown>;
-    normalized.diagnostics = {
-      correlationId: diagnostics.correlation_id ?? diagnostics.correlationId,
-      knowledgeAgent: diagnostics.knowledge_agent ?? diagnostics.knowledgeAgent,
-      fallbackAttempts: diagnostics.fallback_attempts ?? diagnostics.fallbackAttempts
-    };
-  }
-  if (data.responses && Array.isArray(data.responses)) {
-    normalized.responses = data.responses;
-  }
-  if ((data as any).adaptive_retrieval && !(normalized as any).adaptiveRetrieval) {
-    (normalized as any).adaptiveRetrieval = (data as any).adaptive_retrieval;
-  }
-  if (data.metadata && typeof data.metadata === 'object') {
-    const metadata = data.metadata as Record<string, unknown>;
-    if (metadata.route && !normalized.route) {
-      normalized.route = metadata.route;
-    }
-    if (metadata.evaluation && !normalized.evaluation) {
-      normalized.evaluation = metadata.evaluation;
-    }
-  }
-
-  return normalized;
-}
 
 export function useChatStream() {
   const [state, setState] = useState<StreamState>({
@@ -167,9 +108,10 @@ export function useChatStream() {
     let finalCitations: Citation[] = [];
 
     try {
-      const response = await fetch('/chat/stream', {
+      const response = await fetch(`${API_BASE}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ messages, sessionId, feature_overrides: featureOverrides }),
         signal: controller.signal
       });

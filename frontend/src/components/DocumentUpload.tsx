@@ -1,9 +1,9 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import toast from 'react-hot-toast';
 import type { AgentMessage } from '../types';
+import { API_BASE } from '../config/api';
 
 const MAX_UPLOAD_MB = Number(import.meta.env.VITE_DOCUMENT_MAX_MB ?? '10');
-const API_BASE = (import.meta.env.VITE_API_BASE ?? __API_BASE__) as string;
 
 interface DocumentUploadProps {
   onUploaded?: (message: AgentMessage) => void;

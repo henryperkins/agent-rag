@@ -1,13 +1,38 @@
 import { randomUUID } from 'node:crypto';
-import type { WebResult, WebSearchResponse, Reference } from '../../../shared/types.js';
+import type {
+  WebResult,
+  WebSearchResponse,
+  Reference,
+  HyperbrowserLink
+} from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import { withRetry } from '../utils/resilience.js';
+
+type HyperbrowserFormat = 'markdown' | 'html' | 'links' | 'screenshot' | 'text';
+
+interface HyperbrowserScrapeOptions {
+  outputFormats?: HyperbrowserFormat[];
+  sessionOptions?: Record<string, unknown>;
+  enhanceCount?: number;
+}
+
+interface HyperbrowserExtractOptions {
+  schema?: Record<string, any>;
+  prompt?: string;
+  sessionOptions?: Record<string, unknown>;
+  enhanceCount?: number;
+}
+
+interface HyperbrowserOptions {
+  scrape?: HyperbrowserScrapeOptions;
+  extract?: HyperbrowserExtractOptions;
+}
 
 interface WebSearchArgs {
   query: string;
   count?: number;
   mode?: 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract';
-  hyperbrowserMode?: 'scrape' | 'extract';
+  hyperbrowser?: HyperbrowserOptions;
 }
 
 function buildResultId(item: any) {
@@ -18,6 +43,93 @@ function buildResultId(item: any) {
     return `web_${Buffer.from(item.link).toString('base64url')}`;
   }
   return randomUUID();
+}
+
+const SUPPORTED_HYPERBROWSER_FORMATS: ReadonlySet<HyperbrowserFormat> = new Set([
+  'markdown',
+  'html',
+  'links',
+  'screenshot',
+  'text'
+]) as ReadonlySet<HyperbrowserFormat>;
+
+function parseHyperbrowserFormats(raw: unknown): HyperbrowserFormat[] {
+  if (typeof raw !== 'string') {
+    return ['markdown', 'links'];
+  }
+
+  const parsed = raw
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => SUPPORTED_HYPERBROWSER_FORMATS.has(token as HyperbrowserFormat)) as HyperbrowserFormat[];
+
+  if (parsed.length === 0) {
+    return ['markdown', 'links'];
+  }
+
+  // Preserve order but dedupe
+  const seen = new Set<HyperbrowserFormat>();
+  const unique: HyperbrowserFormat[] = [];
+  for (const item of parsed) {
+    if (!seen.has(item)) {
+      seen.add(item);
+      unique.push(item);
+    }
+  }
+
+  return unique;
+}
+
+function normalizeHyperbrowserLinks(input: unknown): HyperbrowserLink[] | undefined {
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+
+  const normalized: HyperbrowserLink[] = [];
+  for (const entry of input) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const url = Reflect.get(entry, 'url');
+    if (typeof url !== 'string' || !url.trim()) {
+      continue;
+    }
+
+    const textCandidate = [Reflect.get(entry, 'text'), Reflect.get(entry, 'title'), Reflect.get(entry, 'label')]
+      .map((candidate) => (typeof candidate === 'string' ? candidate.trim() : ''))
+      .find((candidate) => candidate.length > 0);
+
+    normalized.push({
+      url,
+      text: textCandidate && textCandidate.length ? textCandidate : undefined
+    });
+  }
+
+  return normalized.length ? normalized : undefined;
+}
+
+function mergeHyperbrowserMetadata(
+  original: WebResult,
+  hyperMetadata?: Record<string, unknown>
+): Record<string, unknown> | null {
+  const base: Record<string, unknown> =
+    original.metadata && typeof original.metadata === 'object' && original.metadata !== null
+      ? { ...original.metadata }
+      : {};
+
+  if (hyperMetadata && Object.keys(hyperMetadata).length > 0) {
+    const existingHyper =
+      base.hyperbrowser && typeof base.hyperbrowser === 'object' && base.hyperbrowser !== null
+        ? (base.hyperbrowser as Record<string, unknown>)
+        : {};
+    base.hyperbrowser = {
+      ...existingHyper,
+      ...hyperMetadata
+    };
+  }
+
+  return Object.keys(base).length ? base : null;
 }
 
 interface GoogleSearchResponse {
@@ -49,7 +161,7 @@ interface GoogleSearchResponse {
 }
 
 export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchResponse> {
-  const { query, count, mode } = args;
+  const { query, count, mode, hyperbrowser } = args;
 
   if (!config.GOOGLE_SEARCH_API_KEY) {
     throw new Error('Google Search API key not configured. Set GOOGLE_SEARCH_API_KEY.');
@@ -115,7 +227,7 @@ export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchRespo
 
   // If Hyperbrowser mode is requested, enhance results
   if (searchMode === 'hyperbrowser_scrape' || searchMode === 'hyperbrowser_extract') {
-    return await enhanceWithHyperbrowser(results, query, searchMode);
+    return await enhanceWithHyperbrowser(results, query, searchMode, hyperbrowser);
   }
 
   return { results };
@@ -127,16 +239,19 @@ export async function webSearchTool(args: WebSearchArgs): Promise<WebSearchRespo
 async function enhanceWithHyperbrowser(
   googleResults: WebResult[],
   query: string,
-  mode: 'hyperbrowser_scrape' | 'hyperbrowser_extract'
+  mode: 'hyperbrowser_scrape' | 'hyperbrowser_extract',
+  options?: HyperbrowserOptions
 ): Promise<WebSearchResponse> {
   let mcp__hyperbrowser__scrape_webpage: any;
   let mcp__hyperbrowser__extract_structured_data: any;
+  let mergeSessionOptionsFn: ((overrides?: Record<string, unknown>) => Record<string, unknown>) | undefined;
 
   try {
     // @ts-expect-error MCP tools are optional and may not be available
     const mcpTools = await import('../../../mcp-tools.js');
     mcp__hyperbrowser__scrape_webpage = mcpTools.mcp__hyperbrowser__scrape_webpage;
     mcp__hyperbrowser__extract_structured_data = mcpTools.mcp__hyperbrowser__extract_structured_data;
+    mergeSessionOptionsFn = mcpTools.mergeSessionOptions ?? mcpTools.normalizeSessionOptions;
   } catch {
     // MCP tools not available
   }
@@ -154,21 +269,83 @@ async function enhanceWithHyperbrowser(
 
   try {
     if (mode === 'hyperbrowser_scrape') {
-      // Scrape top 3 results for full content
+      const scrapeOptions = options?.scrape ?? {};
+      const requestedFormatsRaw = Array.isArray(scrapeOptions.outputFormats) && scrapeOptions.outputFormats.length
+        ? Array.from(
+            new Set(
+              scrapeOptions.outputFormats
+                .map((format) => (typeof format === 'string' ? format.toLowerCase().trim() : ''))
+                .filter((format) => SUPPORTED_HYPERBROWSER_FORMATS.has(format as HyperbrowserFormat))
+            )
+          ) as HyperbrowserFormat[]
+        : parseHyperbrowserFormats(config.HYPERBROWSER_SCRAPE_FORMATS);
+
+      const requestedFormats = requestedFormatsRaw.slice();
+      const includesTextualFormat = requestedFormats.some((format) =>
+        format === 'markdown' || format === 'html' || format === 'text'
+      );
+      if (!includesTextualFormat) {
+        requestedFormats.unshift('markdown');
+      }
+
+      const sessionOverrides =
+        scrapeOptions.sessionOptions && typeof scrapeOptions.sessionOptions === 'object'
+          ? scrapeOptions.sessionOptions
+          : undefined;
+      const sessionOptions = mergeSessionOptionsFn
+        ? mergeSessionOptionsFn(sessionOverrides ?? {})
+        : sessionOverrides;
+      const enhanceCount = Math.min(scrapeOptions.enhanceCount ?? 3, googleResults.length);
+      const sliceCount = Math.max(0, enhanceCount);
+
+      if (sliceCount === 0) {
+        return { results: googleResults };
+      }
+
       const scrapedResults = await Promise.all(
-        googleResults.slice(0, 3).map(async (result) => {
+        googleResults.slice(0, sliceCount).map(async (result) => {
           try {
             const scraped = await mcp__hyperbrowser__scrape_webpage!({
               url: result.url,
-              outputFormat: ['markdown']
+              outputFormat: requestedFormats,
+              sessionOptions
             });
+
+            const markdown =
+              typeof scraped.markdown === 'string' && scraped.markdown.trim().length ? scraped.markdown : undefined;
+            const text = typeof scraped.text === 'string' && scraped.text.trim().length ? scraped.text : undefined;
+            const html = typeof scraped.html === 'string' && scraped.html.trim().length ? scraped.html : undefined;
+            const links = normalizeHyperbrowserLinks(scraped.links);
+            const screenshot =
+              typeof scraped.screenshot === 'string' && scraped.screenshot.trim().length
+                ? scraped.screenshot
+                : undefined;
+            const scrapedMetadata =
+              scraped.metadata && typeof scraped.metadata === 'object' ? (scraped.metadata as Record<string, unknown>) : undefined;
+            const candidateScrapedAt = scrapedMetadata?.['scrapedAt'];
+            const resolvedScrapedAt =
+              typeof candidateScrapedAt === 'string' && candidateScrapedAt.length ? candidateScrapedAt : undefined;
+
+            const hyperMetadata: Record<string, unknown> = {
+              ...(scrapedMetadata ?? {}),
+              formats: requestedFormats
+            };
+
+            if (sessionOptions && Object.keys(sessionOptions).length) {
+              hyperMetadata.sessionOptions = sessionOptions;
+            }
+
+            const metadata = mergeHyperbrowserMetadata(result, hyperMetadata);
 
             return {
               ...result,
-              body: scraped.markdown || result.snippet,
-              metadata: scraped.metadata,
-              scrapedAt: new Date().toISOString()
-            };
+              body: markdown ?? text ?? html ?? result.body ?? result.snippet,
+              html: html ?? result.html,
+              links: links ?? result.links,
+              screenshot: screenshot ?? result.screenshot,
+              metadata,
+              scrapedAt: resolvedScrapedAt ?? result.scrapedAt ?? new Date().toISOString()
+            } satisfies WebResult;
           } catch (error) {
             console.warn(
               `Failed to scrape ${result.url}:`,
@@ -179,13 +356,21 @@ async function enhanceWithHyperbrowser(
         })
       );
 
-      // Keep remaining results as-is
       return {
-        results: [...scrapedResults, ...googleResults.slice(3)]
+        results: [...scrapedResults, ...googleResults.slice(sliceCount)]
       };
-    } else {
-      // Extract structured data from top results
-      const extractSchema = {
+    }
+
+    const extractOptions = options?.extract ?? {};
+    const enhanceCount = Math.min(extractOptions.enhanceCount ?? 3, googleResults.length);
+    const sliceCount = Math.max(0, enhanceCount);
+
+    if (sliceCount === 0) {
+      return { results: googleResults };
+    }
+
+    const extractSchema =
+      extractOptions.schema ?? {
         type: 'object',
         properties: {
           mainContent: { type: 'string', description: 'The main content of the page' },
@@ -217,26 +402,59 @@ async function enhanceWithHyperbrowser(
         required: ['mainContent']
       };
 
-      const extracted = await mcp__hyperbrowser__extract_structured_data!({
-        urls: googleResults.slice(0, 3).map((r) => r.url),
-        prompt: `Extract the main content, key points, and factual information related to: ${query}`,
-        schema: extractSchema
-      });
+    const extractPrompt =
+      extractOptions.prompt ?? `Extract the main content, key points, and factual information related to: ${query}`;
 
-      // Convert extracted data back to WebResult format
-      const enhancedResults = googleResults.slice(0, 3).map((result, index) => ({
-        ...result,
-        body: extracted[index]?.mainContent || result.snippet,
-        keyPoints: extracted[index]?.keyPoints,
-        facts: extracted[index]?.facts,
-        metadata: extracted[index]?.metadata,
-        extractedAt: new Date().toISOString()
-      }));
+    const extracted = await mcp__hyperbrowser__extract_structured_data!({
+      urls: googleResults.slice(0, sliceCount).map((r) => r.url),
+      prompt: extractPrompt,
+      schema: extractSchema,
+      sessionOptions: mergeSessionOptionsFn
+        ? mergeSessionOptionsFn(extractOptions.sessionOptions ?? {})
+        : extractOptions.sessionOptions
+    });
+
+    const enhancedResults = googleResults.slice(0, sliceCount).map((result, index) => {
+      const payload = extracted?.[index] ?? {};
+      const mainContent = typeof payload?.mainContent === 'string' ? payload.mainContent : undefined;
+      const keyPoints = Array.isArray(payload?.keyPoints) ? payload.keyPoints : undefined;
+      const facts = Array.isArray(payload?.facts) ? payload.facts : undefined;
+      const metadataFromPayload =
+        payload && typeof payload.metadata === 'object' && payload.metadata !== null
+          ? (payload.metadata as Record<string, unknown>)
+          : undefined;
+
+      const hyperMetadata: Record<string, unknown> = {
+        ...(metadataFromPayload ?? {}),
+        prompt: extractPrompt,
+        schema: extractOptions.schema ?? extractSchema,
+        enhanceCount: sliceCount
+      };
+
+      if (mergeSessionOptionsFn) {
+        const mergedSession = mergeSessionOptionsFn(extractOptions.sessionOptions ?? {});
+        if (Object.keys(mergedSession).length) {
+          hyperMetadata.sessionOptions = mergedSession;
+        }
+      } else if (extractOptions.sessionOptions && Object.keys(extractOptions.sessionOptions).length) {
+        hyperMetadata.sessionOptions = extractOptions.sessionOptions;
+      }
+
+      const metadata = mergeHyperbrowserMetadata(result, hyperMetadata);
 
       return {
-        results: [...enhancedResults, ...googleResults.slice(3)]
-      };
-    }
+        ...result,
+        body: mainContent ?? result.body ?? result.snippet,
+        keyPoints,
+        facts,
+        metadata,
+        extractedAt: new Date().toISOString()
+      } satisfies WebResult;
+    });
+
+    return {
+      results: [...enhancedResults, ...googleResults.slice(sliceCount)]
+    };
   } catch (error) {
     console.error(
       'Hyperbrowser enhancement failed:',
@@ -250,19 +468,65 @@ async function enhanceWithHyperbrowser(
  * Converts Hyperbrowser scraped content to Reference format for RAG pipeline
  */
 export function convertWebResultsToReferences(webResults: WebResult[]): Reference[] {
-  return webResults.map((result) => ({
-    id: result.id,
-    title: result.title,
-    content: result.body || result.snippet,
-    url: result.url,
-    score: result.relevance,
-    page_number: undefined,
-    metadata: {
+  return webResults.map((result) => {
+    const metadata: Record<string, unknown> = {
       source: 'web_search',
       fetchedAt: result.fetchedAt,
-      scrapedAt: (result as any).scrapedAt,
-      extractedAt: (result as any).extractedAt,
+      scrapedAt: result.scrapedAt,
+      extractedAt: result.extractedAt,
       rank: result.rank
+    };
+
+    if (result.metadata && typeof result.metadata === 'object') {
+      const meta = result.metadata as Record<string, unknown>;
+      const hyperbrowserMeta =
+        meta.hyperbrowser && typeof meta.hyperbrowser === 'object' ? (meta.hyperbrowser as Record<string, unknown>) : null;
+
+      if (hyperbrowserMeta) {
+        metadata.hyperbrowser = hyperbrowserMeta;
+        const { hyperbrowser: _hyperbrowser, ...rest } = meta;
+        for (const [key, value] of Object.entries(rest)) {
+          if (value !== undefined && value !== null) {
+            metadata[key] = value;
+          }
+        }
+      } else {
+        metadata.hyperbrowser = meta;
+      }
     }
-  }));
+
+    if (Array.isArray(result.links) && result.links.length) {
+      metadata.links = result.links;
+    }
+
+    if (typeof result.html === 'string' && result.html.length) {
+      metadata.html = result.html;
+    }
+
+    if (typeof result.screenshot === 'string' && result.screenshot.length) {
+      metadata.screenshot = result.screenshot;
+    }
+
+    if (Array.isArray(result.keyPoints) && result.keyPoints.length) {
+      metadata.keyPoints = result.keyPoints;
+    }
+
+    if (Array.isArray(result.facts) && result.facts.length) {
+      metadata.facts = result.facts;
+    }
+
+    const sanitizedMetadata = Object.fromEntries(
+      Object.entries(metadata).filter(([, value]) => value !== undefined && value !== null)
+    );
+
+    return {
+      id: result.id,
+      title: result.title,
+      content: result.body || result.html || result.snippet,
+      url: result.url,
+      score: result.relevance,
+      page_number: undefined,
+      metadata: sanitizedMetadata
+    };
+  });
 }

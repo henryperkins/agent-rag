@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import { apiClient } from '../api/client';
 import type { AgentMessage, ChatResponse, FeatureOverrideMap } from '../types';
+import { normalizeTelemetryEvent } from '../utils/telemetry';
 
 export function useChat() {
   const queryClient = useQueryClient();
@@ -19,7 +20,15 @@ export function useChat() {
         sessionId,
         feature_overrides
       });
-      return data;
+      const normalizedMetadata = normalizeTelemetryEvent(data.metadata as unknown as Record<string, unknown>);
+      const metadata = data.metadata
+        ? ({ ...data.metadata, ...normalizedMetadata } as ChatResponse['metadata'])
+        : (normalizedMetadata as ChatResponse['metadata']);
+
+      return {
+        ...data,
+        metadata
+      } satisfies ChatResponse;
     },
     onSuccess: (data) => {
       if (data.citations.length) {

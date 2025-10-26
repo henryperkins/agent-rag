@@ -13,6 +13,8 @@ import { SessionHealthDashboard } from './components/SessionHealthDashboard';
 import { TelemetryDrawer } from './components/TelemetryDrawer';
 import { useChat } from './hooks/useChat';
 import { useChatStream } from './hooks/useChatStream';
+import { API_BASE } from './config/api';
+import { FEATURE_FLAG_KEYS } from '../../shared/featureFlags.js';
 import type {
   ActivityStep,
   AgentMessage,
@@ -31,7 +33,6 @@ import './styles/markdown.css';
 
 const SESSION_STORAGE_KEY = 'agent-rag:session-id';
 const FEATURE_STORAGE_PREFIX = 'agent-rag:feature-overrides:';
-const API_BASE = (import.meta.env.VITE_API_BASE ?? __API_BASE__) as string;
 
 const queryClient = new QueryClient();
 
@@ -73,22 +74,9 @@ function toThoughtMessage(step: ActivityStep): ChatMessage {
   };
 }
 
-const FEATURE_FLAGS: FeatureFlag[] = [
-  'ENABLE_MULTI_INDEX_FEDERATION',
-  'ENABLE_LAZY_RETRIEVAL',
-  'ENABLE_ADAPTIVE_RETRIEVAL',
-  'ENABLE_SEMANTIC_SUMMARY',
-  'ENABLE_INTENT_ROUTING',
-  'ENABLE_SEMANTIC_MEMORY',
-  'ENABLE_QUERY_DECOMPOSITION',
-  'ENABLE_WEB_RERANKING',
-  'ENABLE_SEMANTIC_BOOST',
-  'ENABLE_RESPONSE_STORAGE'
-];
-
 function sanitizeFeatureMap(map?: FeatureOverrideMap | null): FeatureOverrideMap {
   const sanitized: FeatureOverrideMap = {};
-  for (const flag of FEATURE_FLAGS) {
+  for (const flag of FEATURE_FLAG_KEYS) {
     sanitized[flag] = map?.[flag] === true;
   }
   return sanitized;
@@ -360,37 +348,38 @@ function ChatApp() {
   const isBusy =
     chatMutation.isPending || stream.isStreaming || sidebar.status === 'starting' || loadingHistory;
 
-  const planDetails = mode === 'stream' ? stream.plan : chatMutation.data?.metadata?.plan;
+  const syncMetadata = chatMutation.data?.metadata;
+  const planDetails = mode === 'stream' ? stream.plan : syncMetadata?.plan;
   const telemetryDetails = mode === 'stream'
     ? stream.telemetry
-    : chatMutation.data?.metadata
+    : syncMetadata
       ? {
-          plan: chatMutation.data.metadata.plan,
-          contextBudget: chatMutation.data.metadata.context_budget,
-          critic: chatMutation.data.metadata.critic_report,
-          webContext: chatMutation.data.metadata.web_context,
-          summarySelection: chatMutation.data.metadata.summary_selection,
-          evaluation: chatMutation.data.metadata.evaluation,
-          retrieval: chatMutation.data.metadata.retrieval,
-          diagnostics: chatMutation.data.metadata.diagnostics,
+          plan: syncMetadata.plan,
+          contextBudget: syncMetadata.contextBudget ?? syncMetadata.context_budget,
+          critic: syncMetadata.critic_report,
+          webContext: syncMetadata.webContext ?? syncMetadata.web_context,
+          summarySelection: syncMetadata.summarySelection ?? syncMetadata.summary_selection,
+          evaluation: syncMetadata.evaluation,
+          retrieval: syncMetadata.retrieval,
+          diagnostics: syncMetadata.diagnostics,
           // Preserve fields needed for SessionHealthDashboard metrics
-          retrieval_time_ms: chatMutation.data.metadata.retrieval_time_ms,
-          critic_iterations: chatMutation.data.metadata.critic_iterations,
-          context_budget: chatMutation.data.metadata.context_budget,
-          critic_report: chatMutation.data.metadata.critic_report
+          retrieval_time_ms: syncMetadata.retrieval_time_ms,
+          critic_iterations: syncMetadata.critic_iterations,
+          context_budget: syncMetadata.contextBudget ?? syncMetadata.context_budget,
+          critic_report: syncMetadata.critic_report
         }
       : undefined;
   const traceDetails = mode === 'stream' ? stream.trace : undefined;
-  const webContextDetails = mode === 'stream' ? stream.webContext : chatMutation.data?.metadata?.web_context;
+  const webContextDetails = mode === 'stream' ? stream.webContext : syncMetadata?.webContext ?? syncMetadata?.web_context;
   const critiqueHistory = mode === 'stream'
     ? stream.critiqueHistory
-    : chatMutation.data?.metadata?.critique_history;
-  const routeDetails = mode === 'stream' ? stream.route : chatMutation.data?.metadata?.route;
-  const responsesDetails = mode === 'stream' ? stream.responses : chatMutation.data?.metadata?.responses;
-  const evaluationDetails = mode === 'stream' ? stream.evaluation : chatMutation.data?.metadata?.evaluation;
-  const retrievalDetails = mode === 'stream' ? stream.retrieval : chatMutation.data?.metadata?.retrieval;
-  const diagnosticsDetails = mode === 'stream' ? stream.diagnostics : chatMutation.data?.metadata?.diagnostics;
-  const featureMetadata = mode === 'stream' ? stream.features : chatMutation.data?.metadata?.features;
+    : syncMetadata?.critiqueHistory ?? syncMetadata?.critique_history;
+  const routeDetails = mode === 'stream' ? stream.route : syncMetadata?.route;
+  const responsesDetails = mode === 'stream' ? stream.responses : syncMetadata?.responses;
+  const evaluationDetails = mode === 'stream' ? stream.evaluation : syncMetadata?.evaluation;
+  const retrievalDetails = mode === 'stream' ? stream.retrieval : syncMetadata?.retrieval;
+  const diagnosticsDetails = mode === 'stream' ? stream.diagnostics : syncMetadata?.diagnostics;
+  const featureMetadata = mode === 'stream' ? stream.features : syncMetadata?.features;
 
   useEffect(() => {
     if (mode !== 'stream') {
@@ -496,7 +485,7 @@ function ChatApp() {
 
       <footer className="app-footer">
         <span>Version {__APP_VERSION__}</span>
-        <span>API: {(import.meta.env.VITE_API_BASE ?? __API_BASE__) as string}</span>
+        <span>API: {API_BASE}</span>
       </footer>
 
       <TelemetryDrawer
@@ -514,9 +503,12 @@ function ChatApp() {
           responses: responsesDetails,
           retrieval: retrievalDetails,
           diagnostics: diagnosticsDetails,
-          traceId: typeof chatMutation.data?.metadata?.trace_id === 'string'
-            ? chatMutation.data.metadata.trace_id
-            : undefined,
+          traceId:
+            typeof syncMetadata?.traceId === 'string'
+              ? syncMetadata.traceId
+              : typeof syncMetadata?.trace_id === 'string'
+                ? syncMetadata.trace_id
+                : undefined,
           trace: traceDetails,
           webContext: webContextDetails,
           insights:

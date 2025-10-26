@@ -228,6 +228,16 @@ export interface KnowledgeAgentGroundingSummary {
   unmatched: string[];
 }
 
+export interface HyperbrowserLink {
+  url: string;
+  text?: string;
+}
+
+export interface HyperbrowserFact {
+  claim?: string;
+  context?: string;
+}
+
 export interface WebResult {
   id?: string;
   title: string;
@@ -235,6 +245,14 @@ export interface WebResult {
   url: string;
   body?: string;
   content?: string;
+  html?: string;
+  links?: HyperbrowserLink[];
+  screenshot?: string;
+  keyPoints?: string[];
+  facts?: HyperbrowserFact[];
+  metadata?: Record<string, unknown> | null;
+  scrapedAt?: string;
+  extractedAt?: string;
   rank?: number;
   relevance?: number;
   fetchedAt?: string;
@@ -268,9 +286,17 @@ export interface ChatResponse {
     critic_iterations?: number;
     plan?: PlanSummary;
     trace_id?: string;
+    traceId?: string;
     context_budget?: Record<string, number>;
+    contextBudget?: Record<string, number>;
     critic_report?: CriticReport;
     web_context?: {
+      tokens: number;
+      trimmed: boolean;
+      text?: string;
+      results: Array<{ id: string; title: string; url: string; rank?: number }>;
+    };
+    webContext?: {
       tokens: number;
       trimmed: boolean;
       text?: string;
@@ -285,14 +311,35 @@ export interface ChatResponse {
       usedFullContent?: boolean;
       forced?: boolean;
     }>;
+    critiqueHistory?: Array<{
+      attempt: number;
+      coverage: number;
+      grounded: boolean;
+      action: 'accept' | 'revise';
+      issues?: string[];
+      usedFullContent?: boolean;
+      forced?: boolean;
+    }>;
     summary_selection?: SummarySelectionStats;
+    summarySelection?: SummarySelectionStats;
     route?: RouteMetadata;
     retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
+    retrievalMode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
     lazy_summary_tokens?: number;
+    lazySummaryTokens?: number;
     retrieval?: RetrievalDiagnostics;
     diagnostics?: AgenticRetrievalDiagnostics;
     responses?: Array<{ attempt: number; responseId?: string }>;
     semantic_memory?: {
+      recalled: number;
+      entries: Array<{
+        id: number;
+        type: string;
+        similarity?: number;
+        preview?: string;
+      }>;
+    };
+    semanticMemory?: {
       recalled: number;
       entries: Array<{
         id: number;
@@ -311,11 +358,27 @@ export interface ChatResponse {
       }>;
       synthesisPrompt?: string;
     };
+    queryDecomposition?: {
+      active: boolean;
+      complexityScore?: number;
+      subQueries?: Array<{
+        id: number;
+        query: string;
+        dependencies: number[];
+      }>;
+      synthesisPrompt?: string;
+    };
     // Adaptive Query Reformulation telemetry snapshot (snake_case for API consistency)
     adaptive_retrieval?: AdaptiveRetrievalStats;
+    adaptiveRetrieval?: AdaptiveRetrievalStats;
     knowledge_agent_grounding?: KnowledgeAgentGroundingSummary;
+    knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
     reranker_threshold_used?: number;
     reranker_threshold_history?: number[];
+    rerankerThresholdUsed?: number;
+    rerankerThresholdHistory?: number[];
+    retrieval_latency_ms?: number;
+    retrievalLatencyMs?: number;
     evaluation?: SessionEvaluation;
   };
 }

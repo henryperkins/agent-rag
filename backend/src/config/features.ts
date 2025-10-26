@@ -1,19 +1,8 @@
 import type { FeatureFlag, FeatureOverrideMap, FeatureSource } from '../../../shared/types.js';
+import { FEATURE_FLAG_KEYS } from '../../../shared/featureFlags.js';
 import { config } from './app.js';
 
-export const FEATURE_FLAG_KEYS: FeatureFlag[] = [
-  'ENABLE_MULTI_INDEX_FEDERATION',
-  'ENABLE_LAZY_RETRIEVAL',
-  'ENABLE_SEMANTIC_SUMMARY',
-  'ENABLE_INTENT_ROUTING',
-  'ENABLE_SEMANTIC_MEMORY',
-  'ENABLE_QUERY_DECOMPOSITION',
-  'ENABLE_WEB_RERANKING',
-  'ENABLE_SEMANTIC_BOOST',
-  'ENABLE_RESPONSE_STORAGE',
-  'ENABLE_ADAPTIVE_RETRIEVAL',
-  'ENABLE_HYBRID_WEB_RETRIEVAL'
-];
+export { FEATURE_FLAG_KEYS };
 
 export interface FeatureGates {
   multiIndexFederation: boolean;

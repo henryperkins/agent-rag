@@ -3,6 +3,20 @@ export interface AgentMessage {
     role: Role;
     content: string;
 }
+export type FeatureFlag = 'ENABLE_MULTI_INDEX_FEDERATION' | 'ENABLE_LAZY_RETRIEVAL' | 'ENABLE_SEMANTIC_SUMMARY' | 'ENABLE_INTENT_ROUTING' | 'ENABLE_SEMANTIC_MEMORY' | 'ENABLE_QUERY_DECOMPOSITION' | 'ENABLE_WEB_RERANKING' | 'ENABLE_SEMANTIC_BOOST' | 'ENABLE_RESPONSE_STORAGE' | 'ENABLE_ADAPTIVE_RETRIEVAL' | 'ENABLE_HYBRID_WEB_RETRIEVAL';
+export type FeatureOverrideMap = Partial<Record<FeatureFlag, boolean>>;
+export type FeatureSource = 'config' | 'persisted' | 'override';
+export interface FeatureSelectionMetadata {
+    resolved: Record<FeatureFlag, boolean>;
+    overrides?: FeatureOverrideMap;
+    persisted?: FeatureOverrideMap;
+    sources?: Record<FeatureFlag, FeatureSource>;
+}
+export interface ChatRequestPayload {
+    messages: AgentMessage[];
+    sessionId?: string;
+    feature_overrides?: FeatureOverrideMap;
+}
 export interface Reference {
     id?: string;
     title?: string;
@@ -12,6 +26,43 @@ export interface Reference {
     page_number?: number;
     pageNumber?: number;
     score?: number;
+    sourceIndex?: string;
+    sourceType?: string;
+    metadata?: Record<string, unknown>;
+    highlights?: Record<string, string[]>;
+    captions?: Array<{
+        text: string;
+        highlights?: string;
+    }>;
+}
+export interface LazyReference extends Reference {
+    summary?: string;
+    isSummary?: boolean;
+    loadFull?: () => Promise<string>;
+}
+export interface LazyRetrievalResponse {
+    references: LazyReference[];
+    summaryTokens: number;
+    fullContentAvailable: boolean;
+}
+export interface KnowledgeAgentDiagnostic {
+    correlationId: string;
+    attempted: boolean;
+    fallbackTriggered: boolean;
+    requestId?: string;
+    statusCode?: number;
+    errorMessage?: string;
+    failurePhase?: 'invocation' | 'zero_results' | 'partial_results';
+    grounding?: KnowledgeAgentGroundingSummary;
+}
+export interface AgenticRetrievalDiagnostics {
+    correlationId?: string;
+    knowledgeAgent?: KnowledgeAgentDiagnostic;
+    fallbackAttempts?: number;
+    knowledgeAgentSummaryProvided?: boolean;
+    retryCount?: number;
+    coverageChecklistCount?: number;
+    contextSectionLabels?: string[];
 }
 export interface ActivityStep {
     type: string;
@@ -26,12 +77,24 @@ export interface PlanStep {
 export interface PlanSummary {
     confidence: number;
     steps: PlanStep[];
+    reasoningSummary?: string;
+}
+export interface RouteMetadata {
+    intent: string;
+    confidence: number;
+    reasoning: string;
+    insights?: string[];
+    model: string;
+    retrieverStrategy: string;
+    maxTokens: number;
 }
 export interface CriticReport {
     grounded: boolean;
     coverage: number;
     issues?: string[];
     action: 'accept' | 'revise';
+    forced?: boolean;
+    reasoningSummary?: string;
 }
 export interface SummarySelectionStats {
     mode: 'semantic' | 'recency';
@@ -46,38 +109,116 @@ export interface SummarySelectionStats {
     minSelectedScore?: number;
     error?: string;
 }
+export interface EvaluationDimension {
+    metric: string;
+    score: number;
+    threshold: number;
+    passed: boolean;
+    reason: string;
+    evidence?: Record<string, unknown>;
+}
+export interface RagEvaluationSnapshot {
+    retrieval?: EvaluationDimension;
+    documentRetrieval?: EvaluationDimension;
+    groundedness?: EvaluationDimension;
+    groundednessPro?: EvaluationDimension;
+    relevance?: EvaluationDimension;
+    responseCompleteness?: EvaluationDimension;
+}
+export interface QualityEvaluationSnapshot {
+    coherence?: EvaluationDimension;
+    fluency?: EvaluationDimension;
+    qa?: EvaluationDimension;
+}
+export type SafetyEvaluationCategory = 'hate_and_unfairness' | 'sexual' | 'violence' | 'self_harm' | 'content_safety' | 'protected_materials' | 'code_vulnerability' | 'ungrounded_attributes' | 'indirect_attack';
+export interface SafetyEvaluationSnapshot {
+    flagged: boolean;
+    categories: SafetyEvaluationCategory[];
+    reason?: string;
+    evidence?: Record<string, unknown>;
+}
+export interface AgentEvaluationSnapshot {
+    intentResolution?: EvaluationDimension;
+    toolCallAccuracy?: EvaluationDimension;
+    taskAdherence?: EvaluationDimension;
+}
+export interface SessionEvaluationSummary {
+    status: 'pass' | 'needs_review';
+    failingMetrics: string[];
+    generatedAt: string;
+}
+export interface SessionEvaluation {
+    rag?: RagEvaluationSnapshot;
+    quality?: QualityEvaluationSnapshot;
+    safety?: SafetyEvaluationSnapshot;
+    agent?: AgentEvaluationSnapshot;
+    summary: SessionEvaluationSummary;
+}
 export interface AgenticRetrievalResponse {
     response: string;
     references: Reference[];
     activity: ActivityStep[];
-    lazyReferences?: Reference[];
+    lazyReferences?: LazyReference[];
     summaryTokens?: number;
-    mode?: 'direct' | 'lazy' | 'knowledge_agent';
+    mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
     strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
     knowledgeAgentAnswer?: string;
     fullContentAvailable?: boolean;
     fallbackAttempts?: number;
     minDocumentsRequired?: number;
     fallbackTriggered?: boolean;
-    adaptiveStats?: unknown;
+    adaptiveStats?: AdaptiveRetrievalStats;
+    diagnostics?: AgenticRetrievalDiagnostics;
     knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
     thresholdUsed?: number;
     thresholdHistory?: number[];
+    coverageChecklistCount?: number;
+    contextSectionLabels?: string[];
+    knowledgeAgentSummaryProvided?: boolean;
+    freshnessAnalysis?: any;
+    mergeStats?: Record<string, any>;
 }
 export interface KnowledgeAgentGroundingSummary {
     mapping: Record<string, string>;
     citationMap: Record<string, string[]>;
     unmatched: string[];
 }
+export interface HyperbrowserLink {
+    url: string;
+    text?: string;
+}
+export interface HyperbrowserFact {
+    claim?: string;
+    context?: string;
+}
 export interface WebResult {
-    id: string;
+    id?: string;
     title: string;
     snippet: string;
     url: string;
     body?: string;
+    content?: string;
+    html?: string;
+    links?: HyperbrowserLink[];
+    screenshot?: string;
+    keyPoints?: string[];
+    facts?: HyperbrowserFact[];
+    metadata?: Record<string, unknown> | null;
+    scrapedAt?: string;
+    extractedAt?: string;
     rank?: number;
     relevance?: number;
-    fetchedAt: string;
+    fetchedAt?: string;
+    source?: string;
+    authors?: string;
+    publishedDate?: string;
+    citationCount?: number;
+    influentialCitationCount?: number;
+    authorityScore?: number;
+    venue?: string;
+    category?: string;
+    isOpenAccess?: boolean;
+    pdfUrl?: string;
 }
 export interface WebSearchResponse {
     results: WebResult[];
@@ -90,13 +231,27 @@ export interface ChatResponse {
     citations: Reference[];
     activity: ActivityStep[];
     metadata?: {
+        features?: FeatureSelectionMetadata;
         retrieval_time_ms?: number;
         critic_iterations?: number;
         plan?: PlanSummary;
         trace_id?: string;
+        traceId?: string;
         context_budget?: Record<string, number>;
+        contextBudget?: Record<string, number>;
         critic_report?: CriticReport;
         web_context?: {
+            tokens: number;
+            trimmed: boolean;
+            text?: string;
+            results: Array<{
+                id: string;
+                title: string;
+                url: string;
+                rank?: number;
+            }>;
+        };
+        webContext?: {
             tokens: number;
             trimmed: boolean;
             text?: string;
@@ -113,9 +268,80 @@ export interface ChatResponse {
             grounded: boolean;
             action: 'accept' | 'revise';
             issues?: string[];
+            usedFullContent?: boolean;
+            forced?: boolean;
+        }>;
+        critiqueHistory?: Array<{
+            attempt: number;
+            coverage: number;
+            grounded: boolean;
+            action: 'accept' | 'revise';
+            issues?: string[];
+            usedFullContent?: boolean;
+            forced?: boolean;
         }>;
         summary_selection?: SummarySelectionStats;
-        retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent';
+        summarySelection?: SummarySelectionStats;
+        route?: RouteMetadata;
+        retrieval_mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
+        retrievalMode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
+        lazy_summary_tokens?: number;
+        lazySummaryTokens?: number;
+        retrieval?: RetrievalDiagnostics;
+        diagnostics?: AgenticRetrievalDiagnostics;
+        responses?: Array<{
+            attempt: number;
+            responseId?: string;
+        }>;
+        semantic_memory?: {
+            recalled: number;
+            entries: Array<{
+                id: number;
+                type: string;
+                similarity?: number;
+                preview?: string;
+            }>;
+        };
+        semanticMemory?: {
+            recalled: number;
+            entries: Array<{
+                id: number;
+                type: string;
+                similarity?: number;
+                preview?: string;
+            }>;
+        };
+        query_decomposition?: {
+            active: boolean;
+            complexityScore?: number;
+            subQueries?: Array<{
+                id: number;
+                query: string;
+                dependencies: number[];
+            }>;
+            synthesisPrompt?: string;
+        };
+        queryDecomposition?: {
+            active: boolean;
+            complexityScore?: number;
+            subQueries?: Array<{
+                id: number;
+                query: string;
+                dependencies: number[];
+            }>;
+            synthesisPrompt?: string;
+        };
+        adaptive_retrieval?: AdaptiveRetrievalStats;
+        adaptiveRetrieval?: AdaptiveRetrievalStats;
+        knowledge_agent_grounding?: KnowledgeAgentGroundingSummary;
+        knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
+        reranker_threshold_used?: number;
+        reranker_threshold_history?: number[];
+        rerankerThresholdUsed?: number;
+        rerankerThresholdHistory?: number[];
+        retrieval_latency_ms?: number;
+        retrievalLatencyMs?: number;
+        evaluation?: SessionEvaluation;
     };
 }
 export interface TraceEvent {
@@ -138,9 +364,21 @@ export interface RetrievalDiagnostics {
     thresholdUsed?: number;
     thresholdHistory?: number[];
     fallbackReason?: string;
+    fallback_reason?: string;
     escalated?: boolean;
-    mode?: 'direct' | 'lazy' | 'knowledge_agent';
+    mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
+    summaryTokens?: number;
     strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
+    highlightedDocuments?: number;
+    fallbackAttempts?: number;
+    minDocumentsRequired?: number;
+    fallbackTriggered?: boolean;
+    correlationId?: string;
+    knowledgeAgent?: KnowledgeAgentDiagnostic;
+    coverageChecklistCount?: number;
+    contextSectionLabels?: string[];
+    knowledgeAgentSummaryProvided?: boolean;
+    latencyMs?: number;
 }
 export interface SessionTrace {
     sessionId: string;
@@ -149,6 +387,7 @@ export interface SessionTrace {
     completedAt?: string;
     plan?: PlanSummary;
     planConfidence?: number;
+    route?: RouteMetadata;
     contextBudget?: {
         history_tokens: number;
         summary_tokens: number;
@@ -162,6 +401,7 @@ export interface SessionTrace {
         action: string;
         iterations: number;
         issues?: string[];
+        reasoningSummary?: string;
     };
     critiqueHistory?: Array<{
         attempt: number;
@@ -169,6 +409,12 @@ export interface SessionTrace {
         coverage: number;
         action: 'accept' | 'revise';
         issues?: string[];
+        usedFullContent?: boolean;
+        forced?: boolean;
+    }>;
+    responses?: Array<{
+        attempt: number;
+        responseId?: string;
     }>;
     webContext?: {
         tokens: number;
@@ -182,33 +428,111 @@ export interface SessionTrace {
     };
     summarySelection?: SummarySelectionStats;
     events: TraceEvent[];
+    semanticMemory?: {
+        recalled: number;
+        entries: Array<{
+            id: number;
+            type: string;
+            similarity?: number;
+            preview?: string;
+        }>;
+    };
+    queryDecomposition?: {
+        active: boolean;
+        complexityScore?: number;
+        subQueries?: Array<{
+            id: number;
+            query: string;
+            dependencies: number[];
+        }>;
+        synthesisPrompt?: string;
+    };
+    error?: string;
+    evaluation?: SessionEvaluation;
     knowledgeAgentGrounding?: KnowledgeAgentGroundingSummary;
     rerankerThresholdUsed?: number;
     rerankerThresholdHistory?: number[];
-    error?: string;
 }
 export interface OrchestratorTools {
     retrieve: (args: {
-        messages: AgentMessage[];
+        query: string;
+        filter?: string;
+        top?: number;
+        messages?: AgentMessage[];
+        features?: FeatureOverrideMap;
+    }) => Promise<AgenticRetrievalResponse>;
+    lazyRetrieve?: (args: {
+        query: string;
+        filter?: string;
+        top?: number;
     }) => Promise<AgenticRetrievalResponse>;
     webSearch: (args: {
         query: string;
         count?: number;
-        mode?: 'summary' | 'full';
+        mode?: 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract';
     }) => Promise<WebSearchResponse>;
     answer: (args: {
         question: string;
         context: string;
         citations?: Reference[];
         revisionNotes?: string[];
+        model?: string;
+        maxTokens?: number;
+        systemPrompt?: string;
+        temperature?: number;
+        previousResponseId?: string;
+        features?: FeatureOverrideMap;
+        sessionId?: string;
+        userId?: string;
+        intent?: string;
     }) => Promise<{
         answer: string;
         citations?: Reference[];
+        responseId?: string;
+        reasoningSummary?: string;
+        usage?: unknown;
     }>;
     critic: (args: {
         draft: string;
         evidence: string;
         question: string;
     }) => Promise<CriticReport>;
+}
+export interface AdaptiveRetrievalAttempt {
+    attempt: number;
+    query: string;
+    quality: {
+        coverage: number;
+        diversity: number;
+        authority: number;
+        freshness: number;
+    };
+    latency_ms?: number;
+}
+export interface AdaptiveRetrievalStats {
+    enabled: boolean;
+    attempts: number;
+    triggered: boolean;
+    trigger_reason: 'coverage' | 'diversity' | 'both' | null;
+    thresholds: {
+        coverage: number;
+        diversity: number;
+    };
+    initial_quality: {
+        coverage: number;
+        diversity: number;
+        authority: number;
+        freshness: number;
+    };
+    final_quality: {
+        coverage: number;
+        diversity: number;
+        authority: number;
+        freshness: number;
+    };
+    reformulations_count: number;
+    reformulations_sample: string[];
+    latency_ms_total?: number;
+    per_attempt: AdaptiveRetrievalAttempt[];
 }
 //# sourceMappingURL=types.d.ts.map

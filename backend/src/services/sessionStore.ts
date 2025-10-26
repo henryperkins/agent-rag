@@ -2,7 +2,7 @@ import type { Database as SqliteDatabase } from 'better-sqlite3';
 import type { AgentMessage, FeatureOverrideMap } from '../../../shared/types.js';
 import { config } from '../config/app.js';
 import type { SalienceNote } from '../orchestrator/compact.js';
-import { sanitizeFeatureOverrides } from '../config/features.js';
+import { sanitizeFeatureOverrides, resolveFeatureToggles, FEATURE_FLAG_KEYS } from '../config/features.js';
 import { openSqliteDatabase } from '../utils/sqlite-utils.js';
 
 export interface StoredSummaryBullet {
@@ -234,7 +234,14 @@ export class SessionStore {
       return;
     }
 
-    const sanitized = sanitizeFeatureOverrides(features) ?? {};
+    const defaults = resolveFeatureToggles().resolved;
+    const normalized = FEATURE_FLAG_KEYS.reduce((acc, flag) => {
+      const value = features?.[flag];
+      acc[flag] = typeof value === 'boolean' ? value : defaults[flag];
+      return acc;
+    }, {} as FeatureOverrideMap);
+
+    const sanitized = sanitizeFeatureOverrides(normalized) ?? {};
     const payload = JSON.stringify(sanitized);
     const updatedAt = new Date().toISOString();
 
@@ -265,8 +272,22 @@ export class SessionStore {
       return null;
     }
 
+    const defaults = resolveFeatureToggles().resolved;
+
     if (this.fallback) {
-      return this.fallback.features.get(sessionId) ?? null;
+      const snapshot = this.fallback.features.get(sessionId) ?? null;
+      if (!snapshot) {
+        return null;
+      }
+      const mergedFeatures = FEATURE_FLAG_KEYS.reduce((acc, flag) => {
+        acc[flag] = snapshot.features?.[flag] ?? defaults[flag];
+        return acc;
+      }, {} as FeatureOverrideMap);
+
+      return {
+        ...snapshot,
+        features: mergedFeatures
+      };
     }
 
     if (!this.db) {
@@ -284,9 +305,13 @@ export class SessionStore {
     try {
       const parsed = JSON.parse(row.features) as FeatureOverrideMap;
       const sanitized = sanitizeFeatureOverrides(parsed) ?? {};
+      const merged = FEATURE_FLAG_KEYS.reduce((acc, flag) => {
+        acc[flag] = sanitized?.[flag] ?? defaults[flag];
+        return acc;
+      }, {} as FeatureOverrideMap);
       return {
         sessionId: row.session_id,
-        features: sanitized,
+        features: merged,
         updatedAt: row.updated_at
       };
     } catch (error) {

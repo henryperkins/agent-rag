@@ -77,6 +77,12 @@ const envSchema = z.object({
   WEB_SAFE_MODE: z.enum(['off', 'active', 'high']).default('off'),
   WEB_DEFAULT_RECENCY: z.string().default(''),
   WEB_EMBEDDING_BATCH_SIZE: z.coerce.number().default(16),
+  HYPERBROWSER_API_KEY: z.string().optional(),
+  HYPERBROWSER_USE_STEALTH: z.coerce.boolean().default(true),
+  HYPERBROWSER_USE_PROXY: z.coerce.boolean().default(false),
+  HYPERBROWSER_SOLVE_CAPTCHAS: z.coerce.boolean().default(false),
+  HYPERBROWSER_ACCEPT_COOKIES: z.coerce.boolean().default(true),
+  HYPERBROWSER_SCRAPE_FORMATS: z.string().default('markdown,links'),
   ENABLE_HYBRID_WEB_RETRIEVAL: z.coerce.boolean().default(false), // Parallel KB + web search for fresh content
 
   CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(40000), // Increased from 1800 (GPT-5: 272K input)
