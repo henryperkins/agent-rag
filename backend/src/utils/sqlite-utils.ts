@@ -33,10 +33,14 @@ export function applyPragmas(
 }
 
 export function openSqliteDatabase(dbPath: string, options: SqliteInitOptions = {}): Database.Database {
-  const absolutePath = ensureDirectoryFor(dbPath);
+  // Handle special in-memory database case
+  const isMemoryDb = dbPath === ':memory:' || dbPath.startsWith('file::memory:');
+  const absolutePath = isMemoryDb ? dbPath : ensureDirectoryFor(dbPath);
   const db = new Database(absolutePath);
 
-  if (options.enableWal !== false) {
+  // WAL mode is not compatible with in-memory databases
+  // Enabling WAL on :memory: causes SQLite to create physical files
+  if (options.enableWal !== false && !isMemoryDb) {
     db.pragma('journal_mode = WAL');
   }
 
