@@ -39,7 +39,7 @@ export interface DispatchResult {
   contextSectionLabels?: string[];
   coverageChecklistCount?: number;
   source: 'direct' | 'fallback_vector' | 'knowledge_agent';
-  retrievalMode: 'direct' | 'lazy' | 'knowledge_agent';
+  retrievalMode: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
   strategy: 'direct' | 'knowledge_agent' | 'hybrid';
   escalated: boolean;
   adaptiveStats?: AdaptiveRetrievalStats;
@@ -97,6 +97,13 @@ interface DispatchOptions {
 interface EnumeratedCitations {
   referenceBlock: string;
   citationMetadata: CitationMetadata;
+}
+
+interface WebContextSummary {
+  text: string;
+  tokens: number;
+  trimmed: boolean;
+  usedResults: WebResult[];
 }
 
 function buildUnifiedCitationBlock(
@@ -229,7 +236,7 @@ function buildUnifiedCitationBlock(
   };
 }
 
-export function buildWebContext(results: WebResult[], maxTokens: number) {
+export function buildWebContext(results: WebResult[], maxTokens: number): WebContextSummary {
   if (!results.length || maxTokens <= 0) {
     return {
       text: '',
@@ -287,7 +294,10 @@ function normalizeString(value: unknown): string | undefined {
   return trimmed.length ? trimmed : undefined;
 }
 
-function extractMetadataString(metadata: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+function extractMetadataString(
+  metadata: Record<string, unknown> | null | undefined,
+  keys: string[]
+): string | undefined {
   if (!metadata) {
     return undefined;
   }
@@ -324,7 +334,7 @@ export async function dispatchTools({
   const retrievalSnippets: string[] = [];
   let adaptiveStats: AdaptiveRetrievalStats | undefined;
   let source: 'direct' | 'fallback_vector' | 'knowledge_agent' = 'direct';
-  let retrievalMode: 'direct' | 'lazy' | 'knowledge_agent' = 'direct';
+  let retrievalMode: DispatchResult['retrievalMode'] = 'direct';
   let strategy: 'direct' | 'knowledge_agent' | 'hybrid' = 'direct';
   let summaryTokens: number | undefined;
   const confidence = typeof plan.confidence === 'number' ? plan.confidence : 1;
@@ -469,6 +479,10 @@ export async function dispatchTools({
     if (retrieval.mode === 'knowledge_agent') {
       source = 'knowledge_agent';
       retrievalMode = 'knowledge_agent';
+    } else if (retrieval.mode === 'hybrid_kb_web') {
+      retrievalMode = 'hybrid_kb_web';
+    } else if (retrieval.mode === 'web_only') {
+      retrievalMode = 'web_only';
     }
     if ('strategy' in retrieval && retrieval.strategy) {
       const retrievalStrategy = retrieval.strategy;

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ChatRequestPayload } from '../../../shared/types.js';
 import { handleChatStream } from '../services/chatStreamService.js';
+import { resolveAllowedOrigin } from '../config/cors.js';
 
 export async function setupStreamRoute(app: FastifyInstance) {
   app.post<{ Body: ChatRequestPayload }>('/chat/stream', async (request, reply) => {
@@ -10,12 +11,24 @@ export async function setupStreamRoute(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Messages array required.' });
     }
 
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'Transfer-Encoding': 'chunked'
-    });
+    reply.status(200);
+    reply.header('Content-Type', 'text/event-stream');
+    reply.header('Cache-Control', 'no-cache');
+    reply.header('Connection', 'keep-alive');
+    reply.header('Transfer-Encoding', 'chunked');
+
+    const allowedOrigin = resolveAllowedOrigin(request.headers.origin);
+    if (allowedOrigin) {
+      reply.header('Access-Control-Allow-Origin', allowedOrigin);
+      reply.header('Access-Control-Allow-Credentials', 'true');
+      reply.header('Vary', 'Origin');
+    }
+
+    if (typeof reply.raw.flushHeaders === 'function') {
+      reply.raw.flushHeaders();
+    } else {
+      reply.raw.writeHead(200);
+    }
 
     const sendEvent = (event: string, data: any) => {
       reply.raw.write(`event: ${event}\n`);

@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config, isDevelopment } from './config/app.js';
+import { allowedOrigins as normalizedAllowedOrigins, isOriginAllowed } from './config/cors.js';
 import { sanitizeInput } from './middleware/sanitize.js';
 import { registerRoutes } from './routes/index.js';
 
@@ -20,9 +21,8 @@ const app = Fastify({
   }
 });
 
-const allowedOrigins = config.CORS_ORIGIN.split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const allowedOriginsSet = new Set(normalizedAllowedOrigins);
+const allowedOriginsList = Array.from(allowedOriginsSet);
 
 await app.register(cors, {
   origin: (origin, cb) => {
@@ -30,16 +30,12 @@ await app.register(cors, {
       cb(null, true);
       return;
     }
-    // Direct match from configured list
-    if (allowedOrigins.includes(origin)) {
+    if (isOriginAllowed(origin)) {
       cb(null, true);
       return;
     }
-    // In development allow any localhost:* to reduce friction when Vite increments ports
-    if (isDevelopment && /^http:\/\/localhost:\d+$/.test(origin)) {
-      cb(null, true);
-      return;
-    }
+    const normalizedOrigin = origin.toLowerCase();
+    app.log.warn({ origin, normalizedOrigin, allowedOrigins: allowedOriginsList }, 'CORS origin rejected');
     cb(new Error('Not allowed by CORS'), false);
   },
   methods: ['GET', 'POST', 'OPTIONS'],

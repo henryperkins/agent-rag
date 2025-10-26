@@ -1,9 +1,11 @@
 # Semantic Summary Evaluation Playbook
 
 ## Goal
+
 Assemble a labeled corpus that verifies the embedding-based summary selector before turning on `ENABLE_SEMANTIC_SUMMARY` in production.
 
 ## Steps
+
 1. **Export Telemetry**
    - Hit `/admin/telemetry` (or call `getSessionTelemetry()` in a REPL) to dump recent sessions. Each record includes the final question, answer, context budget, summaries, and critic feedback.
 
@@ -42,6 +44,7 @@ Assemble a labeled corpus that verifies the embedding-based summary selector bef
    - Once the evaluation suite passes, set `ENABLE_SEMANTIC_SUMMARY=true` in staging `.env`, monitor telemetry (`context` events, critic coverage), then roll to production.
 
 ## Tips
+
 - Include a few “null” examples (no relevant summary) to ensure the selector can return an empty set.
 - If embeddings are noisy, try batching candidate texts by topic and embedding those slices separately to reduce API costs.
 - Keep fixtures small but diverse; refresh quarterly as new conversation patterns emerge.

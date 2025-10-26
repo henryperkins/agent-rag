@@ -1176,7 +1176,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
           const { text: webContextText, tokens: webContextTokens, trimmed: webContextTrimmed } =
             decompositionWebResults.length > 0
               ? buildWebContext(decompositionWebResults, config.WEB_CONTEXT_MAX_TOKENS)
-              : { text: '', tokens: 0, trimmed: false, usedResults: [] };
+              : buildWebContext([], config.WEB_CONTEXT_MAX_TOKENS);
 
           return {
             contextText: decompositionContextText,
