@@ -461,6 +461,80 @@ export async function dispatchTools({
     }
   }
 
+  // Browser Agent for Complex Research Tasks
+  const wantsBrowserAgent = config.ENABLE_BROWSER_AGENT && plan.steps.some((step) => step.action === 'browser_agent');
+  if (wantsBrowserAgent) {
+    emit?.('status', { stage: 'browser_agent' });
+    const step = plan.steps.find((s) => s.action === 'browser_agent');
+    const query = step?.query?.trim() || queryFallback;
+
+    try {
+      // Dynamically import browserAgentTool to avoid circular dependencies
+      const { browserAgentTool, shouldUseBrowserAgent } = await import('../tools/browserAgent.js');
+
+      // Double-check if browser agent should be used (confidence + complexity checks)
+      const shouldProceed = shouldUseBrowserAgent(query, plan.confidence, plan.steps.length);
+
+      if (shouldProceed) {
+        activity.push({
+          type: 'browser_agent_start',
+          description: `Launching autonomous browser agent for complex research task.`
+        });
+
+        const browserResult = await browserAgentTool({
+          query,
+          context: '', // Context will be merged later in synthesis
+          messages,
+          options: {
+            maxSteps: step?.k || config.BROWSER_AGENT_MAX_STEPS,
+            agentType: config.BROWSER_AGENT_DEFAULT_TYPE,
+            sessionOptions: {
+              useStealth: config.HYPERBROWSER_USE_STEALTH,
+              useProxy: config.HYPERBROWSER_USE_PROXY,
+            },
+          },
+        });
+
+        // Add browser agent results to references
+        references.push(...browserResult.references);
+        activity.push(...browserResult.activity);
+
+        // Store browser agent answer for later context assembly
+        if (browserResult.answer) {
+          retrievalSnippets.push(`# Browser Agent Research\n${browserResult.answer}`);
+        }
+
+        activity.push({
+          type: 'browser_agent_complete',
+          description: `Browser agent completed with ${browserResult.references.length} sources (${browserResult.metadata?.totalSteps ?? 0} steps).`
+        });
+
+        emit?.('telemetry', {
+          type: 'browser_agent',
+          timestamp: new Date().toISOString(),
+          data: {
+            agentType: browserResult.metadata?.agentType,
+            totalSteps: browserResult.metadata?.totalSteps,
+            sourcesFound: browserResult.references.length,
+            sessionId: browserResult.metadata?.sessionId,
+          }
+        });
+      } else {
+        activity.push({
+          type: 'browser_agent_skipped',
+          description: `Browser agent skipped (confidence ${plan.confidence.toFixed(2)} >= threshold, using web search instead).`
+        });
+      }
+    } catch (error) {
+      console.error('Browser agent failed:', error);
+      activity.push({
+        type: 'browser_agent_error',
+        description: `Browser agent failed: ${error instanceof Error ? error.message : String(error)}. Falling back to web search.`
+      });
+      // Don't throw - fall through to web search
+    }
+  }
+
   const wantsWeb = cragTriggeredWebSearch || escalated || plan.steps.some((step) => step.action === 'web_search' || step.action === 'both');
   let webContextText = '';
   let webContextTokens = 0;

@@ -85,6 +85,13 @@ const envSchema = z.object({
   HYPERBROWSER_SCRAPE_FORMATS: z.string().default('markdown,links'),
   ENABLE_HYBRID_WEB_RETRIEVAL: z.coerce.boolean().default(false), // Parallel KB + web search for fresh content
 
+  // Browser Agent Configuration
+  ENABLE_BROWSER_AGENT: z.coerce.boolean().default(false), // Enable autonomous browser agents for complex research
+  BROWSER_AGENT_MAX_STEPS: z.coerce.number().default(25), // Maximum steps per browser agent session
+  BROWSER_AGENT_DEFAULT_TYPE: z.enum(['browser_use', 'openai_cua', 'claude_cua']).default('browser_use'),
+  BROWSER_AGENT_CONFIDENCE_THRESHOLD: z.coerce.number().default(0.7), // Trigger browser agent when planner confidence < threshold
+  BROWSER_AGENT_ENABLE_SESSION_REUSE: z.coerce.boolean().default(true), // Reuse browser sessions across requests (40% faster)
+
   CONTEXT_HISTORY_TOKEN_CAP: z.coerce.number().default(40000), // Increased from 1800 (GPT-5: 272K input)
   CONTEXT_SUMMARY_TOKEN_CAP: z.coerce.number().default(10000), // Increased from 600
   CONTEXT_SALIENCE_TOKEN_CAP: z.coerce.number().default(5000), // Increased from 400

@@ -38,7 +38,7 @@ export async function getPlan(messages: AgentMessage[], context: CompactedContex
         {
           role: 'system',
           content:
-            'You decide the retrieval strategy for a grounded QA assistant. Return ONLY JSON that matches the provided schema.'
+            'You decide the retrieval strategy for a grounded QA assistant.\n\nAvailable actions:\n- vector_search: Search knowledge base\n- web_search: Search web for current information\n- browser_agent: Autonomous browser for complex multi-step research (use when investigation requires navigation, interaction, or detailed analysis across multiple sources)\n- both: Combine vector and web search\n- answer: Answer directly without retrieval\n\nReturn ONLY JSON that matches the provided schema.'
         },
         {
           role: 'user',

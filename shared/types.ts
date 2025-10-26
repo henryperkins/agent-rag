@@ -91,7 +91,7 @@ export interface ActivityStep {
 }
 
 export interface PlanStep {
-  action: 'vector_search' | 'web_search' | 'both' | 'answer';
+  action: 'vector_search' | 'web_search' | 'both' | 'browser_agent' | 'answer';
   query?: string;
   k?: number;
 }

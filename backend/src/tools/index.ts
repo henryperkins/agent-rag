@@ -6,6 +6,7 @@ import { lazyHybridSearch } from '../azure/lazyRetrieval.js';
 import { invokeKnowledgeAgent } from '../azure/knowledgeAgent.js';
 import { retrieveWithAdaptiveRefinement } from '../azure/adaptiveRetrieval.js';
 import { webSearchTool } from './webSearch.js';
+import { browserAgentTool } from './browserAgent.js';
 import { createResponse } from '../azure/openaiClient.js';
 import { config } from '../config/app.js';
 import { selectRetrievalStrategy } from '../retrieval/selectStrategy.js';
@@ -1094,7 +1095,7 @@ export async function lazyRetrieveTool(args: { query: string; filter?: string; t
   }
 }
 
-export { webSearchTool };
+export { webSearchTool, browserAgentTool };
 
 export async function answerTool(args: {
   question: string;

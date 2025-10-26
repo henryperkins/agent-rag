@@ -13,7 +13,7 @@ export const PlanSchema = {
           type: 'object',
           additionalProperties: false,
           properties: {
-            action: { enum: ['vector_search', 'web_search', 'both', 'answer'] },
+            action: { enum: ['vector_search', 'web_search', 'both', 'browser_agent', 'answer'] },
             query: { type: 'string' },
             k: { type: 'integer', minimum: 1, maximum: 20 }
           },
