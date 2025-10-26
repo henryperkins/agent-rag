@@ -417,7 +417,7 @@ export type RetrievalKind =
 // F-001: Citation validation diagnostics
 export interface CitationDiagnostics {
   totalCitations: number;
-  usedCitations: Set<number>;
+  usedCitations: number[]; // Array for JSON serialization (was Set<number>)
   unusedCitations: number[];
   unusedRatio: number;
   sourceBreakdown?: {
@@ -602,12 +602,12 @@ export interface AdaptiveRetrievalStats {
 
 // F-001: Citation metadata for tracking enumeration and sources
 export interface CitationMetadata {
-  citationMap: Map<number, { source: 'retrieval' | 'web'; index: number }>;
+  citationMap: Record<number, { source: 'retrieval' | 'web'; index: number }>; // Record for JSON serialization (was Map)
   totalCount: number;
 }
 
 // F-006: Citation telemetry events
 export type CitationTelemetryEvent =
   | { type: 'citation_validation_pending'; bufferLength: number; reason: string }
-  | { type: 'citation_validation_failure'; error: string; diagnostics: any }
-  | { type: 'citation_usage_warning'; unusedRatio: number; unusedCount: number; sourceBreakdown?: any };
+  | { type: 'citation_validation_failure'; error: string; diagnostics: CitationDiagnostics }
+  | { type: 'citation_usage_warning'; unusedRatio: number; unusedCount: number; sourceBreakdown?: CitationDiagnostics['sourceBreakdown'] };

@@ -43,7 +43,7 @@ function resolveReferenceText(reference: Reference | undefined): string {
 function buildDiagnostics(
   citations: Reference[],
   usedCitations: Set<number>,
-  citationMap?: Map<number, { source: 'retrieval' | 'web'; index: number }>
+  citationMap?: Record<number, { source: 'retrieval' | 'web'; index: number }>
 ): CitationDiagnostics {
   const allIndices = Array.from({ length: citations.length }, (_, i) => i + 1);
   const unusedCitations = allIndices.filter(idx => !usedCitations.has(idx));
@@ -56,7 +56,8 @@ function buildDiagnostics(
       web: { total: 0, used: 0 }
     };
 
-    citationMap.forEach((meta, idx) => {
+    Object.entries(citationMap).forEach(([idxStr, meta]) => {
+      const idx = Number(idxStr);
       breakdown[meta.source].total++;
       if (usedCitations.has(idx)) {
         breakdown[meta.source].used++;
@@ -68,7 +69,7 @@ function buildDiagnostics(
 
   return {
     totalCitations: citations.length,
-    usedCitations,
+    usedCitations: Array.from(usedCitations), // Convert Set to Array for JSON serialization
     unusedCitations,
     unusedRatio,
     sourceBreakdown
@@ -91,13 +92,13 @@ export function validateCitationIntegrity(answer: string, citations: Reference[]
  *
  * @param answer - The answer text containing citations
  * @param citations - Array of citation references
- * @param citationMap - Optional map tracking source of each citation (retrieval vs web)
+ * @param citationMap - Optional record tracking source of each citation (retrieval vs web)
  * @param options - Validation options (unused threshold, fail behavior)
  */
 export function validateCitationIntegrityEnhanced(
   answer: string,
   citations: Reference[],
-  citationMap?: Map<number, { source: 'retrieval' | 'web'; index: number }>,
+  citationMap?: Record<number, { source: 'retrieval' | 'web'; index: number }>,
   options: CitationValidationOptions = {}
 ): CitationValidationResult {
   const { failOnUnused = false, unusedThreshold = 0.3 } = options;

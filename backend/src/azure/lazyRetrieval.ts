@@ -34,7 +34,12 @@ function buildFullContentFilter(id: string): string {
   return `id eq '${escaped}'`;
 }
 
-function createFullLoader(id: string | undefined, query: string, baseFilter?: string) {
+function createFullLoader(
+  id: string | undefined,
+  query: string,
+  baseFilter?: string,
+  rerankerThreshold?: number
+) {
   let cached: string | null = null;
 
   return async () => {
@@ -52,6 +57,8 @@ function createFullLoader(id: string | undefined, query: string, baseFilter?: st
           filter: baseFilter ? `(${baseFilter}) and ${buildFullContentFilter(id)}` : buildFullContentFilter(id),
           selectFields: ['id', 'page_chunk', 'page_number'],
           searchFields: ['page_chunk'],
+          // Use minimal threshold to ensure loader isn't filtered out by reranker
+          rerankerThreshold: rerankerThreshold ?? config.RETRIEVAL_MIN_RERANKER_THRESHOLD,
           signal
         })
       );
@@ -126,7 +133,7 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
       page_number: ref.page_number,
       score: ref.score,
       isSummary: true,
-      loadFull: createFullLoader(ref.id ?? `result_${index}`, query, filter)
+      loadFull: createFullLoader(ref.id ?? `result_${index}`, query, filter, rerankerThreshold)
     };
   });
 

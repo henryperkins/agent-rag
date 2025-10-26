@@ -176,7 +176,7 @@ function resolveModelDeployment(intent: string, routeConfig: RouteConfig): Model
   const candidate = routeConfig.model?.trim();
 
   // Apply env override if present (highest priority)
-  if (envOverride && envOverride.trim()) {
+  if (envOverride?.trim()) {
     return {
       actualModel: envOverride.trim(),
       source: 'env_override',
@@ -184,8 +184,8 @@ function resolveModelDeployment(intent: string, routeConfig: RouteConfig): Model
     };
   }
 
-  // Use route-suggested model if different from default
-  if (candidate && candidate !== defaultModel) {
+  // Use route-suggested model if provided
+  if (candidate) {
     return {
       actualModel: candidate,
       source: 'route_config',
@@ -193,9 +193,18 @@ function resolveModelDeployment(intent: string, routeConfig: RouteConfig): Model
     };
   }
 
-  // Fallback to default deployment
+  // Fallback to config deployment
+  const fallbackModel = config.AZURE_OPENAI_GPT_DEPLOYMENT;
+  if (!fallbackModel?.trim()) {
+    throw new Error(
+      `No valid model deployment found for intent '${intent}': ` +
+      `config.AZURE_OPENAI_GPT_DEPLOYMENT is missing and no route/env override provided. ` +
+      `Please set AZURE_OPENAI_GPT_DEPLOYMENT in environment or configure intent-specific model.`
+    );
+  }
+
   return {
-    actualModel: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+    actualModel: fallbackModel.trim(),
     source: 'fallback_default',
     overridden: candidate === defaultModel || !candidate
   };

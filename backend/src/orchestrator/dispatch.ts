@@ -104,21 +104,101 @@ function buildUnifiedCitationBlock(
   webResults: WebResult[],
   isLazy: boolean
 ): EnumeratedCitations {
-  const citationMap = new Map<number, { source: 'retrieval' | 'web'; index: number }>();
+  const citationMap: Record<number, { source: 'retrieval' | 'web'; index: number }> = {};
   let currentIndex = 1;
   const blocks: string[] = [];
 
-  // Helper to build reference entry
+  // Helper to build reference entry with rich content
   function buildEntry(ref: Reference | WebResult): string {
-    const title = ref.title || ('url' in ref ? ref.url : 'Untitled');
-    const preview = 'snippet' in ref ? ref.snippet : ('content' in ref ? (ref.content?.slice(0, 150) || '') : '');
-    return `[${currentIndex}] ${title}${preview ? `\n   ${preview}` : ''}`;
+    const label = `[${currentIndex}]`;
+    const lines: string[] = [];
+
+    // Title
+    const title = normalizeString(ref.title);
+    if (title) {
+      lines.push(`Title: ${title}`);
+    }
+
+    // Source/URL
+    const url = 'url' in ref ? normalizeString(ref.url) : undefined;
+    const metadata = 'metadata' in ref ? ref.metadata : undefined;
+    const docKey =
+      extractMetadataString(metadata, ['docKey', 'documentId', 'sourceId']) ??
+      extractMetadataString(metadata, ['id']);
+    const locationParts = [docKey, url].filter(Boolean);
+    if (locationParts.length) {
+      lines.push(`Source: ${locationParts.join(' · ')}`);
+    }
+
+    // Content from multiple sources
+    const contentCandidates: Array<string | undefined> = [];
+
+    if ('content' in ref) {
+      contentCandidates.push(ref.content);
+    }
+    if ('chunk' in ref) {
+      contentCandidates.push(ref.chunk);
+    }
+    if ('snippet' in ref) {
+      contentCandidates.push(ref.snippet);
+    }
+    if ('summary' in ref) {
+      contentCandidates.push(normalizeString((ref as LazyReference).summary));
+    }
+
+    // Captions
+    if ('captions' in ref && Array.isArray(ref.captions)) {
+      const captionText = ref.captions
+        .map((caption) => normalizeString(caption.text))
+        .filter((segment): segment is string => Boolean(segment))
+        .join(' ');
+      if (captionText) {
+        contentCandidates.push(captionText);
+      }
+    }
+
+    // Highlights
+    if ('highlights' in ref && ref.highlights) {
+      const highlightText = Object.values(ref.highlights)
+        .flat()
+        .map((segment) => normalizeString(segment))
+        .filter((segment): segment is string => Boolean(segment))
+        .join(' ');
+      if (highlightText) {
+        contentCandidates.push(`Highlights: ${highlightText}`);
+      }
+    }
+
+    // Deduplicate and add content
+    const bodySegments = contentCandidates
+      .map((candidate) => (typeof candidate === 'string' ? candidate.trim() : ''))
+      .filter((segment) => segment.length > 0);
+
+    const uniqueSegments: string[] = [];
+    const seen = new Set<string>();
+    for (const segment of bodySegments) {
+      if (seen.has(segment)) {
+        continue;
+      }
+      seen.add(segment);
+      uniqueSegments.push(segment);
+    }
+
+    if (uniqueSegments.length) {
+      lines.push(uniqueSegments.join('\n'));
+    }
+
+    if (!lines.length) {
+      return `${label} Untitled`;
+    }
+
+    return `${label} ${lines.join('\n')}`;
   }
 
   // Enumerate retrieval sources
   if (retrievalRefs.length > 0) {
     const retrievalEntries = retrievalRefs.map((ref, idx) => {
-      citationMap.set(currentIndex, { source: 'retrieval', index: idx });
+      citationMap[currentIndex] = { source: 'retrieval', index: idx };
       const entry = buildEntry(ref);
       currentIndex++;
       return entry;
@@ -131,7 +211,7 @@ function buildUnifiedCitationBlock(
   // Enumerate web sources with contiguous numbering
   if (webResults.length > 0) {
     const webEntries = webResults.map((result, idx) => {
-      citationMap.set(currentIndex, { source: 'web', index: idx });
+      citationMap[currentIndex] = { source: 'web', index: idx };
       const entry = buildEntry(result);
       currentIndex++;
       return entry;
@@ -684,7 +764,11 @@ export async function dispatchTools({
     }
   }
 
+  // F-001 P0 Fix: Track whether RRF was applied to avoid double-enumerating web citations
+  let webRerankingApplied = false;
+
   if (features.webReranking && references.length > 0 && webResults.length > 0) {
+    webRerankingApplied = true; // Mark that web results are now merged into references
     const originalAzureCount = references.length;
     const originalWebCount = webResults.length;
     const originalAzureMap = new Map(
@@ -797,9 +881,10 @@ export async function dispatchTools({
   const primaryReferences = lazyReferences.length ? lazyReferences : references;
 
   // F-001: Build unified citation block with proper enumeration for retrieval + web sources
+  // P0 Fix: When RRF was applied, web sources are already in primaryReferences - don't enumerate them twice
   const { referenceBlock, citationMetadata } = buildUnifiedCitationBlock(
     primaryReferences,
-    webResults,
+    webRerankingApplied ? [] : webResults, // Avoid double-counting when web is already merged
     lazyReferences.length > 0
   );
 
