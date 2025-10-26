@@ -3,7 +3,7 @@ import { config } from '../config/app.js';
 import { hybridSemanticSearch } from './directSearch.js';
 import { withRetry } from '../utils/resilience.js';
 import { estimateTokens } from '../orchestrator/contextBudget.js';
-import { enforceRerankerThreshold } from '../utils/reranker-threshold.js';
+// F-005: Removed enforceRerankerThreshold import (no longer needed - threshold already applied in hybridSemanticSearch)
 
 export interface LazySearchOptions {
   query: string;
@@ -112,10 +112,9 @@ export async function lazyHybridSearch(options: LazySearchOptions): Promise<Lazy
     throw error;
   }
 
-  const enforcement = enforceRerankerThreshold(result.references, rerankerThreshold, {
-    source: 'lazy_hybrid'
-  });
-  const sliced = enforcement.references.slice(0, top);
+  // F-005: hybridSemanticSearch already applies rerankerThreshold, no need to re-enforce
+  // Previously: const enforcement = enforceRerankerThreshold(result.references, rerankerThreshold, {...})
+  const sliced = result.references.slice(0, top);
   const summaries = sliced.map((ref, index): LazyReference => {
     const summary = truncateSummary(ref.content ?? ref.chunk ?? '');
     return {

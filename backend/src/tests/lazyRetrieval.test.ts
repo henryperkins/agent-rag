@@ -54,10 +54,11 @@ describe('lazy retrieval helpers', () => {
   });
 
   it('filters references below the reranker threshold', async () => {
+    // F-005: hybridSemanticSearch now applies threshold internally, so mock should return already-filtered results
     (directSearch.hybridSemanticSearch as unknown as Mock).mockResolvedValueOnce({
       references: [
-        { id: 'doc-1', content: 'High score content', score: 2.9 },
-        { id: 'doc-2', content: 'Low score content', score: 1.1 }
+        { id: 'doc-1', content: 'High score content', score: 2.9 }
+        // doc-2 with score 1.1 is already filtered out by hybridSemanticSearch (threshold 2.5)
       ]
     });
 

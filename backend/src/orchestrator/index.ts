@@ -5,6 +5,8 @@ import type {
   CriticReport,
   OrchestratorTools,
   RetrievalDiagnostics,
+  RetrievalAttemptedMode,
+  RetrievalKind,
   LazyReference,
   Reference,
   RouteMetadata,
@@ -161,23 +163,42 @@ const INTENT_MODEL_ENV_VARS: Record<string, string | undefined> = {
   conversational: process.env.MODEL_CONVERSATIONAL
 };
 
-function resolveModelDeployment(intent: string, routeConfig: RouteConfig) {
+// F-003: Enhanced model resolution with tracking
+interface ModelResolution {
+  actualModel: string;
+  source: 'route_config' | 'env_override' | 'fallback_default';
+  overridden: boolean;
+}
+
+function resolveModelDeployment(intent: string, routeConfig: RouteConfig): ModelResolution {
   const defaultModel = DEFAULT_INTENT_MODELS[intent] ?? DEFAULT_INTENT_MODELS.research;
   const envOverride = INTENT_MODEL_ENV_VARS[intent];
   const candidate = routeConfig.model?.trim();
 
   // Apply env override if present (highest priority)
   if (envOverride && envOverride.trim()) {
-    return envOverride.trim();
+    return {
+      actualModel: envOverride.trim(),
+      source: 'env_override',
+      overridden: true
+    };
   }
 
   // Use route-suggested model if different from default
   if (candidate && candidate !== defaultModel) {
-    return candidate;
+    return {
+      actualModel: candidate,
+      source: 'route_config',
+      overridden: false
+    };
   }
 
   // Fallback to default deployment
-  return config.AZURE_OPENAI_GPT_DEPLOYMENT;
+  return {
+    actualModel: config.AZURE_OPENAI_GPT_DEPLOYMENT,
+    source: 'fallback_default',
+    overridden: candidate === defaultModel || !candidate
+  };
 }
 
 function latestQuestion(messages: AgentMessage[]) {
@@ -942,20 +963,30 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       const { intent, confidence: intentConfidence, reasoning: intentReasoning, summaries: intentSummaries } = intentResult;
       pushInsight('intent', [intentReasoning, ...(intentSummaries ?? [])]);
       const routeConfig = getRouteConfig(intent);
+
+      // F-003: Resolve model deployment with tracking
+      const modelResolution = resolveModelDeployment(intent, routeConfig);
+      const modelDeployment = modelResolution.actualModel;
+
       const routeMetadata: RouteMetadata = {
         intent,
         confidence: intentConfidence,
         reasoning: intentReasoning,
         insights: intentSummaries,
-        model: routeConfig.model,
+        model: routeConfig.model, // Keep for backward compatibility
+        configuredModel: routeConfig.model, // F-003: Configured model from route
+        actualModel: modelResolution.actualModel, // F-003: Resolved deployment
+        modelResolution: {
+          source: modelResolution.source,
+          overridden: modelResolution.overridden
+        },
         retrieverStrategy: routeConfig.retrieverStrategy,
         maxTokens: routeConfig.maxTokens
       };
       sessionSpan.setAttribute('agent.route.intent', intent);
       sessionSpan.setAttribute('agent.route.model', routeConfig.model);
+      sessionSpan.setAttribute('agent.route.actual_model', modelResolution.actualModel); // F-003
       emit?.('route', routeMetadata);
-
-      const modelDeployment = resolveModelDeployment(intent, routeConfig);
 
       emit?.('status', { stage: 'context' });
 
@@ -1191,8 +1222,11 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   const scoreValues = dispatch.references
     .map((ref) => ref.score)
     .filter((score): score is number => typeof score === 'number');
-  const attemptedMode: 'direct' | 'lazy' | 'fallback_vector' | 'knowledge_agent' =
-    dispatch.retrievalMode === 'lazy'
+  // F-002: Derive attempted mode with proper hybrid_kb_web classification
+  const attemptedMode: RetrievalAttemptedMode =
+    dispatch.retrievalMode === 'hybrid_kb_web'
+      ? 'hybrid_kb_web'
+      : dispatch.retrievalMode === 'lazy'
       ? 'lazy'
       : dispatch.strategy === 'knowledge_agent' || dispatch.strategy === 'hybrid'
       ? 'knowledge_agent'
@@ -1201,6 +1235,23 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
       : dispatch.source === 'fallback_vector'
       ? 'fallback_vector'
       : 'direct';
+
+  // F-002: Derive canonical retrieval kind for unified classification
+  const knowledgeAgentUsed = Boolean(dispatch.diagnostics?.knowledgeAgent?.attempted);
+  const webUsed = dispatch.webResults.length > 0;
+  const retrievalKind: RetrievalKind =
+    attemptedMode === 'hybrid_kb_web'
+      ? 'knowledge_agent_web_fallback'
+      : knowledgeAgentUsed && !webUsed
+      ? 'knowledge_agent_only'
+      : attemptedMode === 'lazy'
+      ? 'lazy_hybrid'
+      : dispatch.source === 'fallback_vector'
+      ? 'pure_vector'
+      : webUsed && !knowledgeAgentUsed
+      ? 'web_only'
+      : 'direct_hybrid';
+
   const retrievalDiagnostics: RetrievalDiagnostics = {
     attempted: attemptedMode,
     succeeded: dispatch.references.length > 0,
@@ -1215,6 +1266,7 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
     mode: dispatch.retrievalMode,
     summaryTokens: dispatch.summaryTokens,
     strategy: dispatch.strategy,
+    kind: retrievalKind, // F-002: Add canonical classification
     latencyMs: dispatch.retrievalLatencyMs
   };
   if (dispatch.diagnostics?.correlationId) {

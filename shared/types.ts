@@ -102,12 +102,21 @@ export interface PlanSummary {
   reasoningSummary?: string;
 }
 
+// F-003: Model resolution tracking
+export interface ModelResolutionMetadata {
+  source: 'route_config' | 'env_override' | 'fallback_default';
+  overridden: boolean;
+}
+
 export interface RouteMetadata {
   intent: string;
   confidence: number;
   reasoning: string;
   insights?: string[];
-  model: string;
+  model: string; // Deprecated: use configuredModel instead
+  configuredModel?: string; // F-003: Model from route config
+  actualModel?: string; // F-003: Resolved deployment name
+  modelResolution?: ModelResolutionMetadata; // F-003: Resolution tracking
   retrieverStrategy: string;
   maxTokens: number;
 }
@@ -393,8 +402,40 @@ export interface TraceEvent {
   error?: string;
 }
 
+// F-002: Extended attempted mode to include hybrid_kb_web
+export type RetrievalAttemptedMode = 'direct' | 'lazy' | 'fallback_vector' | 'knowledge_agent' | 'hybrid_kb_web';
+
+// F-002: Canonical retrieval kind for unified classification
+export type RetrievalKind =
+  | 'knowledge_agent_only'
+  | 'knowledge_agent_web_fallback'
+  | 'direct_hybrid'
+  | 'lazy_hybrid'
+  | 'pure_vector'
+  | 'web_only';
+
+// F-001: Citation validation diagnostics
+export interface CitationDiagnostics {
+  totalCitations: number;
+  usedCitations: Set<number>;
+  unusedCitations: number[];
+  unusedRatio: number;
+  sourceBreakdown?: {
+    retrieval: { total: number; used: number };
+    web: { total: number; used: number };
+  };
+}
+
+// F-005: Threshold metadata for observability
+export interface ThresholdMetadata {
+  thresholdApplied: boolean;
+  thresholdValue: number;
+  preFilterCount: number;
+  postFilterCount: number;
+}
+
 export interface RetrievalDiagnostics {
-  attempted: 'direct' | 'lazy' | 'fallback_vector' | 'knowledge_agent';
+  attempted: RetrievalAttemptedMode; // F-002: Use new type
   succeeded: boolean;
   retryCount: number;
   documents: number;
@@ -409,6 +450,7 @@ export interface RetrievalDiagnostics {
   mode?: 'direct' | 'lazy' | 'knowledge_agent' | 'hybrid_kb_web' | 'web_only';
   summaryTokens?: number;
   strategy?: 'direct' | 'knowledge_agent' | 'hybrid';
+  kind?: RetrievalKind; // F-002: Canonical classification
   highlightedDocuments?: number;
   fallbackAttempts?: number;
   minDocumentsRequired?: number;
@@ -419,6 +461,8 @@ export interface RetrievalDiagnostics {
   contextSectionLabels?: string[];
   knowledgeAgentSummaryProvided?: boolean;
   latencyMs?: number;
+  citationDiagnostics?: CitationDiagnostics; // F-001: Citation usage tracking
+  thresholdMetadata?: ThresholdMetadata; // F-005: Threshold filtering metadata
 }
 
 export interface SessionTrace {
@@ -555,3 +599,15 @@ export interface AdaptiveRetrievalStats {
   latency_ms_total?: number;
   per_attempt: AdaptiveRetrievalAttempt[];
 }
+
+// F-001: Citation metadata for tracking enumeration and sources
+export interface CitationMetadata {
+  citationMap: Map<number, { source: 'retrieval' | 'web'; index: number }>;
+  totalCount: number;
+}
+
+// F-006: Citation telemetry events
+export type CitationTelemetryEvent =
+  | { type: 'citation_validation_pending'; bufferLength: number; reason: string }
+  | { type: 'citation_validation_failure'; error: string; diagnostics: any }
+  | { type: 'citation_usage_warning'; unusedRatio: number; unusedCount: number; sourceBreakdown?: any };

@@ -9,7 +9,8 @@ import type {
   LazyReference,
   FeatureOverrideMap,
   AgenticRetrievalDiagnostics,
-  KnowledgeAgentGroundingSummary
+  KnowledgeAgentGroundingSummary,
+  CitationMetadata
 } from '../../../shared/types.js';
 import { retrieveTool, webSearchTool, lazyRetrieveTool } from '../tools/index.js';
 import { selectRetrievalStrategy } from '../retrieval/selectStrategy.js';
@@ -47,6 +48,7 @@ export interface DispatchResult {
   retrievalThresholdUsed?: number;
   retrievalThresholdHistory?: number[];
   retrievalLatencyMs?: number;
+  citationMetadata?: CitationMetadata; // F-001: Citation enumeration tracking
 }
 
 interface DispatchOptions {
@@ -86,6 +88,65 @@ interface DispatchOptions {
     webSearch?: (args: { query: string; count?: number; mode?: 'summary' | 'full' | 'hyperbrowser_scrape' | 'hyperbrowser_extract' }) => Promise<WebSearchResponse>;
   };
   preferLazy?: boolean;
+}
+
+/**
+ * F-001: Build unified citation block with contiguous numbering for retrieval + web sources
+ * This ensures both retrieval and web sources are properly enumerated in the context
+ */
+interface EnumeratedCitations {
+  referenceBlock: string;
+  citationMetadata: CitationMetadata;
+}
+
+function buildUnifiedCitationBlock(
+  retrievalRefs: Reference[],
+  webResults: WebResult[],
+  isLazy: boolean
+): EnumeratedCitations {
+  const citationMap = new Map<number, { source: 'retrieval' | 'web'; index: number }>();
+  let currentIndex = 1;
+  const blocks: string[] = [];
+
+  // Helper to build reference entry
+  function buildEntry(ref: Reference | WebResult): string {
+    const title = ref.title || ('url' in ref ? ref.url : 'Untitled');
+    const preview = 'snippet' in ref ? ref.snippet : ('content' in ref ? (ref.content?.slice(0, 150) || '') : '');
+    return `[${currentIndex}] ${title}${preview ? `\n   ${preview}` : ''}`;
+  }
+
+  // Enumerate retrieval sources
+  if (retrievalRefs.length > 0) {
+    const retrievalEntries = retrievalRefs.map((ref, idx) => {
+      citationMap.set(currentIndex, { source: 'retrieval', index: idx });
+      const entry = buildEntry(ref);
+      currentIndex++;
+      return entry;
+    });
+
+    const label = isLazy ? 'Retrieved Knowledge (summaries)' : 'Retrieved Knowledge';
+    blocks.push(`### ${label}\n${retrievalEntries.join('\n\n')}`);
+  }
+
+  // Enumerate web sources with contiguous numbering
+  if (webResults.length > 0) {
+    const webEntries = webResults.map((result, idx) => {
+      citationMap.set(currentIndex, { source: 'web', index: idx });
+      const entry = buildEntry(result);
+      currentIndex++;
+      return entry;
+    });
+
+    blocks.push(`### Web Sources\n${webEntries.join('\n\n')}`);
+  }
+
+  return {
+    referenceBlock: blocks.join('\n\n'),
+    citationMetadata: {
+      citationMap,
+      totalCount: currentIndex - 1
+    }
+  };
 }
 
 function buildWebContext(results: WebResult[], maxTokens: number) {
@@ -159,74 +220,7 @@ function extractMetadataString(metadata: Record<string, unknown> | undefined, ke
   return undefined;
 }
 
-function buildReferenceEntry(ref: Reference, index: number): string | undefined {
-  const label = `[${index + 1}]`;
-  const lines: string[] = [];
-
-  const title = normalizeString(ref.title);
-  if (title) {
-    lines.push(`Title: ${title}`);
-  }
-
-  const url = normalizeString(ref.url);
-  const docKey =
-    extractMetadataString(ref.metadata, ['docKey', 'documentId', 'sourceId']) ??
-    extractMetadataString(ref.metadata, ['id']);
-  const locationParts = [docKey, url].filter(Boolean);
-  if (locationParts.length) {
-    lines.push(`Source: ${locationParts.join(' · ')}`);
-  }
-
-  const contentCandidates: Array<string | undefined> = [
-    ref.content,
-    ref.chunk,
-    'summary' in ref ? normalizeString((ref as LazyReference).summary) : undefined
-  ];
-
-  if (Array.isArray(ref.captions)) {
-    contentCandidates.push(
-      ref.captions
-        .map((caption) => normalizeString(caption.text))
-        .filter((segment): segment is string => Boolean(segment))
-        .join(' ')
-    );
-  }
-
-  if (ref.highlights) {
-    const highlightText = Object.values(ref.highlights)
-      .flat()
-      .map((segment) => normalizeString(segment))
-      .filter((segment): segment is string => Boolean(segment))
-      .join(' ');
-    if (highlightText) {
-      contentCandidates.push(`Highlights: ${highlightText}`);
-    }
-  }
-
-  const bodySegments = contentCandidates
-    .map((candidate) => (typeof candidate === 'string' ? candidate.trim() : ''))
-    .filter((segment) => segment.length > 0);
-
-  const uniqueSegments: string[] = [];
-  const seen = new Set<string>();
-  for (const segment of bodySegments) {
-    if (seen.has(segment)) {
-      continue;
-    }
-    seen.add(segment);
-    uniqueSegments.push(segment);
-  }
-
-  if (uniqueSegments.length) {
-    lines.push(uniqueSegments.join('\n'));
-  }
-
-  if (!lines.length) {
-    return undefined;
-  }
-
-  return `${label} ${lines.join('\n')}`;
-}
+// F-001: buildReferenceEntry removed - replaced by buildEntry in buildUnifiedCitationBlock
 
 function latestUserQuery(messages: AgentMessage[]): string {
   const last = [...messages].reverse().find((m) => m.role === 'user');
@@ -801,11 +795,13 @@ export async function dispatchTools({
 
   const salienceText = salience.map((note, idx) => `[Salience ${idx + 1}] ${note.fact}`).join('\n');
   const primaryReferences = lazyReferences.length ? lazyReferences : references;
-  const referenceEntries = primaryReferences
-    .map((ref, idx) => buildReferenceEntry(ref, idx))
-    .filter((entry): entry is string => Boolean(entry && entry.trim()));
 
-  const referenceBlock = lazyReferences.length ? '' : referenceEntries.join('\n\n');
+  // F-001: Build unified citation block with proper enumeration for retrieval + web sources
+  const { referenceBlock, citationMetadata } = buildUnifiedCitationBlock(
+    primaryReferences,
+    webResults,
+    lazyReferences.length > 0
+  );
 
   const coverageChecklist = primaryReferences
     .map((ref, idx) => {
@@ -825,9 +821,16 @@ export async function dispatchTools({
     .join('\n\n');
 
   const contextSections: string[] = [];
+  // F-001: referenceBlock now includes both retrieval AND web sources with unified numbering
   if (referenceBlock) {
-    contextSections.push(`### Retrieved Knowledge\n${referenceBlock}`);
-    (contextSectionLabels ??= []).push('Retrieved Knowledge');
+    contextSections.push(referenceBlock); // Already contains section headers
+    // Extract which sections were added
+    if (primaryReferences.length > 0) {
+      (contextSectionLabels ??= []).push('Retrieved Knowledge');
+    }
+    if (webResults.length > 0) {
+      (contextSectionLabels ??= []).push('Web Sources');
+    }
   }
   if (coverageChecklist.length) {
     contextSections.push(`### Coverage Checklist\n${coverageChecklist.join('\n')}`);
@@ -898,6 +901,7 @@ export async function dispatchTools({
     knowledgeAgentGrounding,
     retrievalThresholdUsed,
     retrievalThresholdHistory,
-    retrievalLatencyMs
+    retrievalLatencyMs,
+    citationMetadata // F-001: Include citation enumeration metadata
   };
 }
