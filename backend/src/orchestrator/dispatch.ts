@@ -797,30 +797,35 @@ export async function dispatchTools({
 
     if (features.semanticBoost) {
       try {
-        const queryEmbedding = await embedText(queryFallback);
-        const documentEmbeddings = new Map<string, number[]>();
-        const boostCandidates = reranked.slice(0, config.RERANKING_TOP_K);
+        // P1 Fix: Guard against empty query and parallelize document embeddings
+        const q = queryFallback.trim();
+        if (q) {
+          const queryEmbedding = await embedText(q);
+          const boostCandidates = reranked.slice(0, config.RERANKING_TOP_K);
 
-        for (const candidate of boostCandidates) {
-          const content = candidate.content?.slice(0, 1000);
-          if (content) {
-            const embedding = await embedText(content);
-            documentEmbeddings.set(candidate.id, embedding);
-          }
+          // Parallelize document embedding calls instead of sequential
+          const contents = boostCandidates.map((c) => c.content?.slice(0, 1000) ?? '');
+          const embeddings = await Promise.all(
+            contents.map((c) => (c ? embedText(c) : Promise.resolve(undefined as unknown as number[])))
+          );
+
+          const documentEmbeddings = new Map<string, number[]>();
+          embeddings.forEach((emb, i) => {
+            if (emb) documentEmbeddings.set(boostCandidates[i].id, emb);
+          });
+
+          reranked = applySemanticBoost(reranked, queryEmbedding, documentEmbeddings, config.SEMANTIC_BOOST_WEIGHT);
         }
-
-        reranked = applySemanticBoost(
-          reranked,
-          queryEmbedding,
-          documentEmbeddings,
-          config.SEMANTIC_BOOST_WEIGHT
-        );
       } catch (error) {
         console.warn('Semantic boost failed during reranking:', error);
       }
     }
 
     const topReranked = reranked.slice(0, config.RERANKING_TOP_K);
+
+    // P0 Fix: Robust web detection - check both originalWebMap and source field
+    const isWeb = (id: string) =>
+      originalWebMap.has(id) || (topReranked.find((x) => x.id === id && (x as any).source === 'web') ? true : false);
 
     references.splice(
       0,
@@ -840,19 +845,29 @@ export async function dispatchTools({
     );
 
     const rerankedWebResults = topReranked
-      .filter((item) => item.source === 'web')
+      .filter((item) => isWeb(item.id))
       .map((item, index) => {
         const original = originalWebMap.get(item.id);
         return {
           id: item.id,
-          title: item.title,
+          title: item.title ?? original?.title ?? '',
           snippet: original?.snippet ?? item.content,
           body: original?.body,
           url: item.url ?? original?.url ?? '',
           rank: index + 1,
           relevance: item.rrfScore,
-          fetchedAt: original?.fetchedAt ?? new Date().toISOString()
-        } satisfies WebResult;
+          fetchedAt: original?.fetchedAt ?? new Date().toISOString(),
+          source: original?.source,
+          authors: original?.authors,
+          publishedDate: original?.publishedDate,
+          citationCount: original?.citationCount,
+          influentialCitationCount: original?.influentialCitationCount,
+          authorityScore: original?.authorityScore,
+          isOpenAccess: original?.isOpenAccess,
+          pdfUrl: original?.pdfUrl,
+          venue: original?.venue,
+          category: original?.category
+        } as WebResult;
       });
 
     if (rerankedWebResults.length) {
@@ -902,17 +917,30 @@ export async function dispatchTools({
     lazyReferences.length > 0
   );
 
-  const coverageChecklist = primaryReferences
-    .map((ref, idx) => {
-      const title = normalizeString(ref.title);
-      const docKey =
-        extractMetadataString(ref.metadata, ['docKey', 'documentId', 'sourceId']) ??
-        extractMetadataString(ref.metadata, ['id']);
-      const label = title ?? docKey ?? `Result ${idx + 1}`;
-      return label ? `- [${idx + 1}] ${label}` : undefined;
-    })
-    .filter((entry): entry is string => Boolean(entry))
-    .slice(0, 8);
+  // P0 Fix: Use actual citation numbers from citationMetadata, not array indices
+  const coverageChecklist = citationMetadata
+    ? Object.entries(citationMetadata.citationMap)
+        .filter(([, m]) => m.source === 'retrieval')
+        .slice(0, 8)
+        .map(([num, m]) => {
+          const ref = (lazyReferences.length ? lazyReferences : references)[m.index];
+          const title =
+            normalizeString(ref?.title) ??
+            extractMetadataString(ref?.metadata as any, ['docKey', 'documentId', 'sourceId']) ??
+            'Untitled';
+          return `- [${num}] ${title}`;
+        })
+    : primaryReferences
+        .map((ref, idx) => {
+          const title = normalizeString(ref.title);
+          const docKey =
+            extractMetadataString(ref.metadata, ['docKey', 'documentId', 'sourceId']) ??
+            extractMetadataString(ref.metadata, ['id']);
+          const label = title ?? docKey ?? `Result ${idx + 1}`;
+          return label ? `- [${idx + 1}] ${label}` : undefined;
+        })
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, 8);
 
   const retrievalInsights = retrievalSnippets
     .map((snippet) => (typeof snippet === 'string' ? snippet.trim() : ''))

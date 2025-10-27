@@ -45,58 +45,154 @@ import { validateCitationIntegrity } from '../utils/citation-validator.js';
 
 type ExecMode = 'sync' | 'stream';
 
-function mergeCitations(references: Reference[], webResults: WebResult[]): Reference[] {
+/**
+ * Canonicalize URL by removing tracking parameters and normalizing format
+ * to improve deduplication across different sources
+ */
+function canonicalUrl(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const u = new URL(raw);
+    u.hash = '';
+    // Remove common tracking parameters
+    const keep = new URLSearchParams();
+    for (const [key, value] of new URL(raw).searchParams) {
+      // Keep essential params, drop tracking junk (utm_*, fbclid, etc.)
+      if (!/^(utm_|fbclid|gclid|msclkid|mc_|_ga)/.test(key)) {
+        keep.set(key, value);
+      }
+    }
+    u.search = keep.toString();
+    u.host = u.host.toLowerCase();
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Build numbered references block for citation context
+ * This ensures the model sees the same numbered format it's asked to cite
+ */
+function buildReferencesBlock(citations: Reference[]): string {
+  if (!citations?.length) return '';
+  const lines = citations.map((c, i) => {
+    const title = c.title?.trim() || c.url || c.id || `Source ${i + 1}`;
+    const url = c.url ? ` — ${c.url}` : '';
+    const meta = c.metadata?.publishedDate ? ` (${c.metadata.publishedDate})` : '';
+    return `[${i + 1}] ${title}${meta}${url}`;
+  });
+  return `### References\n${lines.join('\n')}`;
+}
+
+function mergeCitations(references: Reference[], webResults: WebResult[], cap = 24): Reference[] {
   if (!webResults.length) {
-    return [...references];
+    return references.slice(0, cap);
   }
 
-  const merged: Reference[] = [...references];
-  const seen = new Set(
-    merged
-      .map((ref) => ref.id || ref.url)
-      .filter((value): value is string => typeof value === 'string' && value.length > 0)
-  );
+  const merged: Reference[] = [];
+  const seen = new Set<string>();
 
+  const push = (ref: Reference) => {
+    const key = (ref.id as string) || canonicalUrl(ref.url) || ref.title || Math.random().toString(36);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(ref);
+  };
+
+  // Add retrieval references first
+  for (const r of references) {
+    push(r);
+  }
+
+  // Add web results sorted by rank
   const sortedWeb = [...webResults].sort(
     (a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER)
   );
 
-  for (const result of sortedWeb) {
-    const identifier = result.id || result.url;
-    if (identifier && seen.has(identifier)) {
-      continue;
-    }
-
-    merged.push({
-      id: identifier,
-      title: result.title,
-      content: result.body ?? result.snippet,
-      url: result.url,
+  for (const w of sortedWeb) {
+    push({
+      id: w.id || canonicalUrl(w.url),
+      title: w.title,
+      content: w.body ?? w.snippet,
+      url: w.url,
       sourceType: 'web',
-      score: result.relevance,
+      score: w.relevance,
       metadata: {
-        snippet: result.snippet,
-        fetchedAt: result.fetchedAt,
-        rank: result.rank,
-        source: result.source,
-        authors: result.authors,
-        publishedDate: result.publishedDate,
-        citationCount: result.citationCount,
-        influentialCitationCount: result.influentialCitationCount,
-        authorityScore: result.authorityScore,
-        isOpenAccess: result.isOpenAccess,
-        pdfUrl: result.pdfUrl,
-        venue: result.venue,
-        category: result.category
+        snippet: w.snippet,
+        fetchedAt: w.fetchedAt,
+        rank: w.rank,
+        source: w.source,
+        authors: w.authors,
+        publishedDate: w.publishedDate,
+        citationCount: w.citationCount,
+        influentialCitationCount: w.influentialCitationCount,
+        authorityScore: w.authorityScore,
+        isOpenAccess: w.isOpenAccess,
+        pdfUrl: w.pdfUrl,
+        venue: w.venue,
+        category: w.category
       }
     });
 
-    if (identifier) {
-      seen.add(identifier);
-    }
+    if (merged.length >= cap) break;
   }
 
   return merged;
+}
+
+/**
+ * Build ordered citations list from dispatch enumeration metadata
+ * This ensures the citation numbers shown to the model match what the validator checks
+ */
+function citationsFromEnumeration(
+  meta: import('../../../shared/types.js').CitationMetadata,
+  retrieval: Reference[],
+  web: WebResult[]
+): Reference[] {
+  const ordered: Reference[] = [];
+
+  const toRef = (w: WebResult): Reference => ({
+    id: w.id ?? w.url ?? `web-${ordered.length}`,
+    title: w.title,
+    content: w.body ?? w.snippet ?? '',
+    url: w.url,
+    sourceType: 'web',
+    score: w.relevance,
+    metadata: {
+      snippet: w.snippet,
+      fetchedAt: w.fetchedAt,
+      rank: w.rank,
+      source: w.source,
+      authors: w.authors,
+      publishedDate: w.publishedDate,
+      citationCount: w.citationCount,
+      influentialCitationCount: w.influentialCitationCount,
+      authorityScore: w.authorityScore,
+      isOpenAccess: w.isOpenAccess,
+      pdfUrl: w.pdfUrl,
+      venue: w.venue,
+      category: w.category
+    }
+  });
+
+  const nums = Object.keys(meta.citationMap)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  for (const n of nums) {
+    const m = meta.citationMap[n];
+    if (!m) continue;
+    if (m.source === 'retrieval') {
+      const r = retrieval[m.index];
+      if (r) ordered.push(r);
+    } else {
+      const w = web[m.index];
+      if (w) ordered.push(toRef(w));
+    }
+  }
+
+  return ordered;
 }
 
 export interface RunSessionOptions {
@@ -268,16 +364,31 @@ async function generateAnswer(
     'Synthesize information across sections to create a comprehensive answer.',
     'Highlight agreements, contradictions, or gaps when they matter to the question.'
   ];
-  if (hasNumberedSources) {
+
+  // Build numbered references block so model sees the exact format it should cite
+  // P0 Fix: Only append references if not already in context (from dispatch.citationMetadata)
+  const hasReferencesInContext = /###\s+References/i.test(activeContext);
+  const referencesBlock =
+    !hasReferencesInContext && citations && citations.length > 0 ? buildReferencesBlock(citations) : '';
+
+  if (referencesBlock || hasNumberedSources || hasReferencesInContext) {
     instructions.push('Cite the numbered sources for every factual statement.');
+    instructions.push('Only use a citation number [n] if the corresponding source [n] appears in the References section.');
   } else {
     instructions.push('If no numbered sources are available, clearly state the limitations before answering.');
   }
+
   let userPrompt = `Question: ${question}\n\nInstructions:\n- ${instructions.join('\n- ')}\n`;
   if (revisionNotes && revisionNotes.length > 0) {
     userPrompt += `\nRevision guidance (address these issues):\n${revisionNotes.map((note, i) => `${i + 1}. ${note}`).join('\n')}`;
   }
-  userPrompt += `\n\nContext:\n${activeContext}`;
+
+  // Append context with numbered references at the end for clarity
+  const contextSections = [activeContext];
+  if (referencesBlock) {
+    contextSections.push(referencesBlock);
+  }
+  userPrompt += `\n\nContext:\n${contextSections.join('\n\n')}`;
 
   if (mode === 'stream') {
     const extractStreamText = (payload: unknown): string => {
@@ -587,8 +698,8 @@ async function generateAnswer(
             citationBuffer += content;
             // Validate citations during streaming
             if (!validateBufferedCitations()) {
-              completed = true;
               answer = 'I do not know. (Citation validation failed during streaming)';
+              await abortAndFinish();
               return;
             }
             emit?.('token', { content });
@@ -699,50 +810,90 @@ async function generateAnswer(
       }
     };
 
+    // Track cancellation state for resource cleanup
+    let cancelled = false;
+
+    const abortAndFinish = async () => {
+      try {
+        await reader.cancel?.();
+      } catch {
+        // Ignore cancellation errors
+      }
+      completed = true;
+      cancelled = true;
+    };
+
+    // SSE frame accumulator for multi-line data: events
+    let sseFrame: string[] = [];
+
+    const processSSEFrame = (frame: string[]) => {
+      const payload = frame.map((l) => l.slice(5).trim()).join('\n');
+      if (!payload || payload === '[DONE]') return;
+
+      try {
+        const delta = JSON.parse(payload);
+        handleLine(`data: ${JSON.stringify(delta)}`);
+      } catch (_e) {
+        // Silently ignore malformed JSON in production
+      }
+    };
+
     // Log first few non-reasoning payloads for debugging
     let debugLogCount = 0;
     const MAX_DEBUG_LOGS = 5;
-    const originalHandleLine = handleLine;
-    const debugHandleLine = (rawLine: string) => {
-      const line = rawLine.trim();
-      if (line.startsWith('data:') && debugLogCount < MAX_DEBUG_LOGS) {
-        const payload = line.slice(5).trim();
-        if (payload && payload !== '[DONE]') {
-          try {
-            const delta = JSON.parse(payload);
-            const type = typeof delta.type === 'string' ? delta.type : undefined;
-            if (type && !type.includes('reasoning')) {
-              console.log('[Debug Payload Sample]', JSON.stringify(delta).slice(0, 500));
-              debugLogCount++;
-            }
-          } catch {
-            // Ignore JSON parse errors for debug logging
-          }
-        }
-      }
-      originalHandleLine(rawLine);
-    };
 
     const processBuffer = (flush = false) => {
-      while (buffer) {
-        const newlineIndex = buffer.indexOf('\n');
-        if (newlineIndex === -1) {
-          if (!flush) {
-            break;
-          }
-          const remaining = buffer.trim();
-          buffer = '';
-          if (remaining) {
-            debugHandleLine(remaining);
+      while (true) {
+        const nl = buffer.indexOf('\n');
+        if (nl === -1) {
+          if (flush && sseFrame.length) {
+            processSSEFrame(sseFrame);
+            sseFrame = [];
           }
           break;
         }
 
-        const rawLine = buffer.slice(0, newlineIndex).replace(/\r$/, '');
-        buffer = buffer.slice(newlineIndex + 1);
-        debugHandleLine(rawLine);
+        const line = buffer.slice(0, nl).replace(/\r$/, '');
+        buffer = buffer.slice(nl + 1);
 
-        if (completed) {
+        // Blank line ends an SSE frame
+        if (!line) {
+          if (sseFrame.length) {
+            processSSEFrame(sseFrame);
+            sseFrame = [];
+          }
+          continue;
+        }
+
+        // Ignore comments/heartbeats
+        if (line.startsWith(':')) continue;
+        // Ignore event: lines (not used in current implementation)
+        if (line.startsWith('event:')) continue;
+
+        // Accumulate data: lines into frame
+        if (line.startsWith('data:')) {
+          // Debug logging for first few events
+          if (debugLogCount < MAX_DEBUG_LOGS) {
+            const payload = line.slice(5).trim();
+            if (payload && payload !== '[DONE]') {
+              try {
+                const delta = JSON.parse(payload);
+                const type = typeof delta.type === 'string' ? delta.type : undefined;
+                if (type && !type.includes('reasoning')) {
+                  console.log('[Debug Payload Sample]', JSON.stringify(delta).slice(0, 500));
+                  debugLogCount++;
+                }
+              } catch {
+                // Ignore JSON parse errors for debug logging
+              }
+            }
+          }
+
+          sseFrame.push(line);
+          continue;
+        }
+
+        if (completed || cancelled) {
           buffer = '';
           break;
         }
@@ -750,9 +901,9 @@ async function generateAnswer(
     };
 
     let chunkCount = 0;
-    while (!completed) {
+    while (!completed && !cancelled) {
       const { value, done } = await reader.read();
-      if (done) {
+      if (done || cancelled) {
         console.log(`[Streaming] Completed after ${chunkCount} chunks`, {
           totalChunks: chunkCount,
           successfulChunks,
@@ -1218,7 +1369,13 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
         span?.setAttribute('retrieval.escalated', result.escalated);
         return result;
       });
-  const combinedCitations = mergeCitations(dispatch.references, dispatch.webResults);
+  // P0 Fix: Respect dispatch.citationMetadata to maintain numbering consistency
+  // The model sees numbered citations [1], [2]... from dispatchTools enumeration
+  // We must use the same ordering here for validation to work
+  const combinedCitations = dispatch.citationMetadata
+    ? citationsFromEnumeration(dispatch.citationMetadata, dispatch.references, dispatch.webResults)
+    : mergeCitations(dispatch.references, dispatch.webResults);
+
   emit?.('tool', {
     references: dispatch.references.length,
     webResults: dispatch.webResults.length
@@ -1327,8 +1484,9 @@ export async function runSession(options: RunSessionOptions): Promise<ChatRespon
   if (dispatch.contextSectionLabels && dispatch.contextSectionLabels.length) {
     retrievalDiagnostics.contextSectionLabels = dispatch.contextSectionLabels;
   }
-  retrievalDiagnostics.knowledgeAgentSummaryProvided =
-    retrievalDiagnostics.knowledgeAgentSummaryProvided ||
+  // Type assertion for knowledgeAgentSummaryProvided field (not yet in RetrievalDiagnostics interface)
+  (retrievalDiagnostics as any).knowledgeAgentSummaryProvided =
+    (retrievalDiagnostics as any).knowledgeAgentSummaryProvided ||
     Boolean(dispatch.knowledgeAgentAnswer && dispatch.knowledgeAgentAnswer.trim().length > 0);
 
   const normalize = (value?: string) => (typeof value === 'string' ? value.trim() : '');
