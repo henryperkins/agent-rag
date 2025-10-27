@@ -27,7 +27,9 @@ describe('runSession orchestrator', () => {
     minimum: config.RETRIEVAL_MIN_RERANKER_THRESHOLD
   };
   const originalFlags = {
-    enableCrag: config.ENABLE_CRAG
+    enableCrag: config.ENABLE_CRAG,
+    enableQueryDecomposition: config.ENABLE_QUERY_DECOMPOSITION,
+    enableWebQualityFilter: config.ENABLE_WEB_QUALITY_FILTER
   };
 
   beforeEach(() => {
@@ -36,6 +38,8 @@ describe('runSession orchestrator', () => {
     config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = 0;
     config.RETRIEVAL_MIN_RERANKER_THRESHOLD = 0;
     config.ENABLE_CRAG = false;
+    // Disable query decomposition to test pure confidence escalation behavior
+    config.ENABLE_QUERY_DECOMPOSITION = false;
     // Disable web quality filter to avoid filtering out mocked results
     config.ENABLE_WEB_QUALITY_FILTER = false;
   });
@@ -46,6 +50,8 @@ describe('runSession orchestrator', () => {
     config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = originalThresholds.fallback;
     config.RETRIEVAL_MIN_RERANKER_THRESHOLD = originalThresholds.minimum;
     config.ENABLE_CRAG = originalFlags.enableCrag;
+    config.ENABLE_QUERY_DECOMPOSITION = originalFlags.enableQueryDecomposition;
+    config.ENABLE_WEB_QUALITY_FILTER = originalFlags.enableWebQualityFilter;
   });
 
   it('returns citations and respects planner vector search path at high confidence', { timeout: 30000 }, async () => {
@@ -103,9 +109,6 @@ describe('runSession orchestrator', () => {
   });
 
   it('escalates to dual retrieval when planner confidence is low', { timeout: 60000 }, async () => {
-    // Disable query decomposition to test pure confidence escalation behavior
-    vi.stubEnv('ENABLE_QUERY_DECOMPOSITION', 'false');
-
     vi.spyOn(planModule, 'getPlan').mockResolvedValue({
       confidence: 0.2,
       steps: []
