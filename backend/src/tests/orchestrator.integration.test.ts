@@ -75,7 +75,17 @@ beforeEach(() => {
   (openaiClient.createResponseStream as unknown as Mock).mockReset();
   (openaiClient.createEmbeddings as unknown as Mock).mockReset();
   (openaiClient.createResponse as unknown as Mock).mockResolvedValue({ id: 'mock-response', output_text: '{}' });
+  // Mock createEmbeddings to return proper structure with data array
+  (openaiClient.createEmbeddings as unknown as Mock).mockImplementation(async (texts: string[]) => ({
+    data: texts.map(() => ({ embedding: new Array(3072).fill(0.1) }))
+  }));
   config.RETRIEVAL_STRATEGY = ORIGINAL_RETRIEVAL_STRATEGY;
+  // Disable CRAG in tests to avoid schema validation errors with mocked responses
+  config.ENABLE_CRAG = false;
+  // Disable web reranking in tests to ensure web citations are properly merged
+  config.ENABLE_WEB_RERANKING = false;
+  // Disable web quality filter in tests to avoid filtering out mocked results
+  config.ENABLE_WEB_QUALITY_FILTER = false;
   clearSessionTelemetry();
   sessionStore.clearAll();
 });

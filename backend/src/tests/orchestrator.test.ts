@@ -36,6 +36,8 @@ describe('runSession orchestrator', () => {
     config.RETRIEVAL_FALLBACK_RERANKER_THRESHOLD = 0;
     config.RETRIEVAL_MIN_RERANKER_THRESHOLD = 0;
     config.ENABLE_CRAG = false;
+    // Disable web quality filter to avoid filtering out mocked results
+    config.ENABLE_WEB_QUALITY_FILTER = false;
   });
 
   afterEach(() => {
@@ -174,6 +176,9 @@ describe('runSession orchestrator', () => {
     // Token count is recalculated by buildWebContext, not from mock
     expect(result.metadata?.web_context?.tokens).toBeGreaterThan(0);
     expect(result.metadata?.plan?.confidence).toBeCloseTo(0.2);
+    // Debug: log activities to diagnose missing confidence_escalation
+    console.log('Activity types:', result.activity.map(s => s.type));
+    console.log('Event stages:', events.filter(e => e.event === 'status').map(e => (e.data as any)?.stage));
     expect(result.activity.some((step) => step.type === 'confidence_escalation')).toBe(true);
     expect(events.some((entry) => entry.event === 'status' && (entry.data as any)?.stage === 'confidence_escalation')).toBe(true);
   });
