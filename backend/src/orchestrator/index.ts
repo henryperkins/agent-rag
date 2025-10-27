@@ -699,7 +699,7 @@ async function generateAnswer(
             // Validate citations during streaming
             if (!validateBufferedCitations()) {
               answer = 'I do not know. (Citation validation failed during streaming)';
-              await abortAndFinish();
+              abortAndFinish();
               return;
             }
             emit?.('token', { content });
@@ -813,14 +813,13 @@ async function generateAnswer(
     // Track cancellation state for resource cleanup
     let cancelled = false;
 
-    const abortAndFinish = async () => {
-      try {
-        await reader.cancel?.();
-      } catch {
-        // Ignore cancellation errors
-      }
+    const abortAndFinish = () => {
       completed = true;
       cancelled = true;
+      // Cancel reader in background
+      reader.cancel?.().catch(() => {
+        // Ignore cancellation errors
+      });
     };
 
     // SSE frame accumulator for multi-line data: events
